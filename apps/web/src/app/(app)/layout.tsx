@@ -1,5 +1,5 @@
-import { AppShell } from "@/components/AppShell";
+import { LeftPane } from "@/components/LeftPane";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
-  return <AppShell>{children}</AppShell>;
+  return <LeftPane>{children}</LeftPane>;
 }

@@ -12,7 +12,7 @@ const NAV_ITEMS = [
   { href: "/connections", label: "Connections", icon: LinkIcon },
 ];
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export function LeftPane({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { toast } = useMockBackend();
 
