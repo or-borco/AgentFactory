@@ -14,8 +14,8 @@ export default function AgentsPage() {
   const [showNew, setShowNew] = useState(false);
   const router = useRouter();
 
-  const handleCreate = (values: AgentFormValues) => {
-    const agent = createAgent(values);
+  const handleCreate = async (values: AgentFormValues) => {
+    const agent = await createAgent(values);
     setShowNew(false);
     router.push(`/agents/${agent.id}`);
   };

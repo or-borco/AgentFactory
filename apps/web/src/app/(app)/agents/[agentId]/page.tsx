@@ -58,8 +58,8 @@ export default function AgentDetailPage() {
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold text-slate-900">{t("agents.sessions")}</h2>
           <Button
-            onClick={() => {
-              const session = createSession(agent.id, t("agents.newSessionDefaultTitle"));
+            onClick={async () => {
+              const session = await createSession(agent.id, t("agents.newSessionDefaultTitle"));
               router.push(`/sessions/${session.id}`);
             }}
           >
@@ -96,8 +96,8 @@ export default function AgentDetailPage() {
             mode: agent.mode,
           }}
           onClose={() => setShowEdit(false)}
-          onSubmit={(values: AgentFormValues) => {
-            updateAgent(agent.id, values);
+          onSubmit={async (values: AgentFormValues) => {
+            await updateAgent(agent.id, values);
             setShowEdit(false);
           }}
         />

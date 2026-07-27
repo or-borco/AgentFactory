@@ -64,8 +64,8 @@ export default function TeamsPage() {
           title={t("teamForm.newTitle")}
           submitLabel={t("teamForm.createSubmit")}
           onClose={() => setShowNew(false)}
-          onSubmit={({ name, description }) => {
-            const team = createTeam(name, description);
+          onSubmit={async ({ name, description }) => {
+            const team = await createTeam(name, description);
             setShowNew(false);
             router.push(`/teams/${team.id}`);
           }}

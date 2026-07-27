@@ -1,51 +1,23 @@
 "use client";
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import type { Agent, Connection, Session, Skill, Team, ToolPolicy } from "@agentfactory/core";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import type { Agent, ChatMessage, Connection, Session, Skill, Team } from "@agentfactory/core";
+import { apiFetch } from "@/lib/api-client";
+import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
-import {
-  ORG_ID,
-  seedAgents,
-  seedConnections,
-  seedMessages,
-  seedSessions,
-  seedSkills,
-  seedTeams,
-} from "./seed";
-import type { ChatMessage } from "./types";
+
+type DisplayMessage = ChatMessage & { streaming?: boolean };
 
 interface MockState {
   teams: Team[];
   agents: Agent[];
   sessions: Session[];
-  messages: ChatMessage[];
+  messages: DisplayMessage[];
   skills: Skill[];
   connections: Connection[];
 }
 
-const STORAGE_KEY = "agentfactory:mock-state:v1";
-
-function initialState(): MockState {
-  return {
-    teams: seedTeams,
-    agents: seedAgents,
-    sessions: seedSessions,
-    messages: seedMessages,
-    skills: seedSkills,
-    connections: seedConnections,
-  };
-}
-
-function newId(prefix: string) {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
-}
+const EMPTY_STATE: MockState = { teams: [], agents: [], sessions: [], messages: [], skills: [], connections: [] };
 
 interface NewAgentInput {
   name: string;
@@ -63,70 +35,54 @@ interface MockBackendValue extends MockState {
   getSession: (id: string) => Session | undefined;
   sessionsForAgent: (agentId: string) => Session[];
   agentsForTeam: (teamId: string) => Agent[];
-  messagesForSession: (sessionId: string) => ChatMessage[];
-  createTeam: (name: string, description: string) => Team;
-  updateTeam: (teamId: string, patch: { name: string; description: string }) => void;
-  updateTeamSharedContext: (teamId: string, sharedContext: string) => void;
-  assignAgentToTeam: (agentId: string, teamId: string) => void;
-  createAgent: (input: NewAgentInput) => Agent;
+  messagesForSession: (sessionId: string) => DisplayMessage[];
+  loadMessages: (sessionId: string) => Promise<void>;
+  createTeam: (name: string, description: string) => Promise<Team>;
+  updateTeam: (teamId: string, patch: { name: string; description: string }) => Promise<void>;
+  updateTeamSharedContext: (teamId: string, sharedContext: string) => Promise<void>;
+  assignAgentToTeam: (agentId: string, teamId: string) => Promise<void>;
+  createAgent: (input: NewAgentInput) => Promise<Agent>;
   updateAgent: (
     agentId: string,
     patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode">>,
-  ) => void;
-  createSession: (agentId: string, title?: string) => Session;
-  sendMessage: (sessionId: string, text: string) => void;
+  ) => Promise<void>;
+  createSession: (agentId: string, title: string) => Promise<Session>;
+  sendMessage: (sessionId: string, text: string) => Promise<void>;
 }
 
 const MockBackendContext = createContext<MockBackendValue | null>(null);
 
-const SHARED_CONTEXT_MAX_BYTES = 64 * 1024;
-
-const DEFAULT_TOOL_POLICY: ToolPolicy = { defaultDecision: "deny", rules: [] };
-
-function draftReplyFor(agent: Agent | undefined, userText: string): string {
-  if (agent?.id === "agent_code_reviewer") {
-    return (
-      "Looking at this now. Based on the diff: the changed files pass lint, but I'd flag the new error path in " +
-      "the handler — it swallows the original exception instead of wrapping it, which will make this hard to " +
-      "debug in production. I'll leave an inline comment on that line and a couple of minor naming suggestions. " +
-      "Nothing here blocks merging once that's addressed."
-    );
-  }
-  return (
-    `Got it — "${userText.slice(0, 80)}${userText.length > 80 ? "…" : ""}" ` +
-    "This is a simulated reply from the mocked backend; wire this session up to a real AgentRuntime to get " +
-    "actual model output here."
-  );
-}
-
 export function MockBackendProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<MockState>(initialState);
+  const { t } = useTranslation();
+  const [state, setState] = useState<MockState>(EMPTY_STATE);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<TranslationKey | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hydrated = useRef(false);
 
   useEffect(() => {
-    if (hydrated.current) return;
-    hydrated.current = true;
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      // One-time import from an external store on mount, not a reaction to React state — the
-      // seed-equal server render already committed, so this can't cascade.
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      if (raw) setState(JSON.parse(raw) as MockState);
-    } catch {
-      // corrupt or inaccessible storage — keep seed state
-    }
+    let cancelled = false;
+    Promise.all([
+      apiFetch<Team[]>("/api/teams"),
+      apiFetch<Agent[]>("/api/agents"),
+      apiFetch<Session[]>("/api/sessions"),
+      apiFetch<Skill[]>("/api/skills"),
+      apiFetch<Connection[]>("/api/connections"),
+    ])
+      .then(([teams, agents, sessions, skills, connections]) => {
+        if (cancelled) return;
+        setState({ teams, agents, sessions, messages: [], skills, connections });
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
-
-  useEffect(() => {
-    if (!hydrated.current) return;
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    } catch {
-      // storage full or unavailable — state stays in-memory for this tab
-    }
-  }, [state]);
 
   const showToast = useCallback((key: TranslationKey) => {
     setToast(key);
@@ -153,16 +109,14 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     [state.messages],
   );
 
+  const loadMessages = useCallback(async (sessionId: string) => {
+    const messages = await apiFetch<ChatMessage[]>(`/api/sessions/${sessionId}/messages`);
+    setState((s) => ({ ...s, messages: [...s.messages.filter((m) => m.sessionId !== sessionId), ...messages] }));
+  }, []);
+
   const createTeam = useCallback(
-    (name: string, description: string) => {
-      const team: Team = {
-        id: newId("team"),
-        orgId: ORG_ID,
-        name,
-        description: description || undefined,
-        sharedContext: "",
-        createdAt: new Date().toISOString(),
-      };
+    async (name: string, description: string) => {
+      const team = await apiFetch<Team>("/api/teams", { method: "POST", body: JSON.stringify({ name, description }) });
       setState((s) => ({ ...s, teams: [...s.teams, team] }));
       showToast("toast.teamCreated");
       return team;
@@ -171,60 +125,31 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   );
 
   const updateTeam = useCallback(
-    (teamId: string, patch: { name: string; description: string }) => {
-      setState((s) => ({
-        ...s,
-        teams: s.teams.map((t) =>
-          t.id === teamId ? { ...t, name: patch.name, description: patch.description || undefined } : t,
-        ),
-      }));
+    async (teamId: string, patch: { name: string; description: string }) => {
+      const team = await apiFetch<Team>(`/api/teams/${teamId}`, { method: "PATCH", body: JSON.stringify(patch) });
+      setState((s) => ({ ...s, teams: s.teams.map((t) => (t.id === teamId ? team : t)) }));
       showToast("toast.teamUpdated");
     },
     [showToast],
   );
 
   const updateTeamSharedContext = useCallback(
-    (teamId: string, sharedContext: string) => {
-      const capped =
-        new TextEncoder().encode(sharedContext).length > SHARED_CONTEXT_MAX_BYTES
-          ? sharedContext.slice(0, SHARED_CONTEXT_MAX_BYTES)
-          : sharedContext;
-      setState((s) => ({
-        ...s,
-        teams: s.teams.map((t) => (t.id === teamId ? { ...t, sharedContext: capped } : t)),
-      }));
+    async (teamId: string, sharedContext: string) => {
+      const team = await apiFetch<Team>(`/api/teams/${teamId}`, { method: "PATCH", body: JSON.stringify({ sharedContext }) });
+      setState((s) => ({ ...s, teams: s.teams.map((t) => (t.id === teamId ? team : t)) }));
       showToast("toast.sharedContextSaved");
     },
     [showToast],
   );
 
-  const assignAgentToTeam = useCallback((agentId: string, teamId: string) => {
-    setState((s) => ({
-      ...s,
-      agents: s.agents.map((a) => (a.id === agentId ? { ...a, teamId } : a)),
-    }));
+  const assignAgentToTeam = useCallback(async (agentId: string, teamId: string) => {
+    const agent = await apiFetch<Agent>(`/api/agents/${agentId}`, { method: "PATCH", body: JSON.stringify({ teamId }) });
+    setState((s) => ({ ...s, agents: s.agents.map((a) => (a.id === agentId ? agent : a)) }));
   }, []);
 
   const createAgent = useCallback(
-    (input: NewAgentInput) => {
-      const now = new Date().toISOString();
-      const agent: Agent = {
-        id: newId("agent"),
-        orgId: ORG_ID,
-        teamId: input.teamId,
-        name: input.name,
-        description: input.description || undefined,
-        avatarEmoji: "🤖",
-        systemPrompt: input.systemPrompt,
-        model: { family: "anthropic", id: "claude-sonnet-5", maxTokens: 8192 },
-        mode: input.mode,
-        runtimeKind: "claude-code",
-        toolPolicy: DEFAULT_TOOL_POLICY,
-        skillIds: [],
-        connectionIds: [],
-        createdAt: now,
-        updatedAt: now,
-      };
+    async (input: NewAgentInput) => {
+      const agent = await apiFetch<Agent>("/api/agents", { method: "POST", body: JSON.stringify(input) });
       setState((s) => ({ ...s, agents: [...s.agents, agent] }));
       showToast("toast.agentCreated");
       return agent;
@@ -233,80 +158,54 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   );
 
   const updateAgent = useCallback(
-    (agentId: string, patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode">>) => {
-      setState((s) => ({
-        ...s,
-        agents: s.agents.map((a) =>
-          a.id === agentId ? { ...a, ...patch, updatedAt: new Date().toISOString() } : a,
-        ),
-      }));
+    async (agentId: string, patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode">>) => {
+      const agent = await apiFetch<Agent>(`/api/agents/${agentId}`, { method: "PATCH", body: JSON.stringify(patch) });
+      setState((s) => ({ ...s, agents: s.agents.map((a) => (a.id === agentId ? agent : a)) }));
       showToast("toast.agentUpdated");
     },
     [showToast],
   );
 
-  const createSession = useCallback((agentId: string, title = "New conversation") => {
-    const now = new Date().toISOString();
-    const session: Session = {
-      id: newId("session"),
-      agentId,
-      title,
-      origin: "web",
-      createdAt: now,
-      lastActivityAt: now,
-    };
+  const createSession = useCallback(async (agentId: string, title: string) => {
+    const session = await apiFetch<Session>("/api/sessions", { method: "POST", body: JSON.stringify({ agentId, title }) });
     setState((s) => ({ ...s, sessions: [...s.sessions, session] }));
     return session;
   }, []);
 
-  const sendMessage = useCallback(
-    (sessionId: string, text: string) => {
-      const now = new Date().toISOString();
-      const userMsg: ChatMessage = {
-        id: newId("msg"),
-        sessionId,
-        role: "user",
-        content: text,
-        createdAt: now,
-      };
+  const sendMessage = useCallback(async (sessionId: string, text: string) => {
+    const { userMessage, assistantMessage, session } = await apiFetch<{
+      userMessage: ChatMessage;
+      assistantMessage: ChatMessage;
+      session?: Session;
+    }>(`/api/sessions/${sessionId}/messages`, { method: "POST", body: JSON.stringify({ text }) });
+
+    setState((s) => ({
+      ...s,
+      sessions: session ? s.sessions.map((sess) => (sess.id === sessionId ? session : sess)) : s.sessions,
+      messages: [...s.messages, userMessage, { ...assistantMessage, content: "", streaming: true }],
+    }));
+
+    const words = assistantMessage.content.split(" ");
+    let i = 0;
+    const interval = setInterval(() => {
+      i += 1;
+      const partial = words.slice(0, i).join(" ");
+      const done = i >= words.length;
       setState((s) => ({
         ...s,
-        sessions: s.sessions.map((sess) =>
-          sess.id === sessionId ? { ...sess, lastActivityAt: now } : sess,
-        ),
-        messages: [...s.messages, userMsg],
+        messages: s.messages.map((m) => (m.id === assistantMessage.id ? { ...m, content: partial, streaming: !done } : m)),
       }));
+      if (done) clearInterval(interval);
+    }, 45);
+  }, []);
 
-      const session = state.sessions.find((s) => s.id === sessionId);
-      const agent = session ? state.agents.find((a) => a.id === session.agentId) : undefined;
-      const fullReply = draftReplyFor(agent, text);
-      const words = fullReply.split(" ");
-      const assistantId = newId("msg");
-
-      setState((s) => ({
-        ...s,
-        messages: [
-          ...s.messages,
-          { id: assistantId, sessionId, role: "assistant", content: "", streaming: true, createdAt: new Date().toISOString() },
-        ],
-      }));
-
-      let i = 0;
-      const interval = setInterval(() => {
-        i += 1;
-        const partial = words.slice(0, i).join(" ");
-        const done = i >= words.length;
-        setState((s) => ({
-          ...s,
-          messages: s.messages.map((m) =>
-            m.id === assistantId ? { ...m, content: partial, streaming: !done } : m,
-          ),
-        }));
-        if (done) clearInterval(interval);
-      }, 45);
-    },
-    [state.sessions, state.agents],
-  );
+  if (isLoading || loadError) {
+    return (
+      <div className="flex min-h-screen items-center justify-center text-sm text-slate-500">
+        {loadError ? t("common.loadError") : t("common.loading")}
+      </div>
+    );
+  }
 
   const value: MockBackendValue = {
     ...state,
@@ -318,6 +217,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     sessionsForAgent,
     agentsForTeam,
     messagesForSession,
+    loadMessages,
     createTeam,
     updateTeam,
     updateTeamSharedContext,
@@ -336,5 +236,3 @@ export function useMockBackend() {
   if (!ctx) throw new Error("useMockBackend must be used within MockBackendProvider");
   return ctx;
 }
-
-export const SHARED_CONTEXT_MAX_BYTES_EXPORT = SHARED_CONTEXT_MAX_BYTES;

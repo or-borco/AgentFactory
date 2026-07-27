@@ -189,3 +189,11 @@ export interface PolicyDecision {
   ruleMatched: string;
   createdAt: ISODateTime;
 }
+
+export interface ChatMessage {
+  id: ID;
+  sessionId: ID;
+  role: "user" | "assistant";
+  content: string;
+  createdAt: ISODateTime;
+}

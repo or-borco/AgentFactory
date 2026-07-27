@@ -1,11 +1,11 @@
 import type {
   Agent,
+  ChatMessage,
   Connection,
   Session,
   Skill,
   Team,
 } from "@agentfactory/core";
-import type { ChatMessage } from "./types";
 
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
 

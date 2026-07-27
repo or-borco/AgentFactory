@@ -64,7 +64,7 @@ function TeamDetailBody({ team }: { team: Team }) {
           <Button
             variant={dirty ? "primary" : "secondary"}
             disabled={!dirty}
-            onClick={() => updateTeamSharedContext(team.id, draft)}
+            onClick={() => void updateTeamSharedContext(team.id, draft)}
           >
             {t("common.save")}
           </Button>
@@ -118,7 +118,7 @@ function TeamDetailBody({ team }: { team: Team }) {
               variant="secondary"
               disabled={!assignId}
               onClick={() => {
-                assignAgentToTeam(assignId, team.id);
+                void assignAgentToTeam(assignId, team.id);
                 setAssignId("");
               }}
             >
@@ -134,8 +134,8 @@ function TeamDetailBody({ team }: { team: Team }) {
           submitLabel={t("teamForm.saveSubmit")}
           initial={{ name: team.name, description: team.description ?? "" }}
           onClose={() => setShowEdit(false)}
-          onSubmit={(values) => {
-            updateTeam(team.id, values);
+          onSubmit={async (values) => {
+            await updateTeam(team.id, values);
             setShowEdit(false);
           }}
         />

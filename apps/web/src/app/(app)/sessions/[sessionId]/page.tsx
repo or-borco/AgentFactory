@@ -9,7 +9,7 @@ import { useMockBackend } from "@/lib/mock/context";
 export default function SessionPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const router = useRouter();
-  const { getSession, getAgent, messagesForSession, sendMessage } = useMockBackend();
+  const { getSession, getAgent, messagesForSession, loadMessages, sendMessage } = useMockBackend();
   const { t } = useTranslation();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -22,6 +22,10 @@ export default function SessionPage() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
+  useEffect(() => {
+    void loadMessages(sessionId);
+  }, [sessionId, loadMessages]);
+
   if (!session || !agent) {
     return <div className="px-10 py-10 text-sm text-slate-500">{t("common.loading")}</div>;
   }
@@ -29,7 +33,7 @@ export default function SessionPage() {
   const submit = () => {
     const text = input.trim();
     if (!text) return;
-    sendMessage(session.id, text);
+    void sendMessage(session.id, text);
     setInput("");
   };
 
