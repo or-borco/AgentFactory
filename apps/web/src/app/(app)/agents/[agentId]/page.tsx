@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { AgentFormModal, type AgentFormValues } from "@/components/AgentFormModal";
-import { Badge, Breadcrumb, Button, Card } from "@/components/ui";
+import { Badge, Breadcrumb, Button, Card, CardLink } from "@/components/ui";
 import { ChatIcon, PlusIcon, SettingsIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import { relativeTime } from "@/lib/relative-time";
@@ -72,15 +71,13 @@ export default function AgentDetailPage() {
         ) : (
           <div className="space-y-2">
             {sessions.map((session) => (
-              <Link key={session.id} href={`/sessions/${session.id}`}>
-                <Card className="flex items-center justify-between px-4 py-3.5 transition-shadow hover:shadow-md">
-                  <div className="flex items-center gap-3">
-                    <ChatIcon className="h-4 w-4 text-slate-400" />
-                    <span className="text-sm font-medium text-slate-900">{session.title}</span>
-                  </div>
-                  <span className="text-xs text-slate-400">{relativeTime(session.lastActivityAt)}</span>
-                </Card>
-              </Link>
+              <CardLink key={session.id} href={`/sessions/${session.id}`} className="flex items-center justify-between px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <ChatIcon className="h-4 w-4 text-slate-400" />
+                  <span className="text-sm font-medium text-slate-900">{session.title}</span>
+                </div>
+                <span className="text-xs text-slate-400">{relativeTime(session.lastActivityAt)}</span>
+              </CardLink>
             ))}
           </div>
         )}

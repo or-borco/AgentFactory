@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { TeamFormModal } from "@/components/TeamFormModal";
-import { Button, Card, EmptyState, PageHeader } from "@/components/ui";
+import { Button, CardLink, EmptyState, PageHeader } from "@/components/ui";
 import { PlusIcon, UsersIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 
@@ -41,18 +40,16 @@ export default function TeamsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4 px-10 pt-8 sm:grid-cols-2 lg:grid-cols-3">
           {teams.map((team) => (
-            <Link key={team.id} href={`/teams/${team.id}`}>
-              <Card className="p-5 transition-shadow hover:shadow-md">
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white">
-                  <UsersIcon className="h-5 w-5" />
-                </div>
-                <h3 className="font-semibold text-slate-900">{team.name}</h3>
-                <p className="mt-1 text-sm text-slate-500">{team.description || "No description"}</p>
-                <p className="mt-3 text-xs text-slate-400">
-                  {agentsForTeam(team.id).length} agent{agentsForTeam(team.id).length === 1 ? "" : "s"} assigned
-                </p>
-              </Card>
-            </Link>
+            <CardLink key={team.id} href={`/teams/${team.id}`} className="p-5">
+              <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white">
+                <UsersIcon className="h-5 w-5" />
+              </div>
+              <h3 className="font-semibold text-slate-900">{team.name}</h3>
+              <p className="mt-1 text-sm text-slate-500">{team.description || "No description"}</p>
+              <p className="mt-3 text-xs text-slate-400">
+                {agentsForTeam(team.id).length} agent{agentsForTeam(team.id).length === 1 ? "" : "s"} assigned
+              </p>
+            </CardLink>
           ))}
         </div>
       )}

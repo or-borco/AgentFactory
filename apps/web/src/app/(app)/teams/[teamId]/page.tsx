@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { TeamFormModal } from "@/components/TeamFormModal";
-import { Badge, Breadcrumb, Button, Card, Textarea } from "@/components/ui";
+import { Badge, Breadcrumb, Button, Card, CardLink, Textarea } from "@/components/ui";
 import { SettingsIcon, UsersIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import type { Team } from "@agentfactory/core";
@@ -81,7 +80,7 @@ function TeamDetailBody({ team }: { team: Team }) {
         </p>
       </div>
 
-      <div className="px-10 pt-6">
+      <div className="px-10 pt-8">
         <h2 className="mb-3 text-base font-semibold text-slate-900">Assigned agents</h2>
 
         {assigned.length === 0 ? (
@@ -89,15 +88,13 @@ function TeamDetailBody({ team }: { team: Team }) {
         ) : (
           <div className="space-y-2">
             {assigned.map((agent) => (
-              <Link key={agent.id} href={`/agents/${agent.id}`}>
-                <Card className="flex items-center justify-between px-4 py-3.5 transition-shadow hover:shadow-md">
-                  <div className="flex items-center gap-3">
-                    <span className="text-lg">{agent.avatarEmoji}</span>
-                    <span className="text-sm font-medium text-slate-900">{agent.name}</span>
-                  </div>
-                  {agent.mode === "automatic" && <Badge>Automatic</Badge>}
-                </Card>
-              </Link>
+              <CardLink key={agent.id} href={`/agents/${agent.id}`} className="flex items-center justify-between px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <span className="text-lg">{agent.avatarEmoji}</span>
+                  <span className="text-sm font-medium text-slate-900">{agent.name}</span>
+                </div>
+                {agent.mode === "automatic" && <Badge>Automatic</Badge>}
+              </CardLink>
             ))}
           </div>
         )}
