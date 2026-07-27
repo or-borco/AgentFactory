@@ -1,0 +1,10 @@
+node_modules/
+.pnpm-store/
+dist/
+.next/
+out/
+*.tsbuildinfo
+.env
+.env.local
+.DS_Store
+.claude/settings.local.json
