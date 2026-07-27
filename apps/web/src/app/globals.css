@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Tailwind's automatic content scan only reaches this app's own source tree — it won't follow
+   the workspace symlink into a sibling package, so classes used only inside packages/shared
+   never get generated unless this package's source is registered explicitly. */
+@source "../../../../packages/shared/src";
+
 :root {
   --background: #ffffff;
   --foreground: #171717;

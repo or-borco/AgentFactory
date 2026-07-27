@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
-import { Button, TextInput } from "@/components/ui";
+import { Button, TextInput } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 
 export function TeamFormModal({

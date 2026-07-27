@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Modal } from "@/components/Modal";
-import { Button, Textarea, TextInput } from "@/components/ui";
+import { Button, Textarea, TextInput } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import type { AgentMode } from "@agentfactory/core";
 

@@ -3,9 +3,9 @@
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { TeamFormModal } from "@/components/TeamFormModal";
-import { Badge, Breadcrumb, Button, Card, CardLink, Textarea } from "@/components/ui";
+import { Badge, Breadcrumb, Button, Card, CardLink, Textarea } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
-import { SettingsIcon, UsersIcon } from "@/lib/icons";
+import { ArrowLeftIcon, SettingsIcon, UsersIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import type { Team } from "@agentfactory/core";
 
@@ -39,7 +39,7 @@ function TeamDetailBody({ team }: { team: Team }) {
   return (
     <div className="pb-16">
       <div className="px-10 pt-8">
-        <Breadcrumb href="/teams" label={t("teams.title")} />
+        <Breadcrumb href="/teams" label={t("teams.title")} icon={<ArrowLeftIcon className="h-4 w-4" />} />
       </div>
 
       <div className="flex items-start justify-between px-10 pt-4">

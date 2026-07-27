@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AuthCard, AuthDivider } from "@/components/AuthCard";
-import { Button, TextInput } from "@/components/ui";
+import { Button, TextInput } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { GoogleIcon, LockIcon, MailIcon } from "@/lib/icons";
 

@@ -3,9 +3,9 @@
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { AgentFormModal, type AgentFormValues } from "@/components/AgentFormModal";
-import { Badge, Breadcrumb, Button, Card, CardLink } from "@/components/ui";
+import { Badge, Breadcrumb, Button, Card, CardLink } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
-import { ChatIcon, PlusIcon, SettingsIcon } from "@/lib/icons";
+import { ArrowLeftIcon, ChatIcon, PlusIcon, SettingsIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import { relativeTime } from "@/lib/relative-time";
 
@@ -25,7 +25,7 @@ export default function AgentDetailPage() {
   return (
     <div className="pb-16">
       <div className="px-10 pt-8">
-        <Breadcrumb href="/agents" label={t("agents.title")} />
+        <Breadcrumb href="/agents" label={t("agents.title")} icon={<ArrowLeftIcon className="h-4 w-4" />} />
       </div>
 
       <div className="flex items-start justify-between px-10 pt-4">

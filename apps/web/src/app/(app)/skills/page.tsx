@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge, Button, Card, PageHeader } from "@/components/ui";
+import { Badge, Button, Card, PageHeader } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { PlusIcon, SparklesIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";

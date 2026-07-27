@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AgentFormModal, type AgentFormValues } from "@/components/AgentFormModal";
-import { Badge, Button, CardLink, PageHeader } from "@/components/ui";
+import { Badge, Button, CardLink, PageHeader } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { ArrowRightIcon, PlusIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
