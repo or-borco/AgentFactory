@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useState } from "react";
 import { TeamFormModal } from "@/components/TeamFormModal";
 import { Badge, Breadcrumb, Button, Card, CardLink, Textarea } from "@/components/ui";
+import { useTranslation } from "@/lib/i18n/context";
 import { SettingsIcon, UsersIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import type { Team } from "@agentfactory/core";
@@ -13,10 +14,11 @@ const SHARED_CONTEXT_MAX_BYTES = 64 * 1024;
 export default function TeamDetailPage() {
   const { teamId } = useParams<{ teamId: string }>();
   const { getTeam } = useMockBackend();
+  const { t } = useTranslation();
   const team = getTeam(teamId);
 
   if (!team) {
-    return <div className="px-10 py-10 text-sm text-slate-500">Loading…</div>;
+    return <div className="px-10 py-10 text-sm text-slate-500">{t("common.loading")}</div>;
   }
 
   return <TeamDetailBody key={team.id} team={team} />;
@@ -24,6 +26,7 @@ export default function TeamDetailPage() {
 
 function TeamDetailBody({ team }: { team: Team }) {
   const { agentsForTeam, agents, updateTeam, updateTeamSharedContext, assignAgentToTeam } = useMockBackend();
+  const { t } = useTranslation();
   const [draft, setDraft] = useState(team.sharedContext);
   const [showEdit, setShowEdit] = useState(false);
   const [assignId, setAssignId] = useState("");
@@ -36,7 +39,7 @@ function TeamDetailBody({ team }: { team: Team }) {
   return (
     <div className="pb-16">
       <div className="px-10 pt-8">
-        <Breadcrumb href="/teams" label="Teams" />
+        <Breadcrumb href="/teams" label={t("teams.title")} />
       </div>
 
       <div className="flex items-start justify-between px-10 pt-4">
@@ -46,45 +49,43 @@ function TeamDetailBody({ team }: { team: Team }) {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-900">{team.name}</h1>
-            <p className="mt-0.5 text-sm text-slate-500">{team.description || "No description"}</p>
+            <p className="mt-0.5 text-sm text-slate-500">{team.description || t("teams.noDescription")}</p>
           </div>
         </div>
         <Button variant="secondary" onClick={() => setShowEdit(true)}>
           <SettingsIcon className="h-4 w-4" />
-          Edit
+          {t("common.edit")}
         </Button>
       </div>
 
       <div className="px-10 pt-8">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-900">Shared context</h2>
+          <h2 className="text-base font-semibold text-slate-900">{t("teams.sharedContext")}</h2>
           <Button
             variant={dirty ? "primary" : "secondary"}
             disabled={!dirty}
             onClick={() => updateTeamSharedContext(team.id, draft)}
           >
-            Save
+            {t("common.save")}
           </Button>
         </div>
-        <p className="mb-3 text-sm text-slate-500">
-          Team-wide skills, knowledge, and instructions injected into every assigned agent&apos;s responses.
-        </p>
+        <p className="mb-3 text-sm text-slate-500">{t("teams.sharedContextDescription")}</p>
         <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={8}
-          placeholder="Describe the team's tech stack, conventions, coding standards, domain knowledge, and any shared skills the agents should know about..."
+          placeholder={t("teams.sharedContextPlaceholder")}
         />
         <p className={`mt-1.5 text-right text-xs ${bytes > SHARED_CONTEXT_MAX_BYTES ? "text-red-500" : "text-slate-400"}`}>
-          {(bytes / 1024).toFixed(1)} KB / 64 KB
+          {t("teams.kbOfKb", { used: (bytes / 1024).toFixed(1), max: SHARED_CONTEXT_MAX_BYTES / 1024 })}
         </p>
       </div>
 
       <div className="px-10 pt-8">
-        <h2 className="mb-3 text-base font-semibold text-slate-900">Assigned agents</h2>
+        <h2 className="mb-3 text-base font-semibold text-slate-900">{t("teams.assignedAgents")}</h2>
 
         {assigned.length === 0 ? (
-          <Card className="px-5 py-10 text-center text-sm text-slate-500">No agents assigned to this team yet.</Card>
+          <Card className="px-5 py-10 text-center text-sm text-slate-500">{t("teams.noAgentsAssigned")}</Card>
         ) : (
           <div className="space-y-2">
             {assigned.map((agent) => (
@@ -93,7 +94,7 @@ function TeamDetailBody({ team }: { team: Team }) {
                   <span className="text-lg">{agent.avatarEmoji}</span>
                   <span className="text-sm font-medium text-slate-900">{agent.name}</span>
                 </div>
-                {agent.mode === "automatic" && <Badge>Automatic</Badge>}
+                {agent.mode === "automatic" && <Badge>{t("common.automatic")}</Badge>}
               </CardLink>
             ))}
           </div>
@@ -106,7 +107,7 @@ function TeamDetailBody({ team }: { team: Team }) {
               onChange={(e) => setAssignId(e.target.value)}
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
             >
-              <option value="">Assign an agent…</option>
+              <option value="">{t("teams.assignAgentPlaceholder")}</option>
               {unassigned.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -121,7 +122,7 @@ function TeamDetailBody({ team }: { team: Team }) {
                 setAssignId("");
               }}
             >
-              Assign
+              {t("teams.assign")}
             </Button>
           </div>
         )}
@@ -129,8 +130,8 @@ function TeamDetailBody({ team }: { team: Team }) {
 
       {showEdit && (
         <TeamFormModal
-          title="Edit team"
-          submitLabel="Save changes"
+          title={t("teamForm.editTitle")}
+          submitLabel={t("teamForm.saveSubmit")}
           initial={{ name: team.name, description: team.description ?? "" }}
           onClose={() => setShowEdit(false)}
           onSubmit={(values) => {

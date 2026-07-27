@@ -4,11 +4,13 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AgentFormModal, type AgentFormValues } from "@/components/AgentFormModal";
 import { Badge, Button, CardLink, PageHeader } from "@/components/ui";
+import { useTranslation } from "@/lib/i18n/context";
 import { ArrowRightIcon, PlusIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 
 export default function AgentsPage() {
   const { agents, createAgent } = useMockBackend();
+  const { t } = useTranslation();
   const [showNew, setShowNew] = useState(false);
   const router = useRouter();
 
@@ -21,12 +23,12 @@ export default function AgentsPage() {
   return (
     <div className="pb-16">
       <PageHeader
-        title="Agents"
-        subtitle="Shared AI agents for your engineering team"
+        title={t("agents.title")}
+        subtitle={t("agents.subtitle")}
         action={
           <Button onClick={() => setShowNew(true)}>
             <PlusIcon className="h-4 w-4" />
-            New agent
+            {t("agents.newAgent")}
           </Button>
         }
       />
@@ -44,7 +46,7 @@ export default function AgentsPage() {
             <p className="mt-1 text-sm text-slate-500">{agent.description}</p>
             {agent.mode === "automatic" && (
               <div className="mt-3">
-                <Badge>Automatic</Badge>
+                <Badge>{t("common.automatic")}</Badge>
               </div>
             )}
           </CardLink>
@@ -53,8 +55,8 @@ export default function AgentsPage() {
 
       {showNew && (
         <AgentFormModal
-          title="New agent"
-          submitLabel="Create agent"
+          title={t("agentForm.newTitle")}
+          submitLabel={t("agentForm.createSubmit")}
           onClose={() => setShowNew(false)}
           onSubmit={handleCreate}
         />

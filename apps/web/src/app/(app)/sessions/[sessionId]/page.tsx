@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "@/lib/i18n/context";
 import { ArrowLeftIcon, BotIcon, SendIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 
@@ -9,6 +10,7 @@ export default function SessionPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const router = useRouter();
   const { getSession, getAgent, messagesForSession, sendMessage } = useMockBackend();
+  const { t } = useTranslation();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -21,7 +23,7 @@ export default function SessionPage() {
   }, [messages]);
 
   if (!session || !agent) {
-    return <div className="px-10 py-10 text-sm text-slate-500">Loading…</div>;
+    return <div className="px-10 py-10 text-sm text-slate-500">{t("common.loading")}</div>;
   }
 
   const submit = () => {
@@ -46,7 +48,9 @@ export default function SessionPage() {
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <span className="text-4xl">{agent.avatarEmoji}</span>
-            <p className="text-base font-semibold text-slate-900">Start a conversation with {agent.name}</p>
+            <p className="text-base font-semibold text-slate-900">
+              {t("session.startConversationWith", { name: agent.name })}
+            </p>
             <p className="text-sm text-slate-500">{agent.description}</p>
           </div>
         ) : (
@@ -83,7 +87,7 @@ export default function SessionPage() {
               }
             }}
             rows={1}
-            placeholder="Send a message... (Enter to send, Shift+Enter for new line)"
+            placeholder={t("session.messagePlaceholder")}
             className="max-h-40 flex-1 resize-none rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
           />
           <button
@@ -92,7 +96,7 @@ export default function SessionPage() {
             className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:bg-indigo-200"
           >
             <SendIcon className="h-4 w-4" />
-            Send
+            {t("session.send")}
           </button>
         </div>
       </div>

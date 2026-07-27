@@ -4,6 +4,7 @@ import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { AgentFormModal, type AgentFormValues } from "@/components/AgentFormModal";
 import { Badge, Breadcrumb, Button, Card, CardLink } from "@/components/ui";
+import { useTranslation } from "@/lib/i18n/context";
 import { ChatIcon, PlusIcon, SettingsIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import { relativeTime } from "@/lib/relative-time";
@@ -11,19 +12,20 @@ import { relativeTime } from "@/lib/relative-time";
 export default function AgentDetailPage() {
   const { agentId } = useParams<{ agentId: string }>();
   const { getAgent, sessionsForAgent, updateAgent, createSession } = useMockBackend();
+  const { t } = useTranslation();
   const [showEdit, setShowEdit] = useState(false);
   const router = useRouter();
 
   const agent = getAgent(agentId);
   if (!agent) {
-    return <div className="px-10 py-10 text-sm text-slate-500">Loading…</div>;
+    return <div className="px-10 py-10 text-sm text-slate-500">{t("common.loading")}</div>;
   }
   const sessions = sessionsForAgent(agent.id);
 
   return (
     <div className="pb-16">
       <div className="px-10 pt-8">
-        <Breadcrumb href="/agents" label="Agents" />
+        <Breadcrumb href="/agents" label={t("agents.title")} />
       </div>
 
       <div className="flex items-start justify-between px-10 pt-4">
@@ -36,38 +38,38 @@ export default function AgentDetailPage() {
             <p className="mt-0.5 text-sm text-slate-500">{agent.description}</p>
             {agent.mode === "automatic" && (
               <div className="mt-2">
-                <Badge>Automatic</Badge>
+                <Badge>{t("common.automatic")}</Badge>
               </div>
             )}
           </div>
         </div>
         <Button variant="secondary" onClick={() => setShowEdit(true)}>
           <SettingsIcon className="h-4 w-4" />
-          Edit
+          {t("common.edit")}
         </Button>
       </div>
 
       <div className="px-10 pt-8">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">System prompt</p>
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{t("agents.systemPrompt")}</p>
         <Card className="p-4 text-sm text-slate-700">{agent.systemPrompt}</Card>
       </div>
 
       <div className="px-10 pt-8">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-900">Sessions</h2>
+          <h2 className="text-base font-semibold text-slate-900">{t("agents.sessions")}</h2>
           <Button
             onClick={() => {
-              const session = createSession(agent.id);
+              const session = createSession(agent.id, t("agents.newSessionDefaultTitle"));
               router.push(`/sessions/${session.id}`);
             }}
           >
             <PlusIcon className="h-4 w-4" />
-            New session
+            {t("agents.newSession")}
           </Button>
         </div>
 
         {sessions.length === 0 ? (
-          <Card className="px-5 py-10 text-center text-sm text-slate-500">No sessions yet.</Card>
+          <Card className="px-5 py-10 text-center text-sm text-slate-500">{t("agents.noSessionsYet")}</Card>
         ) : (
           <div className="space-y-2">
             {sessions.map((session) => (
@@ -76,7 +78,7 @@ export default function AgentDetailPage() {
                   <ChatIcon className="h-4 w-4 text-slate-400" />
                   <span className="text-sm font-medium text-slate-900">{session.title}</span>
                 </div>
-                <span className="text-xs text-slate-400">{relativeTime(session.lastActivityAt)}</span>
+                <span className="text-xs text-slate-400">{relativeTime(session.lastActivityAt, t)}</span>
               </CardLink>
             ))}
           </div>
@@ -85,8 +87,8 @@ export default function AgentDetailPage() {
 
       {showEdit && (
         <AgentFormModal
-          title="Edit agent"
-          submitLabel="Save changes"
+          title={t("agentForm.editTitle")}
+          submitLabel={t("agentForm.saveSubmit")}
           initial={{
             name: agent.name,
             description: agent.description ?? "",

@@ -1,25 +1,27 @@
 "use client";
 
 import { Badge, Button, Card, PageHeader } from "@/components/ui";
+import { useTranslation } from "@/lib/i18n/context";
 import { PlusIcon, SparklesIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 
 export default function SkillsPage() {
   const { skills, notify } = useMockBackend();
+  const { t } = useTranslation();
 
   return (
     <div className="pb-16">
       <PageHeader
-        title="Skills"
-        subtitle="Reusable capabilities agents can load into a run"
+        title={t("skills.title")}
+        subtitle={t("skills.subtitle")}
         action={
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => notify("Import from git — coming soon")}>
-              Import from git
+            <Button variant="secondary" onClick={() => notify("toast.importFromGitComingSoon")}>
+              {t("skills.importFromGit")}
             </Button>
-            <Button onClick={() => notify("Skill authoring — coming soon")}>
+            <Button onClick={() => notify("toast.skillAuthoringComingSoon")}>
               <PlusIcon className="h-4 w-4" />
-              New skill
+              {t("skills.newSkill")}
             </Button>
           </div>
         }
@@ -33,7 +35,7 @@ export default function SkillsPage() {
                 <SparklesIcon className="h-5 w-5" />
               </div>
               <Badge tone={skill.source === "git" ? "success" : "neutral"}>
-                {skill.source === "git" ? "Git" : "Authored"}
+                {skill.source === "git" ? t("skills.sourceGit") : t("skills.sourceAuthored")}
               </Badge>
             </div>
             <h3 className="font-semibold text-slate-900">{skill.name}</h3>

@@ -1,28 +1,10 @@
 "use client";
 
 import { Badge, Button, Card, PageHeader } from "@/components/ui";
+import { useTranslation } from "@/lib/i18n/context";
 import { AlertIcon, LinkIcon, PlusIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import type { ConnectionHealth } from "@agentfactory/core";
-
-const PROVIDER_LABEL: Record<string, string> = {
-  github: "GitHub",
-  bitbucket: "Bitbucket",
-  slack: "Slack",
-  telegram: "Telegram",
-  discord: "Discord",
-  whatsapp: "WhatsApp",
-  jira: "Jira",
-  monday: "Monday.com",
-  asana: "Asana",
-  "google-sheets": "Google Sheets",
-};
-
-const KIND_LABEL: Record<string, string> = {
-  scm: "Source control",
-  channel: "Communication",
-  tasks: "Task management",
-};
 
 function healthTone(health: ConnectionHealth) {
   if (health === "healthy") return "success" as const;
@@ -32,16 +14,17 @@ function healthTone(health: ConnectionHealth) {
 
 export default function ConnectionsPage() {
   const { connections, notify } = useMockBackend();
+  const { t } = useTranslation();
 
   return (
     <div className="pb-16">
       <PageHeader
-        title="Connections"
-        subtitle="Source control, channels, and task systems agents can use"
+        title={t("connections.title")}
+        subtitle={t("connections.subtitle")}
         action={
-          <Button onClick={() => notify("Connect a provider — coming soon")}>
+          <Button onClick={() => notify("toast.connectProviderComingSoon")}>
             <PlusIcon className="h-4 w-4" />
-            New connection
+            {t("connections.newConnection")}
           </Button>
         }
       />
@@ -55,15 +38,15 @@ export default function ConnectionsPage() {
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-900">
-                  {PROVIDER_LABEL[conn.provider]} · {conn.label}
+                  {t(`connections.provider.${conn.provider}`)} · {conn.label}
                 </p>
-                <p className="text-xs text-slate-500">{KIND_LABEL[conn.kind]}</p>
+                <p className="text-xs text-slate-500">{t(`connections.kind.${conn.kind}`)}</p>
               </div>
             </div>
             <Badge tone={healthTone(conn.health)}>
               <span className="flex items-center gap-1">
                 {conn.health === "needs-attention" && <AlertIcon className="h-3 w-3" />}
-                {conn.health.replace("-", " ")}
+                {t(`connections.health.${conn.health}`)}
               </span>
             </Badge>
           </Card>

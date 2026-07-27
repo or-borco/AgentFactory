@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AuthCard, AuthDivider } from "@/components/AuthCard";
 import { Button, TextInput } from "@/components/ui";
+import { useTranslation } from "@/lib/i18n/context";
 import { GoogleIcon, LockIcon, MailIcon } from "@/lib/icons";
 
 function UserPlusIcon(props: React.SVGProps<SVGSVGElement>) {
@@ -18,17 +19,18 @@ function UserPlusIcon(props: React.SVGProps<SVGSVGElement>) {
 
 export default function RegisterPage() {
   const router = useRouter();
+  const { t } = useTranslation();
 
   return (
     <AuthCard
       icon={<UserPlusIcon className="h-5 w-5" />}
-      title="Create your account"
-      subtitle="Sign up to get started"
+      title={t("auth.register.title")}
+      subtitle={t("auth.register.subtitle")}
       footer={
         <>
-          Already have an account?{" "}
+          {t("auth.register.haveAccount")}{" "}
           <Link href="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
-            Log in
+            {t("auth.register.logIn")}
           </Link>
         </>
       }
@@ -39,7 +41,7 @@ export default function RegisterPage() {
         className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
       >
         <GoogleIcon className="h-4 w-4" />
-        Continue with Google
+        {t("auth.continueWithGoogle")}
       </button>
 
       <AuthDivider />
@@ -52,19 +54,19 @@ export default function RegisterPage() {
         }}
       >
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
-          <TextInput type="email" placeholder="you@example.com" icon={<MailIcon className="h-4 w-4" />} required />
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.emailLabel")}</label>
+          <TextInput type="email" placeholder={t("auth.emailPlaceholder")} icon={<MailIcon className="h-4 w-4" />} required />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">Password</label>
-          <TextInput type="password" placeholder="••••••••" icon={<LockIcon className="h-4 w-4" />} required />
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.passwordLabel")}</label>
+          <TextInput type="password" placeholder={t("auth.passwordPlaceholder")} icon={<LockIcon className="h-4 w-4" />} required />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">Confirm Password</label>
-          <TextInput type="password" placeholder="••••••••" icon={<LockIcon className="h-4 w-4" />} required />
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.confirmPasswordLabel")}</label>
+          <TextInput type="password" placeholder={t("auth.passwordPlaceholder")} icon={<LockIcon className="h-4 w-4" />} required />
         </div>
         <Button type="submit" className="w-full justify-center">
-          Create account
+          {t("auth.register.submit")}
         </Button>
       </form>
     </AuthCard>

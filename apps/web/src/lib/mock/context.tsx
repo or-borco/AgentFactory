@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import type { Agent, Connection, Session, Skill, Team, ToolPolicy } from "@agentfactory/core";
+import type { TranslationKey } from "@/lib/i18n/paths";
 import {
   ORG_ID,
   seedAgents,
@@ -55,8 +56,8 @@ interface NewAgentInput {
 }
 
 interface MockBackendValue extends MockState {
-  toast: string | null;
-  notify: (message: string) => void;
+  toast: TranslationKey | null;
+  notify: (key: TranslationKey) => void;
   getAgent: (id: string) => Agent | undefined;
   getTeam: (id: string) => Team | undefined;
   getSession: (id: string) => Session | undefined;
@@ -100,7 +101,7 @@ function draftReplyFor(agent: Agent | undefined, userText: string): string {
 
 export function MockBackendProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<MockState>(initialState);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<TranslationKey | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydrated = useRef(false);
 
@@ -127,8 +128,8 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     }
   }, [state]);
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
+  const showToast = useCallback((key: TranslationKey) => {
+    setToast(key);
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }, []);
@@ -163,7 +164,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
         createdAt: new Date().toISOString(),
       };
       setState((s) => ({ ...s, teams: [...s.teams, team] }));
-      showToast("Team created");
+      showToast("toast.teamCreated");
       return team;
     },
     [showToast],
@@ -177,7 +178,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
           t.id === teamId ? { ...t, name: patch.name, description: patch.description || undefined } : t,
         ),
       }));
-      showToast("Team updated");
+      showToast("toast.teamUpdated");
     },
     [showToast],
   );
@@ -192,7 +193,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
         ...s,
         teams: s.teams.map((t) => (t.id === teamId ? { ...t, sharedContext: capped } : t)),
       }));
-      showToast("Shared context saved");
+      showToast("toast.sharedContextSaved");
     },
     [showToast],
   );
@@ -225,7 +226,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
         updatedAt: now,
       };
       setState((s) => ({ ...s, agents: [...s.agents, agent] }));
-      showToast("Agent created");
+      showToast("toast.agentCreated");
       return agent;
     },
     [showToast],
@@ -239,7 +240,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
           a.id === agentId ? { ...a, ...patch, updatedAt: new Date().toISOString() } : a,
         ),
       }));
-      showToast("Agent updated");
+      showToast("toast.agentUpdated");
     },
     [showToast],
   );

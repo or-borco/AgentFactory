@@ -4,21 +4,23 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AuthCard, AuthDivider } from "@/components/AuthCard";
 import { Button, TextInput } from "@/components/ui";
+import { useTranslation } from "@/lib/i18n/context";
 import { ArrowRightIcon, GoogleIcon, LockIcon, MailIcon } from "@/lib/icons";
 
 export default function LoginPage() {
   const router = useRouter();
+  const { t } = useTranslation();
 
   return (
     <AuthCard
       icon={<ArrowRightIcon className="h-5 w-5" />}
-      title="Welcome back"
-      subtitle="Log in to your account"
+      title={t("auth.login.title")}
+      subtitle={t("auth.login.subtitle")}
       footer={
         <>
-          Don&apos;t have an account?{" "}
+          {t("auth.login.noAccount")}{" "}
           <Link href="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
-            Create one
+            {t("auth.login.createOne")}
           </Link>
         </>
       }
@@ -29,7 +31,7 @@ export default function LoginPage() {
         className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
       >
         <GoogleIcon className="h-4 w-4" />
-        Continue with Google
+        {t("auth.continueWithGoogle")}
       </button>
 
       <AuthDivider />
@@ -42,20 +44,20 @@ export default function LoginPage() {
         }}
       >
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">Email</label>
-          <TextInput type="email" placeholder="you@example.com" icon={<MailIcon className="h-4 w-4" />} required />
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.emailLabel")}</label>
+          <TextInput type="email" placeholder={t("auth.emailPlaceholder")} icon={<MailIcon className="h-4 w-4" />} required />
         </div>
         <div>
           <div className="mb-1.5 flex items-center justify-between">
-            <label className="text-sm font-medium text-slate-700">Password</label>
+            <label className="text-sm font-medium text-slate-700">{t("auth.passwordLabel")}</label>
             <Link href="/forgot-password" className="text-sm font-medium text-indigo-600 hover:text-indigo-500">
-              Forgot password?
+              {t("auth.login.forgotPasswordLink")}
             </Link>
           </div>
-          <TextInput type="password" placeholder="••••••••" icon={<LockIcon className="h-4 w-4" />} required />
+          <TextInput type="password" placeholder={t("auth.passwordPlaceholder")} icon={<LockIcon className="h-4 w-4" />} required />
         </div>
         <Button type="submit" className="w-full justify-center">
-          Log in
+          {t("auth.login.submit")}
         </Button>
       </form>
     </AuthCard>

@@ -2,19 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTranslation } from "@/lib/i18n/context";
 import { BotIcon, LinkIcon, SparklesIcon, UsersIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
-
-const NAV_ITEMS = [
-  { href: "/agents", label: "Agents", icon: BotIcon },
-  { href: "/teams", label: "Teams", icon: UsersIcon },
-  { href: "/skills", label: "Skills", icon: SparklesIcon },
-  { href: "/connections", label: "Connections", icon: LinkIcon },
-];
 
 export function LeftPane({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { toast } = useMockBackend();
+  const { t } = useTranslation();
+
+  const navItems = [
+    { href: "/agents", label: t("nav.agents"), icon: BotIcon },
+    { href: "/teams", label: t("nav.teams"), icon: UsersIcon },
+    { href: "/skills", label: t("nav.skills"), icon: SparklesIcon },
+    { href: "/connections", label: t("nav.connections"), icon: LinkIcon },
+  ];
 
   return (
     <div className="flex min-h-screen bg-[#f4f5f7]">
@@ -27,7 +29,7 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="flex-1 space-y-1 px-3">
-          {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+          {navItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(`${href}/`);
             return (
               <Link
@@ -46,14 +48,14 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="border-t border-white/10 px-5 py-4 text-xs text-slate-500">Team workspace</div>
+        <div className="border-t border-white/10 px-5 py-4 text-xs text-slate-500">{t("nav.workspaceFooter")}</div>
       </aside>
 
       <main className="min-w-0 flex-1">{children}</main>
 
       {toast && (
         <div className="fixed bottom-6 right-6 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-lg">
-          {toast}
+          {t(toast)}
         </div>
       )}
     </div>
