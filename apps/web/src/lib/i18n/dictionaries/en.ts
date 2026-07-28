@@ -136,7 +136,7 @@ const en = {
     kind: {
       scm: "Source control",
       channel: "Communication",
-      tasks: "Task management",
+      tasks: "Task Platform",
     },
     health: {
       healthy: "healthy",
