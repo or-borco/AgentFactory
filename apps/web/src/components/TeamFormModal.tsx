@@ -34,7 +34,13 @@ export function TeamFormModal({
       >
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("teamForm.nameLabel")}</label>
-          <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder={t("teamForm.namePlaceholder")} required />
+          <TextInput
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={t("teamForm.namePlaceholder")}
+            maxLength={80}
+            required
+          />
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("teamForm.descriptionLabel")}</label>

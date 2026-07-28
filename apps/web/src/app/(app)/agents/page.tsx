@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AgentFormModal, type AgentFormValues } from "@/components/AgentFormModal";
-import { Badge, Button, CardLink, PageHeader } from "@agentfactory/shared";
+import { Badge, Button, CardLink, PageHeader, Truncate } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { ArrowRightIcon, PlusIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
@@ -42,7 +42,7 @@ export default function AgentsPage() {
               </div>
               <ArrowRightIcon className="h-4 w-4 text-slate-300" />
             </div>
-            <h3 className="font-semibold text-slate-900">{agent.name}</h3>
+            <Truncate as="h3" text={agent.name} className="font-semibold text-slate-900" />
             <p className="mt-1 text-sm text-slate-500">{agent.description}</p>
             {agent.mode === "automatic" && (
               <div className="mt-3">

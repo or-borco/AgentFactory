@@ -24,6 +24,11 @@ const state: ServerState = {
 };
 
 const SHARED_CONTEXT_MAX_BYTES = 64 * 1024;
+const MAX_NAME_LENGTH = 80;
+
+function capName(name: string): string {
+  return name.length > MAX_NAME_LENGTH ? name.slice(0, MAX_NAME_LENGTH) : name;
+}
 
 function newId(prefix: string) {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
@@ -54,7 +59,7 @@ export const mockStore = {
     const team: Team = {
       id: newId("team"),
       orgId: ORG_ID,
-      name,
+      name: capName(name),
       description: description || undefined,
       sharedContext: "",
       createdAt: new Date().toISOString(),
@@ -66,7 +71,7 @@ export const mockStore = {
   updateTeam(teamId: string, patch: { name?: string; description?: string; sharedContext?: string }): Team | undefined {
     const team = state.teams.find((t) => t.id === teamId);
     if (!team) return undefined;
-    if (patch.name !== undefined) team.name = patch.name;
+    if (patch.name !== undefined) team.name = capName(patch.name);
     if (patch.description !== undefined) team.description = patch.description || undefined;
     if (patch.sharedContext !== undefined) {
       team.sharedContext =
@@ -85,7 +90,7 @@ export const mockStore = {
       id: newId("agent"),
       orgId: ORG_ID,
       teamId: input.teamId,
-      name: input.name,
+      name: capName(input.name),
       description: input.description || undefined,
       avatarEmoji: "🤖",
       systemPrompt: input.systemPrompt,
@@ -108,7 +113,10 @@ export const mockStore = {
   ): Agent | undefined {
     const agent = state.agents.find((a) => a.id === agentId);
     if (!agent) return undefined;
-    Object.assign(agent, patch, { updatedAt: new Date().toISOString() });
+    Object.assign(agent, patch, {
+      ...(patch.name !== undefined && { name: capName(patch.name) }),
+      updatedAt: new Date().toISOString(),
+    });
     return agent;
   },
 

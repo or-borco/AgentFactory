@@ -6,4 +6,6 @@ export * from "./Card";
 export * from "./CardLink";
 export * from "./TextInput";
 export * from "./Textarea";
+export * from "./TooltipBubble";
+export * from "./Truncate";
 export * from "./EmptyState";

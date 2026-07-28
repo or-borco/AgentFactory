@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { Truncate } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { ArrowLeftIcon, BotIcon, SendIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
@@ -40,12 +41,12 @@ export default function SessionPage() {
   return (
     <div className="flex h-screen flex-col">
       <div className="flex items-center gap-2 border-b border-slate-200 px-10 py-4">
-        <button onClick={() => router.push(`/agents/${agent.id}`)} className="text-slate-400 hover:text-slate-600">
+        <button onClick={() => router.push(`/agents/${agent.id}`)} className="shrink-0 text-slate-400 hover:text-slate-600">
           <ArrowLeftIcon className="h-4 w-4" />
         </button>
-        <span className="text-sm font-semibold text-slate-900">{session.title}</span>
-        <span className="text-sm text-slate-400">·</span>
-        <span className="text-sm text-slate-500">{agent.name}</span>
+        <Truncate text={session.title} className="text-sm font-semibold text-slate-900" wrapperClassName="min-w-0 flex-1" />
+        <span className="shrink-0 text-sm text-slate-400">·</span>
+        <Truncate text={agent.name} className="text-sm text-slate-500" wrapperClassName="max-w-[10rem] shrink-0" />
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-10 py-6">

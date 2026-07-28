@@ -3,7 +3,7 @@
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { TeamFormModal } from "@/components/TeamFormModal";
-import { Badge, Breadcrumb, Button, Card, CardLink, Textarea } from "@agentfactory/shared";
+import { Badge, Breadcrumb, Button, Card, CardLink, Textarea, Truncate } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { ArrowLeftIcon, SettingsIcon, UsersIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
@@ -43,12 +43,12 @@ function TeamDetailBody({ team }: { team: Team }) {
       </div>
 
       <div className="flex items-start justify-between px-10 pt-4">
-        <div className="flex items-start gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white">
             <UsersIcon className="h-6 w-6" />
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">{team.name}</h1>
+          <div className="min-w-0">
+            <Truncate as="h1" text={team.name} className="text-xl font-bold text-slate-900" />
             <p className="mt-0.5 text-sm text-slate-500">{team.description || t("teams.noDescription")}</p>
           </div>
         </div>
@@ -90,9 +90,9 @@ function TeamDetailBody({ team }: { team: Team }) {
           <div className="space-y-2">
             {assigned.map((agent) => (
               <CardLink key={agent.id} href={`/agents/${agent.id}`} className="flex items-center justify-between px-5 py-4">
-                <div className="flex items-center gap-3">
-                  <span className="text-lg">{agent.avatarEmoji}</span>
-                  <span className="text-sm font-medium text-slate-900">{agent.name}</span>
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="shrink-0 text-lg">{agent.avatarEmoji}</span>
+                  <Truncate text={agent.name} className="text-sm font-medium text-slate-900" wrapperClassName="min-w-0 flex-1" />
                 </div>
                 {agent.mode === "automatic" && <Badge>{t("common.automatic")}</Badge>}
               </CardLink>

@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { TeamFormModal } from "@/components/TeamFormModal";
-import { Button, CardLink, EmptyState, PageHeader } from "@agentfactory/shared";
+import { Button, CardLink, EmptyState, PageHeader, Truncate } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { PlusIcon, UsersIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
@@ -48,7 +48,7 @@ export default function TeamsPage() {
                 <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white">
                   <UsersIcon className="h-5 w-5" />
                 </div>
-                <h3 className="font-semibold text-slate-900">{team.name}</h3>
+                <Truncate as="h3" text={team.name} className="font-semibold text-slate-900" />
                 <p className="mt-1 text-sm text-slate-500">{team.description || t("teams.noDescription")}</p>
                 <p className="mt-3 text-xs text-slate-400">
                   {count === 1 ? t("teams.agentAssignedOne") : t("teams.agentAssignedOther", { count })}

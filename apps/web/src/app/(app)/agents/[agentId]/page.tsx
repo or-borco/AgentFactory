@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { AgentFormModal, type AgentFormValues } from "@/components/AgentFormModal";
-import { Badge, Breadcrumb, Button, Card, CardLink } from "@agentfactory/shared";
+import { Badge, Breadcrumb, Button, Card, CardLink, Truncate } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { ArrowLeftIcon, ChatIcon, PlusIcon, SettingsIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
@@ -29,12 +29,12 @@ export default function AgentDetailPage() {
       </div>
 
       <div className="flex items-start justify-between px-10 pt-4">
-        <div className="flex items-start gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-2xl">
+        <div className="flex min-w-0 items-start gap-4">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-2xl">
             {agent.avatarEmoji}
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-slate-900">{agent.name}</h1>
+          <div className="min-w-0">
+            <Truncate as="h1" text={agent.name} className="text-xl font-bold text-slate-900" />
             <p className="mt-0.5 text-sm text-slate-500">{agent.description}</p>
             {agent.mode === "automatic" && (
               <div className="mt-2">
@@ -74,11 +74,11 @@ export default function AgentDetailPage() {
           <div className="space-y-2">
             {sessions.map((session) => (
               <CardLink key={session.id} href={`/sessions/${session.id}`} className="flex items-center justify-between px-5 py-4">
-                <div className="flex items-center gap-3">
-                  <ChatIcon className="h-4 w-4 text-slate-400" />
-                  <span className="text-sm font-medium text-slate-900">{session.title}</span>
+                <div className="flex min-w-0 items-center gap-3">
+                  <ChatIcon className="h-4 w-4 shrink-0 text-slate-400" />
+                  <Truncate text={session.title} className="text-sm font-medium text-slate-900" wrapperClassName="min-w-0 flex-1" />
                 </div>
-                <span className="text-xs text-slate-400">{relativeTime(session.lastActivityAt, t)}</span>
+                <span className="shrink-0 text-xs text-slate-400">{relativeTime(session.lastActivityAt, t)}</span>
               </CardLink>
             ))}
           </div>
