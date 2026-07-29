@@ -15,7 +15,7 @@ export default function TeamDetailPage() {
   const { teamId } = useParams<{ teamId: string }>();
   const { getTeam } = useMockBackend();
   const { t } = useTranslation();
-  const team = getTeam(teamId);
+  const team = getTeam(Number(teamId));
 
   if (!team) {
     return <div className="px-10 py-10 text-sm text-slate-500">{t("common.loading")}</div>;
@@ -118,7 +118,7 @@ function TeamDetailBody({ team }: { team: Team }) {
               variant="secondary"
               disabled={!assignId}
               onClick={() => {
-                void assignAgentToTeam(assignId, team.id);
+                void assignAgentToTeam(Number(assignId), team.id);
                 setAssignId("");
               }}
             >

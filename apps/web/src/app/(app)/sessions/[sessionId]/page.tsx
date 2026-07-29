@@ -15,17 +15,18 @@ export default function SessionPage() {
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const session = getSession(sessionId);
+  const sessionIdNum = Number(sessionId);
+  const session = getSession(sessionIdNum);
   const agent = session ? getAgent(session.agentId) : undefined;
-  const messages = messagesForSession(sessionId);
+  const messages = messagesForSession(sessionIdNum);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages]);
 
   useEffect(() => {
-    void loadMessages(sessionId);
-  }, [sessionId, loadMessages]);
+    void loadMessages(sessionIdNum);
+  }, [sessionIdNum, loadMessages]);
 
   if (!session || !agent) {
     return <div className="px-10 py-10 text-sm text-slate-500">{t("common.loading")}</div>;

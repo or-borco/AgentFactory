@@ -1,6 +1,8 @@
 # AgentFactory — Platform Architecture
 
-> Status: approved, not yet implemented. Build order is in §8; open work starts at M0.
+> Status: approved, M0 in progress. Postgres schema + CRUD for `teams`/`agents` are real
+> (`packages/db`, Drizzle); `orgs`/auth are still a single hardcoded row, and every other M0
+> item (sessions/runs/events schema, the rest of §2.7) is still ahead. Build order is in §8.
 
 ## Context
 
@@ -351,6 +353,31 @@ per-trusted-org host is honest and sufficient.
 - Every event is persisted *and* published — the browser streams live, and a refresh/Slack render replays from
   Postgres. Same log serves both.
 
+### Public API: a separate `apps/api`, deferred until there's a real caller
+
+`apps/web`'s Route Handlers are already real HTTP endpoints — nothing about Next.js prevents an external client
+from calling them today. What they currently assume is a logged-in browser session, which is the actual gap for
+third-party callers, not the framework underneath.
+
+Two needs get conflated under "we need a REST API" and should stay separate:
+
+1. **Auth/shape for external callers** — API keys, rate limiting, versioning (`/v1/...`), OpenAPI docs, CORS for
+   third-party origins. This is middleware on the *existing* Route Handlers, framework-independent, and doesn't
+   require a new deployable.
+2. **A separately deployed API process** — its own scaling profile, domain, and release cadence, decoupled from the
+   UI's deploy. This is the part that would need a new app.
+
+If (2) becomes real, it's a new workspace package, `apps/api`, following the same shape `apps/worker` already
+establishes: it imports `@agentfactory/core` and `@agentfactory/db` via `workspace:*` and deploys independently.
+This is mechanical specifically because the repositories in `packages/db` sit behind a plain function boundary
+(`getAgent`, `createTeam`, ...) rather than being called ad hoc from route files — a second HTTP layer in front of
+them is additive, not a rewrite. `apps/api` can be Route Handlers again or a leaner non-Next server (Fastify/Hono/
+Express) — the choice doesn't touch `packages/db` or `packages/core` either way.
+
+**Build trigger**: stand up `apps/api` when a real external caller shows up — a partner integration, a mobile
+client, a third party needing webhooks in — not preemptively. Until then, (1) alone (auth + rate limiting on the
+existing routes) covers it.
+
 ---
 
 ## 5. Integrations — three distinct roles, one `Connection` table
@@ -458,6 +485,7 @@ turn and a bad outcome.
 | M1 slice | **Web chat, no repo** | Validates runtime port, event log, streaming before GitHub complexity. |
 | Oversight | **No approval gates — runs never block** | Authorization decided at config time; safety comes from deny-by-default scopes, a reversible-by-construction blast radius, budgets, and a kill switch (§6). |
 | Orchestration | **BullMQ now, Temporal-ready** | Run state in Postgres, run decomposed into idempotent serializable steps behind a `RunDriver` port. Migration at M5 is swapping the driver, not rewriting the worker (§4). |
+| Public API | **`apps/web` Route Handlers now; `apps/api` deferred** | External callers are an auth/rate-limit problem today, not a framework problem. Split into a separately deployed `apps/api` only when a real external caller shows up — mechanical because `packages/db` repositories are already framework-agnostic (§4). |
 
 ### Credential resolution (from the "both" choice)
 

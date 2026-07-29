@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { mockStore } from "@/server/mock-store";
 
 export async function GET(request: Request) {
-  const agentId = new URL(request.url).searchParams.get("agentId") ?? undefined;
-  return NextResponse.json(mockStore.listSessions(agentId));
+  const raw = new URL(request.url).searchParams.get("agentId");
+  return NextResponse.json(mockStore.listSessions(raw ? Number(raw) : undefined));
 }
 
 export async function POST(request: Request) {
