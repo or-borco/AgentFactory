@@ -93,6 +93,9 @@ const en = {
     noAgentsAssigned: "No agents assigned to this team yet.",
     assignAgentPlaceholder: "Assign an agent…",
     assign: "Assign",
+    reassignAgentTitle: "Reassign agent?",
+    reassignAgentMessage: '"{agent}" is currently assigned to "{team}". Assigning it here will remove it from that team.',
+    reassignAgentConfirm: "Assign anyway",
   },
   teamForm: {
     newTitle: "New team",
