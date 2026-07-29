@@ -44,11 +44,13 @@ export default function AgentsPage() {
             </div>
             <Truncate as="h3" text={agent.name} className="font-semibold text-slate-900" />
             <p className="mt-1 text-sm text-slate-500">{agent.description}</p>
-            {agent.mode === "automatic" && (
-              <div className="mt-3">
-                <Badge>{t("common.automatic")}</Badge>
-              </div>
-            )}
+            {/* Reserve the badge's height on every card, not just automatic ones — CSS grid only
+                stretches items to match the tallest item in their own row, so a manual-mode card
+                on a row by itself (no automatic sibling to size against) would otherwise be
+                shorter than rows above it. */}
+            <div className="mt-3 h-6">
+              {agent.mode === "automatic" && <Badge>{t("common.automatic")}</Badge>}
+            </div>
           </CardLink>
         ))}
       </div>
