@@ -17,7 +17,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
   const session = await getSession(id);
 
   const run = await createRun(id);
-  await enqueueRunJob(run.id);
+  await enqueueRunJob(run.id, id);
 
   return NextResponse.json({ userMessage, session }, { status: 201 });
 }
