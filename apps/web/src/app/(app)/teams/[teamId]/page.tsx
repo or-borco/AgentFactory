@@ -2,10 +2,11 @@
 
 import { useParams } from "next/navigation";
 import { useState } from "react";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { TeamFormModal } from "@/components/TeamFormModal";
 import { Badge, Breadcrumb, Button, Card, CardLink, Textarea, Truncate } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
-import { ArrowLeftIcon, SettingsIcon, UsersIcon } from "@/lib/icons";
+import { ArrowLeftIcon, ChevronDownIcon, SettingsIcon, UsersIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import type { Team } from "@agentfactory/core";
 
@@ -25,16 +26,30 @@ export default function TeamDetailPage() {
 }
 
 function TeamDetailBody({ team }: { team: Team }) {
-  const { agentsForTeam, agents, updateTeam, updateTeamSharedContext, assignAgentToTeam } = useMockBackend();
+  const { agentsForTeam, agents, teams, updateTeam, updateTeamSharedContext, assignAgentToTeam } = useMockBackend();
   const { t } = useTranslation();
   const [draft, setDraft] = useState(team.sharedContext);
   const [showEdit, setShowEdit] = useState(false);
   const [assignId, setAssignId] = useState("");
+  const [reassignTarget, setReassignTarget] = useState<{ agentId: number; agentName: string; teamName: string } | null>(
+    null,
+  );
 
   const assigned = agentsForTeam(team.id);
   const unassigned = agents.filter((a) => a.teamId !== team.id);
   const bytes = new TextEncoder().encode(draft).length;
   const dirty = draft !== team.sharedContext;
+
+  const requestAssign = (agentId: number) => {
+    const agent = agents.find((a) => a.id === agentId);
+    const currentTeam = agent?.teamId !== undefined ? teams.find((t) => t.id === agent.teamId) : undefined;
+    if (agent && currentTeam) {
+      setReassignTarget({ agentId, agentName: agent.name, teamName: currentTeam.name });
+      return;
+    }
+    void assignAgentToTeam(agentId, team.id);
+    setAssignId("");
+  };
 
   return (
     <div className="pb-16">
@@ -102,26 +117,22 @@ function TeamDetailBody({ team }: { team: Team }) {
 
         {unassigned.length > 0 && (
           <div className="mt-4 flex items-center gap-2">
-            <select
-              value={assignId}
-              onChange={(e) => setAssignId(e.target.value)}
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
-            >
-              <option value="">{t("teams.assignAgentPlaceholder")}</option>
-              {unassigned.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.name}
-                </option>
-              ))}
-            </select>
-            <Button
-              variant="secondary"
-              disabled={!assignId}
-              onClick={() => {
-                void assignAgentToTeam(Number(assignId), team.id);
-                setAssignId("");
-              }}
-            >
+            <div className="relative">
+              <select
+                value={assignId}
+                onChange={(e) => setAssignId(e.target.value)}
+                className="appearance-none rounded-lg border border-slate-200 py-2 pl-3 pr-9 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+              >
+                <option value="">{t("teams.assignAgentPlaceholder")}</option>
+                {unassigned.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+              <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            </div>
+            <Button variant="secondary" disabled={!assignId} onClick={() => requestAssign(Number(assignId))}>
               {t("teams.assign")}
             </Button>
           </div>
@@ -137,6 +148,21 @@ function TeamDetailBody({ team }: { team: Team }) {
           onSubmit={async (values) => {
             await updateTeam(team.id, values);
             setShowEdit(false);
+          }}
+        />
+      )}
+
+      {reassignTarget && (
+        <ConfirmDialog
+          title={t("teams.reassignAgentTitle")}
+          message={t("teams.reassignAgentMessage", { agent: reassignTarget.agentName, team: reassignTarget.teamName })}
+          confirmLabel={t("teams.reassignAgentConfirm")}
+          cancelLabel={t("common.cancel")}
+          onCancel={() => setReassignTarget(null)}
+          onConfirm={() => {
+            void assignAgentToTeam(reassignTarget.agentId, team.id);
+            setAssignId("");
+            setReassignTarget(null);
           }}
         />
       )}
