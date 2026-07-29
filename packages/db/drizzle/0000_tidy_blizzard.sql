@@ -1,0 +1,43 @@
+CREATE TYPE "public"."agent_mode" AS ENUM('manual', 'automatic');--> statement-breakpoint
+CREATE TABLE "agents" (
+	"id" text PRIMARY KEY NOT NULL,
+	"org_id" text NOT NULL,
+	"team_id" text,
+	"name" text NOT NULL,
+	"description" text,
+	"avatar_emoji" text,
+	"system_prompt" text NOT NULL,
+	"model" jsonb NOT NULL,
+	"mode" "agent_mode" DEFAULT 'manual' NOT NULL,
+	"runtime_kind" text DEFAULT 'claude-code' NOT NULL,
+	"tool_policy" jsonb NOT NULL,
+	"skill_ids" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"connection_ids" jsonb DEFAULT '[]'::jsonb NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "agents_name_max_length" CHECK (char_length("agents"."name") <= 80)
+);
+--> statement-breakpoint
+CREATE TABLE "orgs" (
+	"id" text PRIMARY KEY NOT NULL,
+	"name" text NOT NULL,
+	"slug" text NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "orgs_slug_unique" UNIQUE("slug")
+);
+--> statement-breakpoint
+CREATE TABLE "teams" (
+	"id" text PRIMARY KEY NOT NULL,
+	"org_id" text NOT NULL,
+	"name" text NOT NULL,
+	"description" text,
+	"shared_context" text DEFAULT '' NOT NULL,
+	"github_team_slug" text,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	CONSTRAINT "teams_name_max_length" CHECK (char_length("teams"."name") <= 80),
+	CONSTRAINT "teams_shared_context_max_bytes" CHECK (octet_length("teams"."shared_context") <= 65536)
+);
+--> statement-breakpoint
+ALTER TABLE "agents" ADD CONSTRAINT "agents_org_id_orgs_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."orgs"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "agents" ADD CONSTRAINT "agents_team_id_teams_id_fk" FOREIGN KEY ("team_id") REFERENCES "public"."teams"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "teams" ADD CONSTRAINT "teams_org_id_orgs_id_fk" FOREIGN KEY ("org_id") REFERENCES "public"."orgs"("id") ON DELETE cascade ON UPDATE no action;

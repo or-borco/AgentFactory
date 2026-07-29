@@ -9,6 +9,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ses
 export async function POST(request: Request, { params }: { params: Promise<{ sessionId: string }> }) {
   const { sessionId } = await params;
   const { text } = await request.json();
-  const result = mockStore.sendMessage(sessionId, text);
+  const result = await mockStore.sendMessage(sessionId, text);
   return NextResponse.json(result, { status: 201 });
 }

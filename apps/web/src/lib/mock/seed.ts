@@ -1,99 +1,16 @@
 import type {
-  Agent,
   ChatMessage,
   Connection,
   Session,
   Skill,
-  Team,
 } from "@agentfactory/core";
 
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000).toISOString();
 
+// Teams and agents no longer seed from here — see packages/db/src/seed.ts, which inserts the
+// same fixture rows (same IDs) directly into Postgres. Sessions and messages below still
+// reference those IDs by string, so the two seed sources must stay in sync by hand for now.
 export const ORG_ID = "org_1";
-
-export const seedTeams: Team[] = [
-  {
-    id: "team_platform",
-    orgId: ORG_ID,
-    name: "Platform team",
-    description: "Core services and internal tooling",
-    sharedContext:
-      "Stack: TypeScript, Next.js, Postgres. All PRs require a passing test suite and at least one review. " +
-      "Follow the repo's ESLint config; do not disable rules inline without a comment explaining why. " +
-      "Prefer small, focused PRs over large ones.",
-    createdAt: hoursAgo(400),
-  },
-  {
-    id: "team_projects",
-    orgId: ORG_ID,
-    name: "Projects team",
-    sharedContext: "",
-    createdAt: hoursAgo(3),
-  },
-];
-
-export const seedAgents: Agent[] = [
-  {
-    id: "agent_code_reviewer",
-    orgId: ORG_ID,
-    teamId: "team_platform",
-    name: "Code reviewer",
-    description: "Perform code review",
-    avatarEmoji: "🤖",
-    systemPrompt:
-      "Perform code review for pull request according to the team's standards",
-    model: { family: "anthropic", id: "claude-sonnet-5", maxTokens: 8192 },
-    mode: "automatic",
-    runtimeKind: "claude-code",
-    toolPolicy: {
-      defaultDecision: "deny",
-      rules: [
-        { tool: "read_file", decision: "allow" },
-        { tool: "comment_pr", decision: "allow" },
-        { tool: "merge_pr", decision: "deny" },
-      ],
-    },
-    skillIds: ["skill_conventional_commits"],
-    connectionIds: ["conn_github"],
-    createdAt: hoursAgo(400),
-    updatedAt: hoursAgo(3),
-  },
-  {
-    id: "agent_release_notes",
-    orgId: ORG_ID,
-    name: "Release notes writer",
-    description: "Draft release notes from merged PRs",
-    avatarEmoji: "📝",
-    systemPrompt:
-      "Summarize merged pull requests since the last tag into concise, user-facing release notes grouped by " +
-      "feature, fix, and chore.",
-    model: { family: "anthropic", id: "claude-sonnet-5", maxTokens: 4096 },
-    mode: "manual",
-    runtimeKind: "claude-code",
-    toolPolicy: { defaultDecision: "deny", rules: [] },
-    skillIds: [],
-    connectionIds: ["conn_github"],
-    createdAt: hoursAgo(200),
-    updatedAt: hoursAgo(200),
-  },
-  {
-    id: "agent_support_triager",
-    orgId: ORG_ID,
-    name: "Support triager",
-    description: "Label and route incoming support tickets",
-    avatarEmoji: "🎧",
-    systemPrompt:
-      "Read new support tickets, assign a priority and category label, and route to the correct team channel.",
-    model: { family: "anthropic", id: "claude-sonnet-5", maxTokens: 4096 },
-    mode: "automatic",
-    runtimeKind: "claude-code",
-    toolPolicy: { defaultDecision: "deny", rules: [] },
-    skillIds: [],
-    connectionIds: [],
-    createdAt: hoursAgo(120),
-    updatedAt: hoursAgo(50),
-  },
-];
 
 export const seedSessions: Session[] = [
   {

@@ -1,6 +1,8 @@
 # AgentFactory — Platform Architecture
 
-> Status: approved, not yet implemented. Build order is in §8; open work starts at M0.
+> Status: approved, M0 in progress. Postgres schema + CRUD for `teams`/`agents` are real
+> (`packages/db`, Drizzle); `orgs`/auth are still a single hardcoded row, and every other M0
+> item (sessions/runs/events schema, the rest of §2.7) is still ahead. Build order is in §8.
 
 ## Context
 
