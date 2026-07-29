@@ -16,7 +16,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
   await touchSessionActivity(id);
   const session = await getSession(id);
 
-  const run = await createRun(id);
+  const run = await createRun(id, userMessage.id);
   await enqueueRunJob(run.id);
 
   return NextResponse.json({ userMessage, session }, { status: 201 });

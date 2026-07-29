@@ -8,6 +8,7 @@ function toRun(row: typeof runs.$inferSelect): Run {
     id: row.id,
     sessionId: row.sessionId,
     status: row.status,
+    triggeringMessageId: row.triggeringMessageId ?? undefined,
     promptHash: row.promptHash ?? undefined,
     costUsd: row.costUsd,
     tokensUsed: row.tokensUsed,
@@ -17,8 +18,8 @@ function toRun(row: typeof runs.$inferSelect): Run {
   };
 }
 
-export async function createRun(sessionId: number): Promise<Run> {
-  const [row] = await db.insert(runs).values({ sessionId }).returning();
+export async function createRun(sessionId: number, triggeringMessageId?: number): Promise<Run> {
+  const [row] = await db.insert(runs).values({ sessionId, triggeringMessageId }).returning();
   return toRun(row);
 }
 

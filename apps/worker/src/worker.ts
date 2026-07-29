@@ -5,9 +5,9 @@ import {
   createEvent,
   createMessage,
   getAgent,
+  getMessage,
   getRun,
   getSession,
-  listMessages,
   touchSessionActivity,
   updateRunStatus,
 } from "@agentfactory/db";
@@ -26,14 +26,10 @@ new Worker<RunJobData>(
       const session = await getSession(run.sessionId);
       const agent = session ? await getAgent(session.agentId) : undefined;
 
-      // The run doesn't carry a reference to the message that triggered it (not in the
-      // domain model), so find it the same way a human would: the most recent user message
-      // on this session at the time the run was enqueued.
-      const messages = session ? await listMessages(session.id) : [];
-      const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
-      const replyText = draftReplyFor(agent?.id, lastUserMessage?.content ?? "");
+      const triggeringMessage = run.triggeringMessageId ? await getMessage(run.triggeringMessageId) : undefined;
+      const replyText = draftReplyFor(agent?.id, triggeringMessage?.content ?? "");
 
-      await createMessage(run.sessionId, "assistant", replyText);
+      await createMessage(run.sessionId, "assistant", replyText, runId);
       await createEvent(runId, 1, "text_delta", { text: replyText });
       await createEvent(runId, 2, "done", { reason: "completed" });
 

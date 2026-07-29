@@ -1,5 +1,16 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, doublePrecision, integer, jsonb, pgEnum, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  type AnyPgColumn,
+  boolean,
+  check,
+  doublePrecision,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core";
 import type { ModelSpec, ToolPolicy } from "@agentfactory/core";
 
 // `generatedByDefaultAsIdentity` (not `generatedAlways`) so seed.ts can still assign explicit,
@@ -94,6 +105,10 @@ export const messages = pgTable("messages", {
     .references(() => sessions.id, { onDelete: "cascade" }),
   role: chatRoleEnum("role").notNull(),
   content: text("content").notNull(),
+  // Set only on assistant messages, to the run that produced them — the reverse of
+  // runs.triggeringMessageId below. Nullable: user messages never have one. `references` uses
+  // a lazy callback so this forward reference to `runs` (declared further down) resolves fine.
+  runId: integer("run_id").references((): AnyPgColumn => runs.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -113,6 +128,11 @@ export const runs = pgTable("runs", {
     .notNull()
     .references(() => sessions.id, { onDelete: "cascade" }),
   status: runStatusEnum("status").notNull().default("queued"),
+  // The user message that caused this run — set at createRun time. Nullable: a future
+  // trigger-driven automatic run (cron/webhook, per ARCHITECTURE.md §2.6) won't have one.
+  triggeringMessageId: integer("triggering_message_id").references((): AnyPgColumn => messages.id, {
+    onDelete: "set null",
+  }),
   // Unused until a real AgentRuntime adapter exists — see ARCHITECTURE.md §1 rule 3
   // ("provider session IDs live in runs.provider_session_ref, never in business logic").
   // Cheap to add now, avoids a migration later.
