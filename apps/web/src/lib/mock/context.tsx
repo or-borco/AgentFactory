@@ -1,12 +1,12 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { Agent, ChatMessage, Connection, Session, Skill, Team } from "@agentfactory/core";
+import type { Agent, ChatMessage, Connection, Run, Session, Skill, Team } from "@agentfactory/core";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
 
-type DisplayMessage = ChatMessage & { streaming?: boolean };
+type DisplayMessage = ChatMessage & { streaming?: boolean; error?: boolean };
 
 interface MockState {
   teams: Team[];
@@ -172,53 +172,75 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     return session;
   }, []);
 
-  const sendMessage = useCallback(async (sessionId: number, text: string) => {
-    const { userMessage, session } = await apiFetch<{
-      userMessage: ChatMessage;
-      session?: Session;
-    }>(`/api/sessions/${sessionId}/messages`, { method: "POST", body: JSON.stringify({ text }) });
+  const sendMessage = useCallback(
+    async (sessionId: number, text: string) => {
+      const { userMessage, session, runId } = await apiFetch<{
+        userMessage: ChatMessage;
+        session?: Session;
+        runId: number;
+      }>(`/api/sessions/${sessionId}/messages`, { method: "POST", body: JSON.stringify({ text }) });
 
-    setState((s) => ({
-      ...s,
-      sessions: session ? s.sessions.map((sess) => (sess.id === sessionId ? session : sess)) : s.sessions,
-      messages: [...s.messages, userMessage],
-    }));
-
-    const revealAssistantMessage = (assistantMessage: ChatMessage) => {
       setState((s) => ({
         ...s,
-        messages: [...s.messages, { ...assistantMessage, content: "", streaming: true }],
+        sessions: session ? s.sessions.map((sess) => (sess.id === sessionId ? session : sess)) : s.sessions,
+        messages: [...s.messages, userMessage],
       }));
 
-      const words = assistantMessage.content.split(" ");
-      let i = 0;
-      const interval = setInterval(() => {
-        i += 1;
-        const partial = words.slice(0, i).join(" ");
-        const done = i >= words.length;
+      const revealAssistantMessage = (assistantMessage: ChatMessage) => {
         setState((s) => ({
           ...s,
-          messages: s.messages.map((m) =>
-            m.id === assistantMessage.id ? { ...m, content: partial, streaming: !done } : m,
-          ),
+          messages: [...s.messages, { ...assistantMessage, content: "", streaming: true }],
         }));
-        if (done) clearInterval(interval);
-      }, 45);
-    };
 
-    const poll = () => {
-      setTimeout(async () => {
-        const messages = await apiFetch<ChatMessage[]>(`/api/sessions/${sessionId}/messages`);
-        const assistantMessage = messages.find((m) => m.role === "assistant" && m.id > userMessage.id);
-        if (assistantMessage) {
-          revealAssistantMessage(assistantMessage);
-        } else {
-          poll();
-        }
-      }, 1200);
-    };
-    poll();
-  }, []);
+        const words = assistantMessage.content.split(" ");
+        let i = 0;
+        const interval = setInterval(() => {
+          i += 1;
+          const partial = words.slice(0, i).join(" ");
+          const done = i >= words.length;
+          setState((s) => ({
+            ...s,
+            messages: s.messages.map((m) =>
+              m.id === assistantMessage.id ? { ...m, content: partial, streaming: !done } : m,
+            ),
+          }));
+          if (done) clearInterval(interval);
+        }, 45);
+      };
+
+      // Poll the run's own status rather than guessing from message contents — that's the
+      // only way to tell "still working" apart from "failed", which never produces a message.
+      const poll = () => {
+        setTimeout(async () => {
+          const run = await apiFetch<Run>(`/api/runs/${runId}`);
+          if (run.status === "done") {
+            const messages = await apiFetch<ChatMessage[]>(`/api/sessions/${sessionId}/messages`);
+            const assistantMessage = messages.find((m) => m.role === "assistant" && m.id > userMessage.id);
+            if (assistantMessage) revealAssistantMessage(assistantMessage);
+          } else if (run.status === "failed" || run.status === "cancelled") {
+            setState((s) => ({
+              ...s,
+              messages: [
+                ...s.messages,
+                {
+                  id: -runId,
+                  sessionId,
+                  role: "assistant",
+                  content: t("session.replyFailed"),
+                  createdAt: new Date().toISOString(),
+                  error: true,
+                },
+              ],
+            }));
+          } else {
+            poll();
+          }
+        }, 1200);
+      };
+      poll();
+    },
+    [t],
+  );
 
   if (isLoading || loadError) {
     return (

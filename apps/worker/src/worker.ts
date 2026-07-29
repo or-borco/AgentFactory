@@ -5,13 +5,14 @@ import {
   createEvent,
   createMessage,
   getAgent,
+  getLatestProviderSessionRef,
   getMessage,
   getRun,
   getSession,
   touchSessionActivity,
   updateRunStatus,
 } from "@agentfactory/db";
-import { draftReplyFor } from "./stub-runtime";
+import { runAgentTurn } from "./agent-runtime";
 
 new Worker<RunJobData>(
   RUN_QUEUE_NAME,
@@ -25,16 +26,24 @@ new Worker<RunJobData>(
 
       const session = await getSession(run.sessionId);
       const agent = session ? await getAgent(session.agentId) : undefined;
+      if (!session || !agent) throw new Error(`Run ${runId} has no session/agent to work with`);
 
       const triggeringMessage = run.triggeringMessageId ? await getMessage(run.triggeringMessageId) : undefined;
-      const replyText = draftReplyFor(agent?.id, triggeringMessage?.content ?? "");
+      const resumeSessionRef = await getLatestProviderSessionRef(session.id, runId);
 
-      await createMessage(run.sessionId, "assistant", replyText, runId);
-      await createEvent(runId, 1, "text_delta", { text: replyText });
+      const { text, providerSessionRef } = await runAgentTurn({
+        systemPrompt: agent.systemPrompt,
+        model: agent.model,
+        userText: triggeringMessage?.content ?? "",
+        resumeSessionRef,
+      });
+
+      await createMessage(run.sessionId, "assistant", text, runId);
+      await createEvent(runId, 1, "text_delta", { text });
       await createEvent(runId, 2, "done", { reason: "completed" });
 
-      await updateRunStatus(runId, "done", { finishedAt: new Date() });
-      if (session) await touchSessionActivity(session.id);
+      await updateRunStatus(runId, "done", { finishedAt: new Date(), providerSessionRef });
+      await touchSessionActivity(session.id);
     } catch (err) {
       await updateRunStatus(runId, "failed");
       throw err; // still let BullMQ mark the job failed
