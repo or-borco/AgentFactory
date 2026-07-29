@@ -8,6 +8,13 @@
       "when": 1785309893184,
       "tag": "0000_wooden_magik",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785324037240,
+      "tag": "0001_great_skrulls",
+      "breakpoints": true
     }
   ]
 }

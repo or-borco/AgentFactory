@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, integer, jsonb, pgEnum, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { boolean, check, doublePrecision, integer, jsonb, pgEnum, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import type { ModelSpec, ToolPolicy } from "@agentfactory/core";
 
 // `generatedByDefaultAsIdentity` (not `generatedAlways`) so seed.ts can still assign explicit,
@@ -65,3 +65,79 @@ export const agents = pgTable(
   },
   (table) => [check("agents_name_max_length", sql`char_length(${table.name}) <= 80`)],
 );
+
+export const sessionOriginEnum = pgEnum("session_origin", ["web", "slack", "github", "jira", "cron"]);
+
+export const sessions = pgTable("sessions", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  orgId: integer("org_id")
+    .notNull()
+    .references(() => orgs.id, { onDelete: "cascade" }),
+  agentId: integer("agent_id")
+    .notNull()
+    .references(() => agents.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  origin: sessionOriginEnum("origin").notNull().default("web"),
+  externalThreadRef: text("external_thread_ref"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const chatRoleEnum = pgEnum("chat_role", ["user", "assistant"]);
+
+// No org_id here — reachable via session_id. RLS isn't implemented yet (same documented gap
+// as teams/agents), so this isn't a new omission, just the same one.
+export const messages = pgTable("messages", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  sessionId: integer("session_id")
+    .notNull()
+    .references(() => sessions.id, { onDelete: "cascade" }),
+  role: chatRoleEnum("role").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const runStatusEnum = pgEnum("run_status", [
+  "queued",
+  "provisioning",
+  "running",
+  "finalizing",
+  "done",
+  "failed",
+  "cancelled",
+]);
+
+export const runs = pgTable("runs", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  sessionId: integer("session_id")
+    .notNull()
+    .references(() => sessions.id, { onDelete: "cascade" }),
+  status: runStatusEnum("status").notNull().default("queued"),
+  // Unused until a real AgentRuntime adapter exists — see ARCHITECTURE.md §1 rule 3
+  // ("provider session IDs live in runs.provider_session_ref, never in business logic").
+  // Cheap to add now, avoids a migration later.
+  providerSessionRef: text("provider_session_ref"),
+  promptHash: text("prompt_hash"),
+  costUsd: doublePrecision("cost_usd").notNull().default(0),
+  tokensUsed: integer("tokens_used").notNull().default(0),
+  budgetExceeded: boolean("budget_exceeded"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+});
+
+// No monthly partitioning yet — ARCHITECTURE.md flags this as "the one table that will hurt"
+// at scale, but partitioning tooling for zero rows is pure overhead. Revisit when it's real.
+export const events = pgTable("events", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  runId: integer("run_id")
+    .notNull()
+    .references(() => runs.id, { onDelete: "cascade" }),
+  seq: integer("seq").notNull(),
+  // Matches RunEvent["type"] from packages/core/src/events.ts (text, not an enum — the event
+  // type union is expected to grow as real runtimes land, same reasoning as agents.runtimeKind).
+  type: text("type").notNull(),
+  // Type-specific fields only (e.g. {text} for text_delta, {reason} for done) — id/runId/seq/
+  // createdAt are already real columns, not duplicated in here.
+  data: jsonb("data").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});

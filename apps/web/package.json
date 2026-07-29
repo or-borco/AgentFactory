@@ -12,6 +12,7 @@
   "dependencies": {
     "@agentfactory/core": "workspace:*",
     "@agentfactory/db": "workspace:*",
+    "@agentfactory/queue": "workspace:*",
     "@agentfactory/shared": "workspace:*",
     "next": "16.2.12",
     "react": "19.2.4",

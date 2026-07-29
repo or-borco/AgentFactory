@@ -173,30 +173,51 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const sendMessage = useCallback(async (sessionId: number, text: string) => {
-    const { userMessage, assistantMessage, session } = await apiFetch<{
+    const { userMessage, session } = await apiFetch<{
       userMessage: ChatMessage;
-      assistantMessage: ChatMessage;
       session?: Session;
     }>(`/api/sessions/${sessionId}/messages`, { method: "POST", body: JSON.stringify({ text }) });
 
     setState((s) => ({
       ...s,
       sessions: session ? s.sessions.map((sess) => (sess.id === sessionId ? session : sess)) : s.sessions,
-      messages: [...s.messages, userMessage, { ...assistantMessage, content: "", streaming: true }],
+      messages: [...s.messages, userMessage],
     }));
 
-    const words = assistantMessage.content.split(" ");
-    let i = 0;
-    const interval = setInterval(() => {
-      i += 1;
-      const partial = words.slice(0, i).join(" ");
-      const done = i >= words.length;
+    const revealAssistantMessage = (assistantMessage: ChatMessage) => {
       setState((s) => ({
         ...s,
-        messages: s.messages.map((m) => (m.id === assistantMessage.id ? { ...m, content: partial, streaming: !done } : m)),
+        messages: [...s.messages, { ...assistantMessage, content: "", streaming: true }],
       }));
-      if (done) clearInterval(interval);
-    }, 45);
+
+      const words = assistantMessage.content.split(" ");
+      let i = 0;
+      const interval = setInterval(() => {
+        i += 1;
+        const partial = words.slice(0, i).join(" ");
+        const done = i >= words.length;
+        setState((s) => ({
+          ...s,
+          messages: s.messages.map((m) =>
+            m.id === assistantMessage.id ? { ...m, content: partial, streaming: !done } : m,
+          ),
+        }));
+        if (done) clearInterval(interval);
+      }, 45);
+    };
+
+    const poll = () => {
+      setTimeout(async () => {
+        const messages = await apiFetch<ChatMessage[]>(`/api/sessions/${sessionId}/messages`);
+        const assistantMessage = messages.find((m) => m.role === "assistant" && m.id > userMessage.id);
+        if (assistantMessage) {
+          revealAssistantMessage(assistantMessage);
+        } else {
+          poll();
+        }
+      }, 1200);
+    };
+    poll();
   }, []);
 
   if (isLoading || loadError) {

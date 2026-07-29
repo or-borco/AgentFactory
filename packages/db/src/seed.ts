@@ -2,7 +2,7 @@ import "dotenv/config";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { sql } from "drizzle-orm";
-import { agents, orgs, teams } from "./schema";
+import { agents, messages, orgs, sessions, teams } from "./schema";
 
 // Mirrors apps/web/src/lib/mock/seed.ts's seedTeams/seedAgents exactly (same IDs), so the
 // mock's still-in-memory seedSessions/seedMessages — which reference these agent/team IDs by
@@ -126,9 +126,61 @@ async function main() {
     ])
     .onConflictDoNothing();
 
+  await db
+    .insert(sessions)
+    .overridingSystemValue()
+    .values([
+      {
+        id: 1,
+        orgId: ORG_ID,
+        agentId: 1,
+        title: "New conversation",
+        origin: "web",
+        createdAt: hoursAgo(3),
+        lastActivityAt: hoursAgo(3),
+      },
+      {
+        id: 2,
+        orgId: ORG_ID,
+        agentId: 1,
+        title: "Please review PR 1234",
+        origin: "web",
+        createdAt: hoursAgo(3),
+        lastActivityAt: hoursAgo(3),
+      },
+    ])
+    .onConflictDoNothing();
+
+  await db
+    .insert(messages)
+    .overridingSystemValue()
+    .values([
+      {
+        id: 1,
+        sessionId: 2,
+        role: "user",
+        content: "Please review PR 1234",
+        createdAt: hoursAgo(3),
+      },
+      {
+        id: 2,
+        sessionId: 2,
+        role: "assistant",
+        content:
+          "I looked over PR 1234. Two things worth a second look: the new `parseConfig` function doesn't handle a " +
+          "missing `timeout` field (falls through to `undefined` instead of the documented default), and the added " +
+          "test only covers the happy path. Everything else looks solid — types are precise and the diff is scoped " +
+          "well. I left inline comments on both.",
+        createdAt: hoursAgo(3),
+      },
+    ])
+    .onConflictDoNothing();
+
   await resetIdentitySequence(db, "orgs");
   await resetIdentitySequence(db, "teams");
   await resetIdentitySequence(db, "agents");
+  await resetIdentitySequence(db, "sessions");
+  await resetIdentitySequence(db, "messages");
 
   await sql_.end();
   console.log("Seed complete");
