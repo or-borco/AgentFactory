@@ -45,17 +45,18 @@ The product is built around a single loop:
 
 1. **Human writes a task** — describes what needs to be done, with acceptance criteria
 2. **Human assigns it to an agent** — assignment = start, always
-3. **Agent works** — either codes directly (small task) or proposes subtasks first (large task), then codes each independently
-4. **Human reviews** — in GitHub (PR review) or in the session (feedback)
-5. **Repeat until done** — the agent iterates on feedback within the same session
+3. **Agent evaluates** — reads the task and codebase. If the task is too large, the agent flags it as "needs input" and the human breaks it down manually
+4. **Agent works** — codes the task in a sandbox
+5. **Human reviews** — in GitHub (PR review) or in the session (feedback)
+6. **Repeat until done** — the agent iterates on feedback within the same session
 
 ### Key concepts
 
-**Tasks** — The primary object. Tasks live in AgentFactory, not in Jira. A task can be standalone or decomposed by the agent into subtasks (max two levels). Each task has a status, an assignee (agent or human), and a linked session. Parent tasks show aggregate progress across subtasks.
+**Tasks** — The primary object. Tasks live in AgentFactory, not in Jira. Each task has a status, an assignee (agent or human), and a linked session. In alpha, if a task is too large the agent flags it and the human creates smaller tasks manually. Post-alpha, the agent will propose subtasks directly (max two levels, with aggregate progress on the parent).
 
 **Sessions** — The persistent work record. Created automatically when an agent is assigned to a task. Contains the agent's plan, work log, code output, and any human feedback. Any team member can open the session and continue interacting — enabling handoff without context loss.
 
-**Agents** — Configured once by a tech lead, used by the whole team. Carry the team's system prompt, coding standards, model choice, tool policy, and skills. Agent configuration is a settings concern, not the daily-use surface.
+**Agents** — Configured once by a tech lead, used by the whole team. Carry the team's system prompt, coding standards, model choice, tool policy, skills, and a default codebase (the repo the agent works in). The default codebase means the person assigning a task doesn't need to know which repo to target. Optionally, agents can have a feature/area mapping (e.g., "Authentication" → `src/auth`) that narrows the agent's working context when a task is tagged with an area. Agent configuration is a settings concern, not the daily-use surface.
 
 **Teams** — The context boundary. Shared context (coding standards, conventions, repo knowledge) is injected into every agent run. The team owns the standards; agents enforce them.
 
@@ -69,8 +70,9 @@ The product is built around a single loop:
 |---|---|---|
 | **Open** | Task created with description and acceptance criteria. Not yet assigned. | Human creates |
 | **Assigned** | Human assigns task to an agent. Session created automatically. Agent starts immediately — no separate "run" button. | Human assigns |
-| **Agent evaluates** | Agent reads the task and codebase. Decides: small task (code directly) or large task (propose subtasks). | Agent decides |
-| **In progress** | Agent writing code in sandbox. Visible on activity dashboard. If stuck, moves to "needs input" and notifies team via Slack. | Agent codes |
+| **Agent evaluates** | Agent reads the task and codebase. Decides whether the task is small enough to code directly or too large. | Agent decides |
+| **Needs input** | Agent determined the task is too large, or got stuck during coding. Notifies team via Slack. Human either breaks the task down or provides guidance. | Agent flags |
+| **In progress** | Agent writing code in sandbox. Visible on activity dashboard. | Agent codes |
 | **PR open** | Agent pushed to branch, opened draft PR. Waiting for human code review. | Agent opens PR |
 | **Review cycle** | Human reviews PR. If changes requested, agent iterates — loops back to "in progress." May repeat multiple times. | Human + agent loop |
 | **Done** | PR merged. Task complete. Session preserved as the full work record. | Human merges |
@@ -82,17 +84,9 @@ The product is built around a single loop:
 
 ### Task decomposition
 
-When the agent evaluates a large task:
+**Alpha:** the agent does not decompose tasks itself. When the agent evaluates a task and determines it is too large to handle as a single unit, it moves the task to "needs input" and tells the human to break it down manually. The human creates smaller tasks and assigns them individually.
 
-1. Agent proposes subtasks
-2. Human reviews, edits, and approves the subtasks
-3. Agent is auto-assigned to each approved subtask
-4. Each subtask follows the same lifecycle independently
-5. If one subtask fails or gets stuck, the agent continues with the others
-
-**Constraints:** two levels max (task → subtasks, no sub-subtasks). If a subtask is too large, the agent flags it as "needs input" rather than decomposing further.
-
-**Parent task status:** shows aggregate progress (e.g., "3/5 complete, 1 needs input"). Parent is "done" only when all subtasks are done.
+**Post-alpha:** the agent proposes subtasks, human reviews and approves, agent auto-starts on each. Two levels max (task → subtasks, no sub-subtasks). Subtasks are independent — one failure doesn't block the others. Parent task shows aggregate progress.
 
 ---
 
@@ -155,11 +149,11 @@ Sessions are not in the sidebar. They're reached by clicking into a task — the
 
 | Screen | Status | Description |
 |---|---|---|
-| **Task board** | New | Kanban or list view. Tasks show status, assignee, duration, whether agent is stuck, PR link. |
-| **Create task** | New | Structured form: what, where in codebase, acceptance criteria, context attachments. Assign to agent. |
+| **Task board** | New | List view. Tasks show ID, status, assignee, area, duration, PR link. |
+| **Create task** | New | Structured form: title, description, acceptance criteria, context attachments. Assign to agent (agent carries a default codebase). |
 | **Task detail / session** | Rework | Summary header (task spec, status, agent, PR) + scannable work log. Designed for handoff. |
 | **Activity dashboard** | New | All active sessions across all agents. Status, duration, needs-attention flags. |
-| **Agent configuration** | Exists | System prompt, model, tool policy, skills. Under settings. Includes starter agents. |
+| **Agent configuration** | Exists | System prompt, model, default codebase, feature/area mapping (optional), tool policy, skills. Under settings. Includes starter agents. |
 | **Team + shared context** | Exists | Team members and shared context (standards, conventions). |
 
 ---
@@ -170,7 +164,7 @@ Sessions are not in the sidebar. They're reached by clicking into a task — the
 
 2. **Assignment = start.** No separate "run" button. When a human assigns an agent to a task, the agent begins immediately.
 
-3. **Agent decomposes large tasks into subtasks.** The agent proposes subtasks, human approves. Two levels max. Subtasks are independent — one failure doesn't block the others.
+3. **Alpha: agent alerts on oversized tasks, human decomposes manually.** Post-alpha: agent proposes subtasks, human approves. Two levels max. Subtasks are independent — one failure doesn't block the others.
 
 4. **Session = persistent, shareable work record.** Any team member can open a session and continue interacting. Designed for scannability and handoff.
 
@@ -200,10 +194,16 @@ Sessions are not in the sidebar. They're reached by clicking into a task — the
 
 3. **How does the non-engineer experience differ?** A PM writing tasks and an engineer writing tasks need different guidance and possibly different views. Same UI or persona-specific?
 
-4. **Task board UX: kanban, list, or both?** Kanban matches the lifecycle states but gets crowded. List is denser. For alpha, pick one and ship.
+4. ~~**Task board UX: kanban, list, or both?**~~ **Resolved: list view for alpha.**
 
-5. **Dependency detection between subtasks.** Subtasks run independently by design, but some will have real dependencies. For alpha, skip automatic detection. Users manually sequence. Add intelligence later.
+5. **Dependency detection between subtasks.** Post-alpha concern (decomposition is post-alpha). Subtasks run independently by design, but some will have real dependencies. Users manually sequence. Add intelligence later.
 
 6. **Which integrations for automatic context ingestion?** Post-alpha: Notion (specs), Figma (designs), and Gong/Fireflies (meeting transcripts) are the highest-signal sources. Priority depends on alpha user feedback.
 
 7. **How to prevent context pollution at scale?** When the context library grows to 200+ documents, bad retrieval degrades agent output. Quality of chunking, embedding, and relevance scoring becomes critical.
+
+8. **What is the context library?** Two possible models: (a) pointers to external locations (Google Drive, Monday docs, Notion pages) that are synced/indexed, or (b) documents uploaded directly into AgentFactory. Could be a hybrid. Determines the ingestion pipeline design and how context stays current.
+
+9. **"Needs input" notification channel.** Most likely Slack, but needs explicit design. How does the agent's alert reach the right person? Channel message, DM, or both?
+
+10. **Onboarding / first-run flow.** Starter agents ship out of the box (locked decision #7), but the setup flow — connecting GitHub, adding shared context, creating the first task — needs detailed design.
