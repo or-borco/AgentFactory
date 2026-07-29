@@ -1,32 +1,46 @@
 import "dotenv/config";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { sql } from "drizzle-orm";
 import { agents, orgs, teams } from "./schema";
 
 // Mirrors apps/web/src/lib/mock/seed.ts's seedTeams/seedAgents exactly (same IDs), so the
 // mock's still-in-memory seedSessions/seedMessages — which reference these agent/team IDs by
-// string — keep resolving correctly once agents and teams move to Postgres.
-const ORG_ID = "org_1";
+// number — keep resolving correctly once agents and teams move to Postgres.
+//
+// Ids below are explicit (via .overridingSystemValue()) so they stay stable across reseeds
+// instead of depending on insertion order. Explicit inserts into an identity column don't
+// advance its sequence, so resetIdentitySequence() bumps each one past its max seeded id —
+// otherwise the first app-created row (createTeam/createAgent) would collide with a seed id.
+const ORG_ID = 1;
 
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000);
+
+async function resetIdentitySequence(db: ReturnType<typeof drizzle>, table: string) {
+  await db.execute(
+    sql`select setval(pg_get_serial_sequence(${table}, 'id'), coalesce((select max(id) from ${sql.raw(table)}), 1))`,
+  );
+}
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL is not set");
 
-  const sql = postgres(connectionString, { max: 1 });
-  const db = drizzle(sql);
+  const sql_ = postgres(connectionString, { max: 1 });
+  const db = drizzle(sql_);
 
   await db
     .insert(orgs)
+    .overridingSystemValue()
     .values({ id: ORG_ID, name: "Acme Corp", slug: "acme", createdAt: hoursAgo(500) })
     .onConflictDoNothing();
 
   await db
     .insert(teams)
+    .overridingSystemValue()
     .values([
       {
-        id: "team_platform",
+        id: 1,
         orgId: ORG_ID,
         name: "Platform team",
         description: "Core services and internal tooling",
@@ -37,7 +51,7 @@ async function main() {
         createdAt: hoursAgo(400),
       },
       {
-        id: "team_projects",
+        id: 2,
         orgId: ORG_ID,
         name: "Projects team",
         sharedContext: "",
@@ -48,11 +62,12 @@ async function main() {
 
   await db
     .insert(agents)
+    .overridingSystemValue()
     .values([
       {
-        id: "agent_code_reviewer",
+        id: 1,
         orgId: ORG_ID,
-        teamId: "team_platform",
+        teamId: 1,
         name: "Code reviewer",
         description: "Perform code review",
         avatarEmoji: "🤖",
@@ -68,13 +83,13 @@ async function main() {
             { tool: "merge_pr", decision: "deny" },
           ],
         },
-        skillIds: ["skill_conventional_commits"],
-        connectionIds: ["conn_github"],
+        skillIds: [1],
+        connectionIds: [1],
         createdAt: hoursAgo(400),
         updatedAt: hoursAgo(3),
       },
       {
-        id: "agent_release_notes",
+        id: 2,
         orgId: ORG_ID,
         name: "Release notes writer",
         description: "Draft release notes from merged PRs",
@@ -87,12 +102,12 @@ async function main() {
         runtimeKind: "claude-code",
         toolPolicy: { defaultDecision: "deny", rules: [] },
         skillIds: [],
-        connectionIds: ["conn_github"],
+        connectionIds: [1],
         createdAt: hoursAgo(200),
         updatedAt: hoursAgo(200),
       },
       {
-        id: "agent_support_triager",
+        id: 3,
         orgId: ORG_ID,
         name: "Support triager",
         description: "Label and route incoming support tickets",
@@ -111,7 +126,11 @@ async function main() {
     ])
     .onConflictDoNothing();
 
-  await sql.end();
+  await resetIdentitySequence(db, "orgs");
+  await resetIdentitySequence(db, "teams");
+  await resetIdentitySequence(db, "agents");
+
+  await sql_.end();
   console.log("Seed complete");
 }
 

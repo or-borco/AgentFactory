@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import type { Agent, AgentMode } from "@agentfactory/core";
 import { db } from "../client";
 import { agents } from "../schema";
-import { newId } from "../id";
 
 const MAX_NAME_LENGTH = 80;
 
@@ -30,12 +29,12 @@ function toAgent(row: typeof agents.$inferSelect): Agent {
   };
 }
 
-export async function listAgents(orgId: string): Promise<Agent[]> {
+export async function listAgents(orgId: number): Promise<Agent[]> {
   const rows = await db.select().from(agents).where(eq(agents.orgId, orgId));
   return rows.map(toAgent);
 }
 
-export async function getAgent(id: string): Promise<Agent | undefined> {
+export async function getAgent(id: number): Promise<Agent | undefined> {
   const [row] = await db.select().from(agents).where(eq(agents.id, id));
   return row ? toAgent(row) : undefined;
 }
@@ -45,14 +44,13 @@ export interface NewAgentInput {
   description: string;
   systemPrompt: string;
   mode: AgentMode;
-  teamId?: string;
+  teamId?: number;
 }
 
-export async function createAgent(orgId: string, input: NewAgentInput): Promise<Agent> {
+export async function createAgent(orgId: number, input: NewAgentInput): Promise<Agent> {
   const [row] = await db
     .insert(agents)
     .values({
-      id: newId("agent"),
       orgId,
       teamId: input.teamId ?? null,
       name: capName(input.name),
@@ -71,7 +69,7 @@ export async function createAgent(orgId: string, input: NewAgentInput): Promise<
 }
 
 export async function updateAgent(
-  agentId: string,
+  agentId: number,
   patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "teamId">>,
 ): Promise<Agent | undefined> {
   const values: Partial<typeof agents.$inferInsert> = { updatedAt: new Date() };

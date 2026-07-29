@@ -24,30 +24,30 @@ interface NewAgentInput {
   description: string;
   systemPrompt: string;
   mode: "manual" | "automatic";
-  teamId?: string;
+  teamId?: number;
 }
 
 interface MockBackendValue extends MockState {
   toast: TranslationKey | null;
   notify: (key: TranslationKey) => void;
-  getAgent: (id: string) => Agent | undefined;
-  getTeam: (id: string) => Team | undefined;
-  getSession: (id: string) => Session | undefined;
-  sessionsForAgent: (agentId: string) => Session[];
-  agentsForTeam: (teamId: string) => Agent[];
-  messagesForSession: (sessionId: string) => DisplayMessage[];
-  loadMessages: (sessionId: string) => Promise<void>;
+  getAgent: (id: number) => Agent | undefined;
+  getTeam: (id: number) => Team | undefined;
+  getSession: (id: number) => Session | undefined;
+  sessionsForAgent: (agentId: number) => Session[];
+  agentsForTeam: (teamId: number) => Agent[];
+  messagesForSession: (sessionId: number) => DisplayMessage[];
+  loadMessages: (sessionId: number) => Promise<void>;
   createTeam: (name: string, description: string) => Promise<Team>;
-  updateTeam: (teamId: string, patch: { name: string; description: string }) => Promise<void>;
-  updateTeamSharedContext: (teamId: string, sharedContext: string) => Promise<void>;
-  assignAgentToTeam: (agentId: string, teamId: string) => Promise<void>;
+  updateTeam: (teamId: number, patch: { name: string; description: string }) => Promise<void>;
+  updateTeamSharedContext: (teamId: number, sharedContext: string) => Promise<void>;
+  assignAgentToTeam: (agentId: number, teamId: number) => Promise<void>;
   createAgent: (input: NewAgentInput) => Promise<Agent>;
   updateAgent: (
-    agentId: string,
+    agentId: number,
     patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode">>,
   ) => Promise<void>;
-  createSession: (agentId: string, title: string) => Promise<Session>;
-  sendMessage: (sessionId: string, text: string) => Promise<void>;
+  createSession: (agentId: number, title: string) => Promise<Session>;
+  sendMessage: (sessionId: number, text: string) => Promise<void>;
 }
 
 const MockBackendContext = createContext<MockBackendValue | null>(null);
@@ -90,26 +90,26 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const getAgent = useCallback((id: string) => state.agents.find((a) => a.id === id), [state.agents]);
-  const getTeam = useCallback((id: string) => state.teams.find((t) => t.id === id), [state.teams]);
-  const getSession = useCallback((id: string) => state.sessions.find((s) => s.id === id), [state.sessions]);
+  const getAgent = useCallback((id: number) => state.agents.find((a) => a.id === id), [state.agents]);
+  const getTeam = useCallback((id: number) => state.teams.find((t) => t.id === id), [state.teams]);
+  const getSession = useCallback((id: number) => state.sessions.find((s) => s.id === id), [state.sessions]);
   const sessionsForAgent = useCallback(
-    (agentId: string) =>
+    (agentId: number) =>
       state.sessions
         .filter((s) => s.agentId === agentId)
         .sort((a, b) => +new Date(b.lastActivityAt) - +new Date(a.lastActivityAt)),
     [state.sessions],
   );
   const agentsForTeam = useCallback(
-    (teamId: string) => state.agents.filter((a) => a.teamId === teamId),
+    (teamId: number) => state.agents.filter((a) => a.teamId === teamId),
     [state.agents],
   );
   const messagesForSession = useCallback(
-    (sessionId: string) => state.messages.filter((m) => m.sessionId === sessionId),
+    (sessionId: number) => state.messages.filter((m) => m.sessionId === sessionId),
     [state.messages],
   );
 
-  const loadMessages = useCallback(async (sessionId: string) => {
+  const loadMessages = useCallback(async (sessionId: number) => {
     const messages = await apiFetch<ChatMessage[]>(`/api/sessions/${sessionId}/messages`);
     setState((s) => ({ ...s, messages: [...s.messages.filter((m) => m.sessionId !== sessionId), ...messages] }));
   }, []);
@@ -125,7 +125,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   );
 
   const updateTeam = useCallback(
-    async (teamId: string, patch: { name: string; description: string }) => {
+    async (teamId: number, patch: { name: string; description: string }) => {
       const team = await apiFetch<Team>(`/api/teams/${teamId}`, { method: "PATCH", body: JSON.stringify(patch) });
       setState((s) => ({ ...s, teams: s.teams.map((t) => (t.id === teamId ? team : t)) }));
       showToast("toast.teamUpdated");
@@ -134,7 +134,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   );
 
   const updateTeamSharedContext = useCallback(
-    async (teamId: string, sharedContext: string) => {
+    async (teamId: number, sharedContext: string) => {
       const team = await apiFetch<Team>(`/api/teams/${teamId}`, { method: "PATCH", body: JSON.stringify({ sharedContext }) });
       setState((s) => ({ ...s, teams: s.teams.map((t) => (t.id === teamId ? team : t)) }));
       showToast("toast.sharedContextSaved");
@@ -142,7 +142,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     [showToast],
   );
 
-  const assignAgentToTeam = useCallback(async (agentId: string, teamId: string) => {
+  const assignAgentToTeam = useCallback(async (agentId: number, teamId: number) => {
     const agent = await apiFetch<Agent>(`/api/agents/${agentId}`, { method: "PATCH", body: JSON.stringify({ teamId }) });
     setState((s) => ({ ...s, agents: s.agents.map((a) => (a.id === agentId ? agent : a)) }));
   }, []);
@@ -158,7 +158,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   );
 
   const updateAgent = useCallback(
-    async (agentId: string, patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode">>) => {
+    async (agentId: number, patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode">>) => {
       const agent = await apiFetch<Agent>(`/api/agents/${agentId}`, { method: "PATCH", body: JSON.stringify(patch) });
       setState((s) => ({ ...s, agents: s.agents.map((a) => (a.id === agentId ? agent : a)) }));
       showToast("toast.agentUpdated");
@@ -166,13 +166,13 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     [showToast],
   );
 
-  const createSession = useCallback(async (agentId: string, title: string) => {
+  const createSession = useCallback(async (agentId: number, title: string) => {
     const session = await apiFetch<Session>("/api/sessions", { method: "POST", body: JSON.stringify({ agentId, title }) });
     setState((s) => ({ ...s, sessions: [...s.sessions, session] }));
     return session;
   }, []);
 
-  const sendMessage = useCallback(async (sessionId: string, text: string) => {
+  const sendMessage = useCallback(async (sessionId: number, text: string) => {
     const { userMessage, assistantMessage, session } = await apiFetch<{
       userMessage: ChatMessage;
       assistantMessage: ChatMessage;

@@ -24,12 +24,16 @@ const state: ServerState = {
   connections: [...seedConnections],
 };
 
-function newId(prefix: string) {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+// Seed sessions/messages use small explicit ids (1, 2, ...) — start well past them so new
+// mock rows never collide. This mock store resets on every dev-server restart, so a counter
+// (not a real sequence) is sufficient.
+let nextMockId = 1000;
+function newId() {
+  return nextMockId++;
 }
 
-function draftReplyFor(agentId: string | undefined, userText: string): string {
-  if (agentId === "agent_code_reviewer") {
+function draftReplyFor(agentId: number | undefined, userText: string): string {
+  if (agentId === 1) {
     return (
       "Looking at this now. Based on the diff: the changed files pass lint, but I'd flag the new error path in " +
       "the handler — it swallows the original exception instead of wrapping it, which will make this hard to " +
@@ -45,23 +49,23 @@ function draftReplyFor(agentId: string | undefined, userText: string): string {
 }
 
 export const mockStore = {
-  listSessions: (agentId?: string) => (agentId ? state.sessions.filter((s) => s.agentId === agentId) : state.sessions),
+  listSessions: (agentId?: number) => (agentId ? state.sessions.filter((s) => s.agentId === agentId) : state.sessions),
 
-  createSession(agentId: string, title: string): Session {
+  createSession(agentId: number, title: string): Session {
     const now = new Date().toISOString();
-    const session: Session = { id: newId("session"), agentId, title, origin: "web", createdAt: now, lastActivityAt: now };
+    const session: Session = { id: newId(), agentId, title, origin: "web", createdAt: now, lastActivityAt: now };
     state.sessions.push(session);
     return session;
   },
 
-  listMessages: (sessionId: string) => state.messages.filter((m) => m.sessionId === sessionId),
+  listMessages: (sessionId: number) => state.messages.filter((m) => m.sessionId === sessionId),
 
   async sendMessage(
-    sessionId: string,
+    sessionId: number,
     text: string,
   ): Promise<{ userMessage: ChatMessage; assistantMessage: ChatMessage; session?: Session }> {
     const now = new Date().toISOString();
-    const userMessage: ChatMessage = { id: newId("msg"), sessionId, role: "user", content: text, createdAt: now };
+    const userMessage: ChatMessage = { id: newId(), sessionId, role: "user", content: text, createdAt: now };
     state.messages.push(userMessage);
 
     const session = state.sessions.find((s) => s.id === sessionId);
@@ -69,7 +73,7 @@ export const mockStore = {
     const agent = session ? await getAgent(session.agentId) : undefined;
 
     const assistantMessage: ChatMessage = {
-      id: newId("msg"),
+      id: newId(),
       sessionId,
       role: "assistant",
       content: draftReplyFor(agent?.id, text),

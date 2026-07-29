@@ -16,7 +16,7 @@ export default function AgentDetailPage() {
   const [showEdit, setShowEdit] = useState(false);
   const router = useRouter();
 
-  const agent = getAgent(agentId);
+  const agent = getAgent(Number(agentId));
   if (!agent) {
     return <div className="px-10 py-10 text-sm text-slate-500">{t("common.loading")}</div>;
   }

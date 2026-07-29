@@ -1,9 +1,12 @@
 import { sql } from "drizzle-orm";
-import { check, jsonb, pgEnum, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { check, integer, jsonb, pgEnum, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 import type { ModelSpec, ToolPolicy } from "@agentfactory/core";
 
+// `generatedByDefaultAsIdentity` (not `generatedAlways`) so seed.ts can still assign explicit,
+// stable ids for its fixture rows via `.overridingSystemValue()`, while app-created rows omit
+// `id` and get the next value from the same Postgres sequence.
 export const orgs = pgTable("orgs", {
-  id: text("id").primaryKey(),
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -12,8 +15,8 @@ export const orgs = pgTable("orgs", {
 export const teams = pgTable(
   "teams",
   {
-    id: text("id").primaryKey(),
-    orgId: text("org_id")
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    orgId: integer("org_id")
       .notNull()
       .references(() => orgs.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
@@ -39,11 +42,11 @@ export const agentModeEnum = pgEnum("agent_mode", ["manual", "automatic"]);
 export const agents = pgTable(
   "agents",
   {
-    id: text("id").primaryKey(),
-    orgId: text("org_id")
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    orgId: integer("org_id")
       .notNull()
       .references(() => orgs.id, { onDelete: "cascade" }),
-    teamId: text("team_id").references(() => teams.id, { onDelete: "set null" }),
+    teamId: integer("team_id").references(() => teams.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     description: text("description"),
     avatarEmoji: text("avatar_emoji"),
@@ -55,8 +58,8 @@ export const agents = pgTable(
     // Plain ID arrays for now, not join tables (agent_skills/agent_connections per §2.5/§2.7) —
     // those pin skill *versions* and connection *scopes*, which don't exist yet since Skills
     // and Connections have no real backend of their own. Revisit when they get one.
-    skillIds: jsonb("skill_ids").$type<string[]>().notNull().default([]),
-    connectionIds: jsonb("connection_ids").$type<string[]>().notNull().default([]),
+    skillIds: jsonb("skill_ids").$type<number[]>().notNull().default([]),
+    connectionIds: jsonb("connection_ids").$type<number[]>().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

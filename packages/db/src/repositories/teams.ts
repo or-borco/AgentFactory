@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import type { Team } from "@agentfactory/core";
 import { db } from "../client";
 import { teams } from "../schema";
-import { newId } from "../id";
 
 const MAX_NAME_LENGTH = 80;
 const SHARED_CONTEXT_MAX_BYTES = 64 * 1024;
@@ -29,21 +28,20 @@ function toTeam(row: typeof teams.$inferSelect): Team {
   };
 }
 
-export async function listTeams(orgId: string): Promise<Team[]> {
+export async function listTeams(orgId: number): Promise<Team[]> {
   const rows = await db.select().from(teams).where(eq(teams.orgId, orgId));
   return rows.map(toTeam);
 }
 
-export async function getTeam(id: string): Promise<Team | undefined> {
+export async function getTeam(id: number): Promise<Team | undefined> {
   const [row] = await db.select().from(teams).where(eq(teams.id, id));
   return row ? toTeam(row) : undefined;
 }
 
-export async function createTeam(orgId: string, name: string, description: string): Promise<Team> {
+export async function createTeam(orgId: number, name: string, description: string): Promise<Team> {
   const [row] = await db
     .insert(teams)
     .values({
-      id: newId("team"),
       orgId,
       name: capName(name),
       description: description || null,
@@ -54,7 +52,7 @@ export async function createTeam(orgId: string, name: string, description: strin
 }
 
 export async function updateTeam(
-  teamId: string,
+  teamId: number,
   patch: { name?: string; description?: string; sharedContext?: string },
 ): Promise<Team | undefined> {
   const values: Partial<typeof teams.$inferInsert> = {};

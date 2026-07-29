@@ -1,4 +1,4 @@
-export type ID = string;
+export type ID = number;
 export type ISODateTime = string;
 
 export type Role = "owner" | "admin" | "member";
