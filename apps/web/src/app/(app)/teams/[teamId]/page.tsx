@@ -51,6 +51,13 @@ function TeamDetailBody({ team }: { team: Team }) {
     setAssignId("");
   };
 
+  const confirmReassign = () => {
+    if (!reassignTarget) return;
+    void assignAgentToTeam(reassignTarget.agentId, team.id);
+    setAssignId("");
+    setReassignTarget(null);
+  };
+
   return (
     <div className="pb-16">
       <div className="px-10 pt-8">
@@ -159,11 +166,7 @@ function TeamDetailBody({ team }: { team: Team }) {
           confirmLabel={t("teams.reassignAgentConfirm")}
           cancelLabel={t("common.cancel")}
           onCancel={() => setReassignTarget(null)}
-          onConfirm={() => {
-            void assignAgentToTeam(reassignTarget.agentId, team.id);
-            setAssignId("");
-            setReassignTarget(null);
-          }}
+          onConfirm={confirmReassign}
         />
       )}
     </div>
