@@ -1,8 +1,11 @@
 # AgentFactory — Platform Architecture
 
-> Status: approved, M0 in progress. Postgres schema + CRUD for `teams`/`agents` are real
-> (`packages/db`, Drizzle); `orgs`/auth are still a single hardcoded row, and every other M0
-> item (sessions/runs/events schema, the rest of §2.7) is still ahead. Build order is in §8.
+> Status: approved, M0 in progress. Postgres schema + CRUD for `teams`/`agents`/`sessions`/
+> `messages`/`runs`/`events` are real (`packages/db`, Drizzle); `apps/worker` exists and
+> consumes a real BullMQ/Redis `runs` queue, but its "runtime" is still a canned-reply stub
+> (`apps/worker/src/stub-runtime.ts`), not a real `AgentRuntime` — that's M1, not built yet.
+> `orgs`/auth are still a single hardcoded row; `skills`/`connections` are still in-memory mock.
+> Build order is in §8.
 
 ## Context
 

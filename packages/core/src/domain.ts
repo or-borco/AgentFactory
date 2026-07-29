@@ -165,6 +165,7 @@ export interface Run {
   id: ID;
   sessionId: ID;
   status: RunStatus;
+  triggeringMessageId?: ID;
   promptHash?: string;
   costUsd: number;
   tokensUsed: number;
@@ -195,5 +196,6 @@ export interface ChatMessage {
   sessionId: ID;
   role: "user" | "assistant";
   content: string;
+  runId?: ID;
   createdAt: ISODateTime;
 }
