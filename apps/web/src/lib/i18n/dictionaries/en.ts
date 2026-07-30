@@ -202,6 +202,18 @@ const en = {
       cancel: "Cancel",
     },
   },
+  activity: {
+    title: "Activity",
+    subtitle: "What your agents are working on right now",
+    inProgress: "In progress",
+    needsInput: "Needs input",
+    prsOpen: "PRs open",
+    doneThisWeek: "Done this week",
+    recentTasks: "Recent tasks",
+    noActivity: "No activity yet",
+    noActivitySub: "Tasks will appear here once agents start working.",
+    updatedAt: "Updated {time}",
+  },
   taskDetail: {
     criteria: "Acceptance criteria",
     description: "What needs to be done",
