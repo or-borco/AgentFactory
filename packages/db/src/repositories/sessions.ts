@@ -10,6 +10,7 @@ function toSession(row: typeof sessions.$inferSelect): Session {
     title: row.title,
     origin: row.origin,
     externalThreadRef: row.externalThreadRef ?? undefined,
+    sandboxId: row.sandboxId ?? undefined,
     createdAt: row.createdAt.toISOString(),
     lastActivityAt: row.lastActivityAt.toISOString(),
   };
@@ -43,4 +44,8 @@ export async function createSession(orgId: number, agentId: number, title: strin
 
 export async function touchSessionActivity(id: number): Promise<void> {
   await db.update(sessions).set({ lastActivityAt: new Date() }).where(eq(sessions.id, id));
+}
+
+export async function setSessionSandboxId(id: number, sandboxId: string): Promise<void> {
+  await db.update(sessions).set({ sandboxId }).where(eq(sessions.id, id));
 }

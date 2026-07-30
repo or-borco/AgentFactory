@@ -130,6 +130,9 @@ export const sessions = pgTable("sessions", {
   title: text("title").notNull(),
   origin: sessionOriginEnum("origin").notNull().default("web"),
   externalThreadRef: text("external_thread_ref"),
+  // The warm sandbox container id for this session's runs — see Session.sandboxId in
+  // packages/core/src/domain.ts for why this is session-scoped, not run-scoped.
+  sandboxId: text("sandbox_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
 });

@@ -148,6 +148,10 @@ export interface Session {
   title: string;
   origin: SessionOrigin;
   externalThreadRef?: string;
+  // The warm sandbox container for this session's runs (ARCHITECTURE.md §4: "one sandbox per
+  // active session, kept warm"), reused across runs rather than recreated per turn — the SDK's
+  // own multi-turn `resume` state lives on the container's filesystem, not server-side.
+  sandboxId?: string;
   createdAt: ISODateTime;
   lastActivityAt: ISODateTime;
 }
