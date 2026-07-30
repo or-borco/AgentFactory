@@ -364,6 +364,15 @@ per-trusted-org host is honest and sufficient.
 - Every event is persisted *and* published — the browser streams live, and a refresh/Slack render replays from
   Postgres. Same log serves both.
 
+**Multi-node constraint:** Warm containers are **node-local** — `sessions.sandboxId` stores the Docker container ID,
+but the container only exists on the node's local daemon that created it. In a multi-node deployment (load balancer
+routing to multiple worker instances), a session's second request can land on a different node where the container
+doesn't exist. **Solution:** Sticky sessions at the load balancer — hash session ID to always route a session's
+requests to the same node. For resilience, periodically snapshot the session's accumulated context (messages,
+executed commands, file state) into a `SessionSnapshot` table; on node failure, another node can restore from the
+latest snapshot and recreate the warm container, so multi-turn resume survives failover. See §11 for the full tradeoff.
+Multi-node seamless migration requires Temporal (§9).
+
 ### Public API: a separate `apps/api`, deferred until there's a real caller
 
 `apps/web`'s Route Handlers are already real HTTP endpoints — nothing about Next.js prevents an external client
@@ -544,4 +553,4 @@ without a clear answer yet; resolve it into §9 once decided.
 
 | Question | Current thinking | Main tradeoff |
 |---|---|---|
-| **Repo clone volume size** — once repo cloning lands (M2, §4 workspace), a configured repo can be arbitrarily large | Use a real disk-backed Docker volume for `/workspace` instead of the planned read-only-rootfs + tmpfs (§4) whenever a repo is being cloned — tmpfs is RAM-backed, so a multi-GB clone would blow through both the container's memory cap and host RAM, not just disk. Default to shallow/partial clones (`--depth=1` or `--filter=blob:none`) rather than full history — disk is disposable (§4) and agents rarely need full git history; `git fetch --unshallow` on demand if a task genuinely needs it. Enforce a size cap by checking repo size via the `ScmProvider`/GitHub API *before* cloning, not a filesystem quota — Docker storage quotas depend on the host filesystem (overlay2 quotas need xfs+pquota) and won't be portable across Colima/Docker Desktop/prod hosts. | A real volume needs its own cleanup step alongside `destroy()` (one more thing to leak if a teardown path is missed). Shallow clones limit git operations (blame/log) until unshallowed. Still unresolved: the actual cap value, and whether it's a platform-wide constant or per-org configurable. |
+| **Multi-node session affinity** — warm containers (§4, M1) are node-local, but `sessions.sandboxId` is global (DB-backed). In a multi-node cluster, a session's second request can reach a different node where the container doesn't exist. | **Sticky sessions at the load balancer** — hash session ID (or session cookie) to route all requests for a session to the same node that provisioned its container. Preferred short-term solution because it's simple and doesn't break warm reuse. **Resilience layer**: periodically compact accumulated agent context (system prompt, truncated turn history, latest files snapshot) into a `SessionSnapshot` table keyed by `(sessionId, snapshotSeq)`. On failover (sticky node down), a different node can read the latest snapshot and recreate the container's state from it, so multi-turn resume still works even after node failure — the snapshot becomes the new "warm" state. Snapshots are taken every N turns or on explicit flush; old snapshots can be pruned since only the latest is needed for failover. | Sticky sessions introduce a hard node affinity, so one node's failure loses its sessions until another node reads a snapshot (snapshot write latency and staleness are tradeoffs). Full distributed state requires Temporal or equivalent (§9 note on Temporal migration), which is a much larger undertaking. Snapshot compaction adds write overhead and DB growth; mitigate with bounded snapshot history and periodic vacuum. |
