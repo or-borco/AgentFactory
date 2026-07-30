@@ -2,7 +2,8 @@ import "dotenv/config";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { sql } from "drizzle-orm";
-import { agents, messages, orgs, sessions, teams } from "./schema";
+import { agents, memberships, messages, orgs, sessions, teams, users } from "./schema";
+import { hashPassword } from "./password";
 
 // Mirrors apps/web/src/lib/mock/seed.ts's seedTeams/seedAgents exactly (same IDs), so the
 // mock's still-in-memory seedSessions/seedMessages — which reference these agent/team IDs by
@@ -33,6 +34,24 @@ async function main() {
     .insert(orgs)
     .overridingSystemValue()
     .values({ id: ORG_ID, name: "Acme Corp", slug: "acme", createdAt: hoursAgo(500) })
+    .onConflictDoNothing();
+
+  // Dev login: demo@acme.test / password
+  await db
+    .insert(users)
+    .overridingSystemValue()
+    .values({
+      id: 1,
+      email: "demo@acme.test",
+      name: "Demo User",
+      passwordHash: await hashPassword("password"),
+      createdAt: hoursAgo(500),
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(memberships)
+    .values({ userId: 1, orgId: ORG_ID, role: "owner", createdAt: hoursAgo(500) })
     .onConflictDoNothing();
 
   await db
@@ -177,6 +196,7 @@ async function main() {
     .onConflictDoNothing();
 
   await resetIdentitySequence(db, "orgs");
+  await resetIdentitySequence(db, "users");
   await resetIdentitySequence(db, "teams");
   await resetIdentitySequence(db, "agents");
   await resetIdentitySequence(db, "sessions");

@@ -1,5 +1,21 @@
+import { redirect } from "next/navigation";
 import { LeftPane } from "@/components/LeftPane";
+import { AuthProvider } from "@/lib/auth/context";
+import { MockBackendProvider } from "@/lib/mock/context";
+import { getCurrentUser } from "@/server/auth";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
-  return <LeftPane>{children}</LeftPane>;
+// MockBackendProvider lives here (not the root layout) because every one of its API calls
+// requires the auth this layout already gates on — mounting it above /login would fire
+// authenticated-only fetches for a visitor who isn't logged in yet.
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const user = await getCurrentUser();
+  if (!user) redirect("/login");
+
+  return (
+    <AuthProvider user={user}>
+      <MockBackendProvider>
+        <LeftPane>{children}</LeftPane>
+      </MockBackendProvider>
+    </AuthProvider>
+  );
 }

@@ -9,7 +9,16 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status} ${body}`);
+    // Route handlers return { error: "human-readable message" } — surface that directly when
+    // present so callers (e.g. auth forms) can show it as-is instead of a raw fetch failure.
+    const parsedError = (() => {
+      try {
+        return (JSON.parse(body) as { error?: string }).error;
+      } catch {
+        return undefined;
+      }
+    })();
+    throw new Error(parsedError ?? `${init?.method ?? "GET"} ${path} failed: ${res.status} ${body}`);
   }
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;

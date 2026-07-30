@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "@/lib/i18n/context";
-import { BotIcon, LinkIcon, SparklesIcon, UsersIcon } from "@/lib/icons";
+import { BotIcon, LinkIcon, LogOutIcon, SparklesIcon, UsersIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
+import { useAuth } from "@/lib/auth/context";
 
 export function LeftPane({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { toast } = useMockBackend();
   const { t } = useTranslation();
+  const { user, logout } = useAuth();
 
   const navItems = [
     { href: "/agents", label: t("nav.agents"), icon: BotIcon },
@@ -48,7 +50,19 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="border-t border-white/10 px-5 py-4 text-xs text-slate-500">{t("nav.workspaceFooter")}</div>
+        <div className="border-t border-white/10 px-5 py-4">
+          <div className="mb-2 truncate text-xs text-slate-500" title={user.email}>
+            {user.email}
+          </div>
+          <button
+            type="button"
+            onClick={logout}
+            className="flex items-center gap-2 text-xs font-medium text-slate-400 hover:text-slate-200"
+          >
+            <LogOutIcon className="h-3.5 w-3.5" />
+            {t("nav.logout")}
+          </button>
+        </div>
       </aside>
 
       <main className="min-w-0 flex-1">{children}</main>

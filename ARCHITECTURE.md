@@ -2,10 +2,11 @@
 
 > Status: approved, M0 in progress. Postgres schema + CRUD for `teams`/`agents`/`sessions`/
 > `messages`/`runs`/`events` are real (`packages/db`, Drizzle); `apps/worker` exists and
-> consumes a real BullMQ/Redis `runs` queue, but its "runtime" is still a canned-reply stub
-> (`apps/worker/src/stub-runtime.ts`), not a real `AgentRuntime` — that's M1, not built yet.
-> `orgs`/auth are still a single hardcoded row; `skills`/`connections` are still in-memory mock.
-> Build order is in §8.
+> consumes a real BullMQ/Redis `runs` queue, calling the Claude Agent SDK directly with
+> `tools: []` (`apps/worker/src/agent-runtime.ts`) — not yet a real `AgentRuntime` behind a
+> sandbox, that's M1. `orgs`, `users`, and `memberships` are real (cookie session + scrypt
+> password hash, one org per user, no invites yet); `skills`/`connections` are still in-memory
+> mock, deferred to M1. Build order is in §8.
 
 ## Context
 
@@ -210,6 +211,13 @@ id) and **loop protection** (the agent's own PR comment must not re-trigger the 
 | `artifacts` | outputs worth surfacing: PR URLs, diffs, generated files |
 | `usage_records` | per-run tokens and cost, for metering and budget enforcement |
 | `audit_log` | human actions: who changed a system prompt, connected an integration, cancelled a run |
+
+**Gap: no invite flow.** `orgs`/`users`/`memberships` are real tables as of the M0 auth work, and
+`memberships` is already shaped for a user to belong to several orgs with different roles — but
+nothing exercises that yet. `POST /api/auth/register` always creates a brand-new org and makes the
+registering user its `owner`; there is no way for a second person to land in an existing org. Real
+team collaboration needs an invite flow (invite by email → pending membership → accept, or an
+org-join screen) before this is usable beyond a single-user workspace per signup.
 
 Source of truth is **git + the event log**, never sandbox disk.
 

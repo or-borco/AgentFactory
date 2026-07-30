@@ -1,11 +1,13 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AuthCard, AuthDivider } from "@/components/AuthCard";
+import { AuthCard } from "@/components/AuthCard";
 import { Button, TextInput } from "@agentfactory/shared";
+import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
-import { GoogleIcon, LockIcon, MailIcon } from "@/lib/icons";
+import { LockIcon, MailIcon, UserIcon } from "@/lib/icons";
 
 function UserPlusIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
@@ -20,6 +22,32 @@ function UserPlusIcon(props: React.SVGProps<SVGSVGElement>) {
 export default function RegisterPage() {
   const router = useRouter();
   const { t } = useTranslation();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (password !== confirmPassword) {
+      setError(t("auth.passwordMismatch"));
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await apiFetch("/api/auth/register", { method: "POST", body: JSON.stringify({ name, email, password }) });
+      router.push("/agents");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("auth.genericError"));
+      setSubmitting(false);
+    }
+  };
 
   return (
     <AuthCard
@@ -35,38 +63,54 @@ export default function RegisterPage() {
         </>
       }
     >
-      <button
-        type="button"
-        onClick={() => router.push("/agents")}
-        className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-      >
-        <GoogleIcon className="h-4 w-4" />
-        {t("auth.continueWithGoogle")}
-      </button>
-
-      <AuthDivider />
-
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          router.push("/agents");
-        }}
-      >
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        <div>
+          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.nameLabel")}</label>
+          <TextInput
+            type="text"
+            placeholder={t("auth.namePlaceholder")}
+            icon={<UserIcon className="h-4 w-4" />}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+        </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.emailLabel")}</label>
-          <TextInput type="email" placeholder={t("auth.emailPlaceholder")} icon={<MailIcon className="h-4 w-4" />} required />
+          <TextInput
+            type="email"
+            placeholder={t("auth.emailPlaceholder")}
+            icon={<MailIcon className="h-4 w-4" />}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.passwordLabel")}</label>
-          <TextInput type="password" placeholder={t("auth.passwordPlaceholder")} icon={<LockIcon className="h-4 w-4" />} required />
+          <TextInput
+            type="password"
+            placeholder={t("auth.passwordPlaceholder")}
+            icon={<LockIcon className="h-4 w-4" />}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
         </div>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.confirmPasswordLabel")}</label>
-          <TextInput type="password" placeholder={t("auth.passwordPlaceholder")} icon={<LockIcon className="h-4 w-4" />} required />
+          <TextInput
+            type="password"
+            placeholder={t("auth.passwordPlaceholder")}
+            icon={<LockIcon className="h-4 w-4" />}
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+          />
         </div>
-        <Button type="submit" className="w-full justify-center">
-          {t("auth.register.submit")}
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <Button type="submit" className="w-full justify-center" disabled={submitting}>
+          {submitting ? t("auth.register.submitting") : t("auth.register.submit")}
         </Button>
       </form>
     </AuthCard>

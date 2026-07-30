@@ -1,7 +1,6 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useTranslation } from "@/lib/i18n/context";
 
 export function AuthCard({
   icon,
@@ -31,17 +30,6 @@ export function AuthCard({
 
         {footer && <div className="mt-5 text-center text-sm text-slate-500">{footer}</div>}
       </div>
-    </div>
-  );
-}
-
-export function AuthDivider() {
-  const { t } = useTranslation();
-  return (
-    <div className="my-5 flex items-center gap-3">
-      <div className="h-px flex-1 bg-slate-200" />
-      <span className="text-xs font-medium text-slate-400">{t("auth.divider")}</span>
-      <div className="h-px flex-1 bg-slate-200" />
     </div>
   );
 }
