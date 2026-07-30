@@ -74,10 +74,34 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:db
 
-  # Redis integration and E2E (Playwright) jobs are added by later PRs in the
-  # test suite rollout; this job is the merge gate until then.
+  queue-integration-test:
+    runs-on: ubuntu-latest
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:queue
+
+  # E2E (Playwright) jobs are added by later PRs in the test suite rollout;
+  # this job is the merge gate until then.
   all-tests:
-    needs: [lint, typecheck, unit-test, db-integration-test]
+    needs: [lint, typecheck, unit-test, db-integration-test, queue-integration-test]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All required checks passed"

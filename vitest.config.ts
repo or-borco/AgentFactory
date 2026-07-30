@@ -13,6 +13,7 @@ export default defineConfig({
             "**/.next/**",
             "**/e2e/**",
             "**/__tests__/repositories/**",
+            "packages/queue/src/__tests__/**",
           ],
         },
       },
@@ -23,6 +24,16 @@ export default defineConfig({
           include: ["packages/db/src/__tests__/repositories/**/*.test.ts"],
           exclude: ["**/node_modules/**"],
           // Tests share one truncated database, so files must not run concurrently.
+          fileParallelism: false,
+        },
+      },
+      {
+        test: {
+          name: "queue-integration",
+          environment: "node",
+          include: ["packages/queue/src/__tests__/**/*.test.ts"],
+          exclude: ["**/node_modules/**"],
+          // Tests share one Redis queue, so files must not run concurrently.
           fileParallelism: false,
         },
       },
