@@ -16,7 +16,7 @@ export default function TeamsPage() {
 
   const newTeamButton = (
     <Button onClick={() => setShowNew(true)}>
-      <PlusIcon className="h-4 w-4" />
+      <PlusIcon size={15} />
       {t("teams.newTeam")}
     </Button>
   );
@@ -28,12 +28,12 @@ export default function TeamsPage() {
       {teams.length === 0 ? (
         <div className="px-10">
           <EmptyState
-            icon={<UsersIcon className="h-6 w-6" />}
+            icon={<UsersIcon size={24} />}
             title={t("teams.noTeamsYet")}
             subtitle={t("teams.noTeamsSubtitle")}
             action={
               <Button onClick={() => setShowNew(true)}>
-                <PlusIcon className="h-4 w-4" />
+                <PlusIcon size={15} />
                 {t("teams.newTeam")}
               </Button>
             }
@@ -45,12 +45,15 @@ export default function TeamsPage() {
             const count = agentsForTeam(team.id).length;
             return (
               <CardLink key={team.id} href={`/teams/${team.id}`} className="p-5">
-                <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white">
-                  <UsersIcon className="h-5 w-5" />
+                <div
+                  className="mb-4 flex items-center justify-center bg-[var(--color-accent-800)] border border-[var(--color-accent-600)] text-[var(--color-accent)]"
+                  style={{ width: 40, height: 40, borderRadius: "var(--radius-md)" }}
+                >
+                  <UsersIcon size={18} />
                 </div>
-                <Truncate as="h3" text={team.name} className="font-semibold text-slate-900" />
-                <p className="mt-1 text-sm text-slate-500">{team.description || t("teams.noDescription")}</p>
-                <p className="mt-3 text-xs text-slate-400">
+                <Truncate as="h3" text={team.name} className="font-semibold text-[var(--color-text)]" />
+                <p className="mt-1 text-sm text-[var(--color-neutral-500)]">{team.description || t("teams.noDescription")}</p>
+                <p className="mt-3 text-xs text-[var(--color-neutral-600)]">
                   {count === 1 ? t("teams.agentAssignedOne") : t("teams.agentAssignedOther", { count })}
                 </p>
               </CardLink>

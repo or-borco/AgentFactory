@@ -33,7 +33,9 @@ export function TeamFormModal({
         }}
       >
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("teamForm.nameLabel")}</label>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("teamForm.nameLabel")}
+          </label>
           <TextInput
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -43,7 +45,9 @@ export function TeamFormModal({
           />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("teamForm.descriptionLabel")}</label>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("teamForm.descriptionLabel")}
+          </label>
           <TextInput
             value={description}
             onChange={(e) => setDescription(e.target.value)}

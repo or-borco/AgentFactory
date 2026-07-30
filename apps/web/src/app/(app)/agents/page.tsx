@@ -27,7 +27,7 @@ export default function AgentsPage() {
         subtitle={t("agents.subtitle")}
         action={
           <Button onClick={() => setShowNew(true)}>
-            <PlusIcon className="h-4 w-4" />
+            <PlusIcon size={15} />
             {t("agents.newAgent")}
           </Button>
         }
@@ -37,17 +37,17 @@ export default function AgentsPage() {
         {agents.map((agent) => (
           <CardLink key={agent.id} href={`/agents/${agent.id}`} className="p-5">
             <div className="mb-4 flex items-start justify-between">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-xl">
+              <div
+                className="flex items-center justify-center bg-[var(--color-accent-800)] border border-[var(--color-accent-600)] text-xl"
+                style={{ width: 40, height: 40, borderRadius: "var(--radius-md)" }}
+              >
                 {agent.avatarEmoji}
               </div>
-              <ArrowRightIcon className="h-4 w-4 text-slate-300" />
+              <ArrowRightIcon size={15} style={{ color: "var(--color-neutral-600)" }} />
             </div>
-            <Truncate as="h3" text={agent.name} className="font-semibold text-slate-900" />
-            <p className="mt-1 text-sm text-slate-500">{agent.description}</p>
-            {/* Reserve the badge's height on every card, not just automatic ones — CSS grid only
-                stretches items to match the tallest item in their own row, so a manual-mode card
-                on a row by itself (no automatic sibling to size against) would otherwise be
-                shorter than rows above it. */}
+            <Truncate as="h3" text={agent.name} className="font-semibold text-[var(--color-text)]" />
+            <p className="mt-1 text-sm text-[var(--color-neutral-500)]">{agent.description}</p>
+            {/* Reserve badge height on every card for consistent grid row heights */}
             <div className="mt-3 h-6">
               {agent.mode === "automatic" && <Badge>{t("common.automatic")}</Badge>}
             </div>

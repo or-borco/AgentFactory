@@ -19,7 +19,7 @@ export default function TeamDetailPage() {
   const team = getTeam(Number(teamId));
 
   if (!team) {
-    return <div className="px-10 py-10 text-sm text-slate-500">{t("common.loading")}</div>;
+    return <div className="px-10 py-10 text-sm text-[var(--color-neutral-500)]">{t("common.loading")}</div>;
   }
 
   return <TeamDetailBody key={team.id} team={team} />;
@@ -61,28 +61,31 @@ function TeamDetailBody({ team }: { team: Team }) {
   return (
     <div className="pb-16">
       <div className="px-10 pt-8">
-        <Breadcrumb href="/teams" label={t("teams.title")} icon={<ArrowLeftIcon className="h-4 w-4" />} />
+        <Breadcrumb href="/teams" label={t("teams.title")} icon={<ArrowLeftIcon size={15} />} />
       </div>
 
       <div className="flex items-start justify-between px-10 pt-4">
         <div className="flex min-w-0 items-start gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-600 text-white">
-            <UsersIcon className="h-6 w-6" />
+          <div
+            className="flex shrink-0 items-center justify-center bg-[var(--color-accent-800)] border border-[var(--color-accent-600)] text-[var(--color-accent)]"
+            style={{ width: 52, height: 52, borderRadius: "var(--radius-md)" }}
+          >
+            <UsersIcon size={22} />
           </div>
           <div className="min-w-0">
-            <Truncate as="h1" text={team.name} className="text-xl font-bold text-slate-900" />
-            <p className="mt-0.5 text-sm text-slate-500">{team.description || t("teams.noDescription")}</p>
+            <Truncate as="h1" text={team.name} className="text-xl font-semibold text-[var(--color-text)]" />
+            <p className="mt-0.5 text-sm text-[var(--color-neutral-500)]">{team.description || t("teams.noDescription")}</p>
           </div>
         </div>
         <Button variant="secondary" onClick={() => setShowEdit(true)}>
-          <SettingsIcon className="h-4 w-4" />
+          <SettingsIcon size={14} />
           {t("common.edit")}
         </Button>
       </div>
 
       <div className="px-10 pt-8">
         <div className="mb-1 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-900">{t("teams.sharedContext")}</h2>
+          <h2 className="text-base font-semibold text-[var(--color-text)]">{t("teams.sharedContext")}</h2>
           <Button
             variant={dirty ? "primary" : "secondary"}
             disabled={!dirty}
@@ -91,30 +94,33 @@ function TeamDetailBody({ team }: { team: Team }) {
             {t("common.save")}
           </Button>
         </div>
-        <p className="mb-3 text-sm text-slate-500">{t("teams.sharedContextDescription")}</p>
+        <p className="mb-3 text-sm text-[var(--color-neutral-500)]">{t("teams.sharedContextDescription")}</p>
         <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={8}
           placeholder={t("teams.sharedContextPlaceholder")}
         />
-        <p className={`mt-1.5 text-right text-xs ${bytes > SHARED_CONTEXT_MAX_BYTES ? "text-red-500" : "text-slate-400"}`}>
+        <p
+          className="mt-1.5 text-right text-xs"
+          style={{ color: bytes > SHARED_CONTEXT_MAX_BYTES ? "#e06060" : "var(--color-neutral-600)" }}
+        >
           {t("teams.kbOfKb", { used: (bytes / 1024).toFixed(1), max: SHARED_CONTEXT_MAX_BYTES / 1024 })}
         </p>
       </div>
 
       <div className="px-10 pt-8">
-        <h2 className="mb-3 text-base font-semibold text-slate-900">{t("teams.assignedAgents")}</h2>
+        <h2 className="mb-3 text-base font-semibold text-[var(--color-text)]">{t("teams.assignedAgents")}</h2>
 
         {assigned.length === 0 ? (
-          <Card className="px-5 py-10 text-center text-sm text-slate-500">{t("teams.noAgentsAssigned")}</Card>
+          <Card className="px-5 py-10 text-center text-sm text-[var(--color-neutral-500)]">{t("teams.noAgentsAssigned")}</Card>
         ) : (
           <div className="space-y-2">
             {assigned.map((agent) => (
               <CardLink key={agent.id} href={`/agents/${agent.id}`} className="flex items-center justify-between px-5 py-4">
                 <div className="flex min-w-0 items-center gap-3">
                   <span className="shrink-0 text-lg">{agent.avatarEmoji}</span>
-                  <Truncate text={agent.name} className="text-sm font-medium text-slate-900" wrapperClassName="min-w-0 flex-1" />
+                  <Truncate text={agent.name} className="text-sm font-medium text-[var(--color-text)]" wrapperClassName="min-w-0 flex-1" />
                 </div>
                 {agent.mode === "automatic" && <Badge>{t("common.automatic")}</Badge>}
               </CardLink>
@@ -128,7 +134,8 @@ function TeamDetailBody({ team }: { team: Team }) {
               <select
                 value={assignId}
                 onChange={(e) => setAssignId(e.target.value)}
-                className="appearance-none rounded-lg border border-slate-200 py-2 pl-3 pr-9 text-sm text-slate-700 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+                className="appearance-none bg-[var(--color-surface)] border border-[var(--color-divider)] py-2 pl-3 pr-9 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
+                style={{ borderRadius: "var(--radius-sm)" }}
               >
                 <option value="">{t("teams.assignAgentPlaceholder")}</option>
                 {unassigned.map((a) => (
@@ -137,7 +144,7 @@ function TeamDetailBody({ team }: { team: Team }) {
                   </option>
                 ))}
               </select>
-              <ChevronDownIcon className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <ChevronDownIcon size={14} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--color-neutral-500)]" />
             </div>
             <Button variant="secondary" disabled={!assignId} onClick={() => requestAssign(Number(assignId))}>
               {t("teams.assign")}

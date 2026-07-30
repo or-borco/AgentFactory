@@ -43,7 +43,9 @@ export function AgentFormModal({
         }}
       >
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("agentForm.nameLabel")}</label>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("agentForm.nameLabel")}
+          </label>
           <TextInput
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -53,7 +55,9 @@ export function AgentFormModal({
           />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("agentForm.descriptionLabel")}</label>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("agentForm.descriptionLabel")}
+          </label>
           <TextInput
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -61,7 +65,9 @@ export function AgentFormModal({
           />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("agentForm.systemPromptLabel")}</label>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("agentForm.systemPromptLabel")}
+          </label>
           <Textarea
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
@@ -71,22 +77,26 @@ export function AgentFormModal({
           />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("agentForm.modeLabel")}</label>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("agentForm.modeLabel")}
+          </label>
           <div className="flex gap-2">
             {(["manual", "automatic"] as const).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => setMode(m)}
-                className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                  mode === m ? "border-indigo-500 bg-indigo-50 text-indigo-700" : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                className={`flex-1 rounded-[var(--radius-sm)] border px-3 py-2 text-sm font-medium transition-colors ${
+                  mode === m
+                    ? "border-[var(--color-accent-600)] bg-[var(--color-accent-900)] text-[var(--color-accent-300)]"
+                    : "border-[var(--color-divider)] text-[var(--color-neutral-400)] hover:border-[var(--color-neutral-600)] hover:text-[var(--color-neutral-200)]"
                 }`}
               >
                 {m === "manual" ? t("agentForm.modeManual") : t("agentForm.modeAutomatic")}
               </button>
             ))}
           </div>
-          <p className="mt-1.5 text-xs text-slate-500">
+          <p className="mt-1.5 text-xs text-[var(--color-neutral-600)]">
             {mode === "manual" ? t("agentForm.modeManualHelp") : t("agentForm.modeAutomaticHelp")}
           </p>
         </div>

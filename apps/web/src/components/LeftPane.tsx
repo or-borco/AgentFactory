@@ -20,55 +20,95 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
     { href: "/connections", label: t("nav.connections"), icon: LinkIcon },
   ];
 
+  const initials = user.email.slice(0, 2).toUpperCase();
+
   return (
-    <div className="flex min-h-screen bg-[#f4f5f7]">
-      <aside className="flex w-64 shrink-0 flex-col bg-[#0a0e1a] text-white">
-        <div className="flex items-center gap-2.5 px-5 py-6">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600">
-            <BotIcon className="h-4.5 w-4.5 text-white" />
+    <div className="flex min-h-screen bg-[var(--color-bg)]">
+      <aside
+        className="flex shrink-0 flex-col border-r border-[var(--color-divider)] bg-[var(--color-surface)]"
+        style={{ width: 188 }}
+      >
+        {/* Brand */}
+        <div
+          className="flex items-center gap-[9px] border-b border-[var(--color-divider)]"
+          style={{ padding: "16px 14px 12px" }}
+        >
+          <div
+            className="flex shrink-0 items-center justify-center bg-[var(--color-accent-800)] border border-[var(--color-accent-600)]"
+            style={{ width: 26, height: 26, borderRadius: 7 }}
+          >
+            <BotIcon size={13} style={{ color: "var(--color-accent)" }} />
           </div>
-          <span className="text-[15px] font-semibold">AgentHub</span>
+          <span style={{ fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em", color: "var(--color-text)" }}>
+            AgentFactory
+          </span>
         </div>
 
-        <nav className="flex-1 space-y-1 px-3">
+        {/* Nav */}
+        <nav className="flex-1" style={{ padding: 8 }}>
           {navItems.map(({ href, label, icon: Icon }) => {
             const active = pathname === href || pathname.startsWith(`${href}/`);
             return (
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
-                  active
-                    ? "bg-white/10 font-medium text-white"
-                    : "text-slate-400 hover:bg-white/5 hover:text-slate-200"
-                }`}
+                className="flex items-center transition-colors"
+                style={{
+                  gap: 8,
+                  padding: "7px 9px",
+                  borderRadius: "var(--radius-sm)",
+                  marginBottom: 2,
+                  fontSize: 13,
+                  fontWeight: 500,
+                  background: active ? "var(--color-accent-900)" : "transparent",
+                  color: active ? "var(--color-accent-300)" : "var(--color-neutral-400)",
+                }}
+                onMouseEnter={(e) => {
+                  if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(145,132,217,0.1)";
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) (e.currentTarget as HTMLElement).style.background = "transparent";
+                }}
               >
-                <Icon className="h-4 w-4" />
+                <Icon size={15} style={{ flexShrink: 0 }} />
                 {label}
               </Link>
             );
           })}
         </nav>
 
-        <div className="border-t border-white/10 px-5 py-4">
-          <div className="mb-2 truncate text-xs text-slate-500" title={user.email}>
-            {user.email}
-          </div>
-          <button
-            type="button"
-            onClick={logout}
-            className="flex items-center gap-2 text-xs font-medium text-slate-400 hover:text-slate-200"
+        {/* Profile */}
+        <div
+          className="flex items-center gap-[9px] border-t border-[var(--color-divider)] cursor-pointer"
+          style={{ padding: "11px 14px" }}
+          onClick={logout}
+          title={t("nav.logout")}
+        >
+          <div
+            className="flex shrink-0 items-center justify-center rounded-full bg-[var(--color-neutral-700)]"
+            style={{ width: 28, height: 28, fontSize: 10, fontWeight: 700, color: "var(--color-neutral-200)" }}
           >
-            <LogOutIcon className="h-3.5 w-3.5" />
-            {t("nav.logout")}
-          </button>
+            {initials}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="truncate" style={{ fontSize: 12, fontWeight: 500, color: "var(--color-text)" }}>
+              {user.email.split("@")[0]}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>
+              {t("nav.logout")}
+            </div>
+          </div>
+          <LogOutIcon size={14} style={{ color: "var(--color-neutral-600)", flexShrink: 0 }} />
         </div>
       </aside>
 
       <main className="min-w-0 flex-1">{children}</main>
 
       {toast && (
-        <div className="fixed bottom-6 right-6 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-800 shadow-lg">
+        <div
+          className="fixed bottom-6 right-6 border border-[var(--color-divider)] bg-[var(--color-surface)] px-4 py-3 text-sm font-medium text-[var(--color-text)]"
+          style={{ borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)" }}
+        >
           {t(toast)}
         </div>
       )}

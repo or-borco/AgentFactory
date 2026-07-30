@@ -7,7 +7,7 @@ export function TooltipBubble({ label }: { label: string }) {
   return (
     <span
       role="tooltip"
-      className="pointer-events-none absolute left-0 top-full z-50 mt-1 max-w-xs whitespace-normal rounded-md bg-slate-900 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity delay-150 duration-100 group-hover/tooltip:opacity-100"
+      className="pointer-events-none absolute left-0 top-full z-50 mt-1 max-w-xs whitespace-normal rounded-[var(--radius-sm)] bg-[var(--color-neutral-900)] px-2 py-1 text-xs text-[var(--color-neutral-200)] opacity-0 shadow-[var(--shadow-lg)] transition-opacity delay-150 duration-100 group-hover/tooltip:opacity-100"
     >
       {label}
     </span>

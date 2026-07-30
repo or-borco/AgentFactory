@@ -25,16 +25,19 @@ function ConnectionRow({ conn, t }: { conn: Connection; t: Translate }) {
   return (
     <Card className="flex items-center justify-between px-5 py-4">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
-          <LinkIcon className="h-4.5 w-4.5" />
+        <div
+          className="flex items-center justify-center bg-[var(--color-neutral-800)] text-[var(--color-neutral-500)]"
+          style={{ width: 40, height: 40, borderRadius: "var(--radius-md)" }}
+        >
+          <LinkIcon size={16} />
         </div>
-        <p className="text-sm font-semibold text-slate-900">
+        <p className="text-sm font-semibold text-[var(--color-text)]">
           {t(`connections.provider.${conn.provider}`)} · {conn.label}
         </p>
       </div>
       <Badge tone={healthTone(conn.health)}>
         <span className="flex items-center gap-1">
-          {conn.health === "needs-attention" && <AlertIcon className="h-3 w-3" />}
+          {conn.health === "needs-attention" && <AlertIcon size={11} />}
           {t(`connections.health.${conn.health}`)}
         </span>
       </Badge>
@@ -53,7 +56,7 @@ export default function ConnectionsPage() {
         subtitle={t("connections.subtitle")}
         action={
           <Button onClick={() => notify("toast.connectProviderComingSoon")}>
-            <PlusIcon className="h-4 w-4" />
+            <PlusIcon size={15} />
             {t("connections.newConnection")}
           </Button>
         }
@@ -64,7 +67,7 @@ export default function ConnectionsPage() {
         if (items.length === 0) return null;
         return (
           <div key={kind} className="px-10 pt-8">
-            <h2 className="mb-3 text-base font-semibold text-slate-900">{t(labelKey)}</h2>
+            <h2 className="mb-3 text-base font-semibold text-[var(--color-text)]">{t(labelKey)}</h2>
             <div className="space-y-2">
               {items.map((conn) => (
                 <ConnectionRow key={conn.id} conn={conn} t={t} />

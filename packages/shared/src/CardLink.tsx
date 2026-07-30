@@ -8,7 +8,7 @@ import { Card } from "./Card";
 export function CardLink({ href, className = "", children }: { href: string; className?: string; children: ReactNode }) {
   return (
     <Link href={href} className="block h-full">
-      <Card className={`h-full transition-shadow hover:shadow-md ${className}`}>{children}</Card>
+      <Card className={`h-full transition-colors hover:border-[var(--color-neutral-600)] ${className}`}>{children}</Card>
     </Link>
   );
 }

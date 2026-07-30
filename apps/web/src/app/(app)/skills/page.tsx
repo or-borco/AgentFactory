@@ -20,7 +20,7 @@ export default function SkillsPage() {
               {t("skills.importFromGit")}
             </Button>
             <Button onClick={() => notify("toast.skillAuthoringComingSoon")}>
-              <PlusIcon className="h-4 w-4" />
+              <PlusIcon size={15} />
               {t("skills.newSkill")}
             </Button>
           </div>
@@ -31,15 +31,18 @@ export default function SkillsPage() {
         {skills.map((skill) => (
           <Card key={skill.id} className="p-5">
             <div className="mb-4 flex items-center justify-between">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white">
-                <SparklesIcon className="h-5 w-5" />
+              <div
+                className="flex items-center justify-center bg-[var(--color-accent-800)] border border-[var(--color-accent-600)] text-[var(--color-accent)]"
+                style={{ width: 40, height: 40, borderRadius: "var(--radius-md)" }}
+              >
+                <SparklesIcon size={18} />
               </div>
               <Badge tone={skill.source === "git" ? "success" : "neutral"}>
                 {skill.source === "git" ? t("skills.sourceGit") : t("skills.sourceAuthored")}
               </Badge>
             </div>
-            <h3 className="font-semibold text-slate-900">{skill.name}</h3>
-            <p className="mt-1 text-sm text-slate-500">{skill.description}</p>
+            <h3 className="font-semibold text-[var(--color-text)]">{skill.name}</h3>
+            <p className="mt-1 text-sm text-[var(--color-neutral-500)]">{skill.description}</p>
           </Card>
         ))}
       </div>

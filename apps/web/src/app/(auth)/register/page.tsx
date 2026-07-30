@@ -51,13 +51,13 @@ export default function RegisterPage() {
 
   return (
     <AuthCard
-      icon={<UserPlusIcon className="h-5 w-5" />}
+      icon={<UserPlusIcon className="h-5 w-5" style={{ color: "var(--color-accent)" }} />}
       title={t("auth.register.title")}
       subtitle={t("auth.register.subtitle")}
       footer={
         <>
           {t("auth.register.haveAccount")}{" "}
-          <Link href="/login" className="font-medium text-indigo-600 hover:text-indigo-500">
+          <Link href="/login" className="font-medium text-[var(--color-accent)] hover:text-[var(--color-accent-300)]">
             {t("auth.register.logIn")}
           </Link>
         </>
@@ -65,50 +65,58 @@ export default function RegisterPage() {
     >
       <form className="space-y-4" onSubmit={handleSubmit}>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.nameLabel")}</label>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("auth.nameLabel")}
+          </label>
           <TextInput
             type="text"
             placeholder={t("auth.namePlaceholder")}
-            icon={<UserIcon className="h-4 w-4" />}
+            icon={<UserIcon size={15} />}
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
           />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.emailLabel")}</label>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("auth.emailLabel")}
+          </label>
           <TextInput
             type="email"
             placeholder={t("auth.emailPlaceholder")}
-            icon={<MailIcon className="h-4 w-4" />}
+            icon={<MailIcon size={15} />}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
           />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.passwordLabel")}</label>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("auth.passwordLabel")}
+          </label>
           <TextInput
             type="password"
             placeholder={t("auth.passwordPlaceholder")}
-            icon={<LockIcon className="h-4 w-4" />}
+            icon={<LockIcon size={15} />}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
         </div>
         <div>
-          <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.confirmPasswordLabel")}</label>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("auth.confirmPasswordLabel")}
+          </label>
           <TextInput
             type="password"
             placeholder={t("auth.passwordPlaceholder")}
-            icon={<LockIcon className="h-4 w-4" />}
+            icon={<LockIcon size={15} />}
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
             required
           />
         </div>
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm" style={{ color: "#e06060" }}>{error}</p>}
         <Button type="submit" className="w-full justify-center" disabled={submitting}>
           {submitting ? t("auth.register.submitting") : t("auth.register.submit")}
         </Button>

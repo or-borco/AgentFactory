@@ -29,7 +29,7 @@ export default function SessionPage() {
   }, [sessionIdNum, loadMessages]);
 
   if (!session || !agent) {
-    return <div className="px-10 py-10 text-sm text-slate-500">{t("common.loading")}</div>;
+    return <div className="px-10 py-10 text-sm text-[var(--color-neutral-500)]">{t("common.loading")}</div>;
   }
 
   const submit = () => {
@@ -41,23 +41,26 @@ export default function SessionPage() {
 
   return (
     <div className="flex h-screen flex-col">
-      <div className="flex items-center gap-2 border-b border-slate-200 px-10 py-4">
-        <button onClick={() => router.push(`/agents/${agent.id}`)} className="shrink-0 text-slate-400 hover:text-slate-600">
-          <ArrowLeftIcon className="h-4 w-4" />
+      <div className="flex items-center gap-2 border-b border-[var(--color-divider)] px-10 py-4">
+        <button
+          onClick={() => router.push(`/agents/${agent.id}`)}
+          className="shrink-0 text-[var(--color-neutral-500)] hover:text-[var(--color-neutral-200)]"
+        >
+          <ArrowLeftIcon size={16} />
         </button>
-        <Truncate text={session.title} className="text-sm font-semibold text-slate-900" wrapperClassName="min-w-0 flex-1" />
-        <span className="shrink-0 text-sm text-slate-400">·</span>
-        <Truncate text={agent.name} className="text-sm text-slate-500" wrapperClassName="max-w-[10rem] shrink-0" />
+        <Truncate text={session.title} className="text-sm font-semibold text-[var(--color-text)]" wrapperClassName="min-w-0 flex-1" />
+        <span className="shrink-0 text-sm text-[var(--color-neutral-600)]">·</span>
+        <Truncate text={agent.name} className="text-sm text-[var(--color-neutral-500)]" wrapperClassName="max-w-[10rem] shrink-0" />
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-10 py-6">
         {messages.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <span className="text-4xl">{agent.avatarEmoji}</span>
-            <p className="text-base font-semibold text-slate-900">
+            <p className="text-base font-semibold text-[var(--color-text)]">
               {t("session.startConversationWith", { name: agent.name })}
             </p>
-            <p className="text-sm text-slate-500">{agent.description}</p>
+            <p className="text-sm text-[var(--color-neutral-500)]">{agent.description}</p>
           </div>
         ) : (
           <div className="mx-auto max-w-2xl space-y-5">
@@ -65,21 +68,41 @@ export default function SessionPage() {
               <div key={m.id} className={`flex gap-3 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
                 {m.role === "assistant" && (
                   <div
-                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white ${
-                      m.error ? "bg-red-500" : "bg-gradient-to-br from-indigo-500 to-purple-600"
-                    }`}
+                    className="flex shrink-0 items-center justify-center"
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: "var(--radius-md)",
+                      background: m.error ? "rgba(224,96,96,0.15)" : "var(--color-accent-800)",
+                      border: `1px solid ${m.error ? "rgba(224,96,96,0.3)" : "var(--color-accent-600)"}`,
+                      color: m.error ? "#e06060" : "var(--color-accent)",
+                    }}
                   >
-                    <BotIcon className="h-4 w-4" />
+                    <BotIcon size={14} />
                   </div>
                 )}
                 <div
-                  className={`max-w-lg rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                    m.role === "user"
-                      ? "bg-indigo-600 text-white"
+                  className="max-w-lg px-4 py-2.5 text-sm leading-relaxed"
+                  style={{
+                    borderRadius: "var(--radius-md)",
+                    ...(m.role === "user"
+                      ? {
+                          background: "var(--color-accent-800)",
+                          border: "1px solid var(--color-accent-600)",
+                          color: "var(--color-accent-200)",
+                        }
                       : m.error
-                        ? "border border-red-200 bg-red-50 text-red-700"
-                        : "border border-slate-200 bg-white text-slate-800"
-                  }`}
+                        ? {
+                            background: "rgba(224,96,96,0.1)",
+                            border: "1px solid rgba(224,96,96,0.2)",
+                            color: "#e06060",
+                          }
+                        : {
+                            background: "var(--color-surface)",
+                            border: "1px solid var(--color-divider)",
+                            color: "var(--color-text)",
+                          }),
+                  }}
                 >
                   {m.content || (m.streaming ? "…" : "")}
                 </div>
@@ -89,7 +112,7 @@ export default function SessionPage() {
         )}
       </div>
 
-      <div className="border-t border-slate-200 px-10 py-4">
+      <div className="border-t border-[var(--color-divider)] px-10 py-4">
         <div className="mx-auto flex max-w-2xl items-end gap-3">
           <textarea
             value={input}
@@ -102,14 +125,21 @@ export default function SessionPage() {
             }}
             rows={1}
             placeholder={t("session.messagePlaceholder")}
-            className="max-h-40 flex-1 resize-none rounded-lg border border-slate-200 px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            className="max-h-40 flex-1 resize-none bg-[var(--color-surface)] border border-[var(--color-divider)] px-3.5 py-2.5 text-sm text-[var(--color-text)] placeholder:text-[var(--color-neutral-600)] focus:border-[var(--color-accent)] focus:outline-none"
+            style={{ borderRadius: "var(--radius-md)" }}
           />
           <button
             onClick={submit}
             disabled={!input.trim()}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:bg-indigo-200"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors disabled:opacity-45"
+            style={{
+              borderRadius: "var(--radius-md)",
+              background: "var(--color-accent-800)",
+              border: "1px solid var(--color-accent-600)",
+              color: "var(--color-accent-200)",
+            }}
           >
-            <SendIcon className="h-4 w-4" />
+            <SendIcon size={14} />
             {t("session.send")}
           </button>
         </div>

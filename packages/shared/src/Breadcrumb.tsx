@@ -5,7 +5,7 @@ export function Breadcrumb({ href, label, icon }: { href: string; label: string;
   return (
     <Link
       href={href}
-      className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800"
+      className="inline-flex items-center gap-1.5 text-sm text-[var(--color-neutral-500)] hover:text-[var(--color-neutral-200)]"
     >
       {icon}
       {label}

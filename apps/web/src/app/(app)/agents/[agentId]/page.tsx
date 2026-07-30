@@ -18,24 +18,27 @@ export default function AgentDetailPage() {
 
   const agent = getAgent(Number(agentId));
   if (!agent) {
-    return <div className="px-10 py-10 text-sm text-slate-500">{t("common.loading")}</div>;
+    return <div className="px-10 py-10 text-sm text-[var(--color-neutral-500)]">{t("common.loading")}</div>;
   }
   const sessions = sessionsForAgent(agent.id);
 
   return (
     <div className="pb-16">
       <div className="px-10 pt-8">
-        <Breadcrumb href="/agents" label={t("agents.title")} icon={<ArrowLeftIcon className="h-4 w-4" />} />
+        <Breadcrumb href="/agents" label={t("agents.title")} icon={<ArrowLeftIcon size={15} />} />
       </div>
 
       <div className="flex items-start justify-between px-10 pt-4">
         <div className="flex min-w-0 items-start gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-2xl">
+          <div
+            className="flex shrink-0 items-center justify-center bg-[var(--color-accent-800)] border border-[var(--color-accent-600)] text-2xl"
+            style={{ width: 52, height: 52, borderRadius: "var(--radius-md)" }}
+          >
             {agent.avatarEmoji}
           </div>
           <div className="min-w-0">
-            <Truncate as="h1" text={agent.name} className="text-xl font-bold text-slate-900" />
-            <p className="mt-0.5 text-sm text-slate-500">{agent.description}</p>
+            <Truncate as="h1" text={agent.name} className="text-xl font-semibold text-[var(--color-text)]" />
+            <p className="mt-0.5 text-sm text-[var(--color-neutral-500)]">{agent.description}</p>
             {agent.mode === "automatic" && (
               <div className="mt-2">
                 <Badge>{t("common.automatic")}</Badge>
@@ -44,41 +47,45 @@ export default function AgentDetailPage() {
           </div>
         </div>
         <Button variant="secondary" onClick={() => setShowEdit(true)}>
-          <SettingsIcon className="h-4 w-4" />
+          <SettingsIcon size={14} />
           {t("common.edit")}
         </Button>
       </div>
 
       <div className="px-10 pt-8">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">{t("agents.systemPrompt")}</p>
-        <Card className="p-4 text-sm text-slate-700">{agent.systemPrompt}</Card>
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+          {t("agents.systemPrompt")}
+        </p>
+        <Card className="p-4 text-sm text-[var(--color-neutral-400)]">{agent.systemPrompt}</Card>
       </div>
 
       <div className="px-10 pt-8">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-slate-900">{t("agents.sessions")}</h2>
+          <h2 className="text-base font-semibold text-[var(--color-text)]">{t("agents.sessions")}</h2>
           <Button
             onClick={async () => {
               const session = await createSession(agent.id, t("agents.newSessionDefaultTitle"));
               router.push(`/sessions/${session.id}`);
             }}
           >
-            <PlusIcon className="h-4 w-4" />
+            <PlusIcon size={15} />
             {t("agents.newSession")}
           </Button>
         </div>
 
         {sessions.length === 0 ? (
-          <Card className="px-5 py-10 text-center text-sm text-slate-500">{t("agents.noSessionsYet")}</Card>
+          <Card className="px-5 py-10 text-center text-sm text-[var(--color-neutral-500)]">
+            {t("agents.noSessionsYet")}
+          </Card>
         ) : (
           <div className="space-y-2">
             {sessions.map((session) => (
               <CardLink key={session.id} href={`/sessions/${session.id}`} className="flex items-center justify-between px-5 py-4">
                 <div className="flex min-w-0 items-center gap-3">
-                  <ChatIcon className="h-4 w-4 shrink-0 text-slate-400" />
-                  <Truncate text={session.title} className="text-sm font-medium text-slate-900" wrapperClassName="min-w-0 flex-1" />
+                  <ChatIcon size={15} style={{ flexShrink: 0, color: "var(--color-neutral-500)" }} />
+                  <Truncate text={session.title} className="text-sm font-medium text-[var(--color-text)]" wrapperClassName="min-w-0 flex-1" />
                 </div>
-                <span className="shrink-0 text-xs text-slate-400">{relativeTime(session.lastActivityAt, t)}</span>
+                <span className="shrink-0 text-xs text-[var(--color-neutral-500)]">{relativeTime(session.lastActivityAt, t)}</span>
               </CardLink>
             ))}
           </div>
