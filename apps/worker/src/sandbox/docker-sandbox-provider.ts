@@ -103,4 +103,13 @@ export class DockerSandboxProvider implements SandboxProvider {
     await container.stop().catch(() => undefined);
     await container.remove();
   }
+
+  async exists(id: string): Promise<boolean> {
+    try {
+      const info = await docker.getContainer(id).inspect();
+      return info.State.Running;
+    } catch {
+      return false;
+    }
+  }
 }
