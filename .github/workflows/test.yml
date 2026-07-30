@@ -46,10 +46,38 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:unit
 
-  # Integration (Postgres/Redis) and E2E (Playwright) jobs are added by
-  # later PRs in the test suite rollout; this job is the merge gate until then.
+  db-integration-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agentfactory
+          POSTGRES_PASSWORD: agentfactory
+          POSTGRES_DB: agentfactory_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentfactory -d agentfactory_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://agentfactory:agentfactory@localhost:5432/agentfactory_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test:db
+
+  # Redis integration and E2E (Playwright) jobs are added by later PRs in the
+  # test suite rollout; this job is the merge gate until then.
   all-tests:
-    needs: [lint, typecheck, unit-test]
+    needs: [lint, typecheck, unit-test, db-integration-test]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All required checks passed"
