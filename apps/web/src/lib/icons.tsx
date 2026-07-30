@@ -1,3 +1,4 @@
+// Icon barrel — all from @phosphor-icons/react v2
 export {
   ArrowRight as ArrowRightIcon,
   ArrowLeft as ArrowLeftIcon,
