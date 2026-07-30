@@ -15,9 +15,11 @@
     "@agentfactory/db": "workspace:*",
     "@agentfactory/queue": "workspace:*",
     "@anthropic-ai/claude-agent-sdk": "^0.3.220",
-    "bullmq": "^5.81.2"
+    "bullmq": "^5.81.2",
+    "dockerode": "^5.0.1"
   },
   "devDependencies": {
+    "@types/dockerode": "^4.0.1",
     "@types/node": "^22",
     "dotenv": "17.4.2",
     "tsx": "^4.19.2",
