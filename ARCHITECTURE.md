@@ -534,3 +534,14 @@ Both paths converge before `AgentRuntime.start()`, so adapters never learn which
   replaying completed steps. A step that can't survive this is holding state it shouldn't, and would break the
   Temporal migration later. Assert in CI that every step's input/output round-trips through `JSON.stringify`.
 - Integration tests run adapters against recorded provider fixtures; sandbox lifecycle tested with a real container.
+
+---
+
+## 11. Open questions
+
+Genuinely undecided items, tracked here instead of left implicit. Add a row when a real design question surfaces
+without a clear answer yet; resolve it into §9 once decided.
+
+| Question | Current thinking | Main tradeoff |
+|---|---|---|
+| **Repo clone volume size** — once repo cloning lands (M2, §4 workspace), a configured repo can be arbitrarily large | Use a real disk-backed Docker volume for `/workspace` instead of the planned read-only-rootfs + tmpfs (§4) whenever a repo is being cloned — tmpfs is RAM-backed, so a multi-GB clone would blow through both the container's memory cap and host RAM, not just disk. Default to shallow/partial clones (`--depth=1` or `--filter=blob:none`) rather than full history — disk is disposable (§4) and agents rarely need full git history; `git fetch --unshallow` on demand if a task genuinely needs it. Enforce a size cap by checking repo size via the `ScmProvider`/GitHub API *before* cloning, not a filesystem quota — Docker storage quotas depend on the host filesystem (overlay2 quotas need xfs+pquota) and won't be portable across Colima/Docker Desktop/prod hosts. | A real volume needs its own cleanup step alongside `destroy()` (one more thing to leak if a teardown path is missed). Shallow clones limit git operations (blame/log) until unshallowed. Still unresolved: the actual cap value, and whether it's a platform-wide constant or per-org configurable. |
