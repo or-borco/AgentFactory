@@ -17,6 +17,7 @@
     "test:db": "vitest run --project db-integration",
     "test:queue": "vitest run --project queue-integration",
     "test:e2e": "pnpm --filter @agentfactory/web test:e2e",
+    "test:e2e:headed": "bash scripts/test-e2e-headed.sh",
     "prepare": "husky"
   },
   "devDependencies": {
