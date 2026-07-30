@@ -1,0 +1,2 @@
+# Skip with: git push --no-verify
+pnpm test:unit

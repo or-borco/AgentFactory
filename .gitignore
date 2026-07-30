@@ -5,7 +5,11 @@ dist/
 out/
 *.tsbuildinfo
 next-env.d.ts
+playwright-report/
+test-results/
+coverage/
 .env
 .env.local
+.env.test.local
 .DS_Store
 .claude/settings.local.json
