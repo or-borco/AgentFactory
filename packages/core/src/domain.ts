@@ -140,6 +140,43 @@ export interface Trigger {
   enabled: boolean;
 }
 
+// ── Tasks ──────────────────────────────────────────────────────────────────────
+export type TaskStatus =
+  | "open"
+  | "assigned"
+  | "in_progress"
+  | "needs_input"
+  | "pr_open"
+  | "review_cycle"
+  | "done";
+
+export interface AcceptanceCriterion {
+  text: string;
+  done: boolean;
+}
+
+export interface Task {
+  id: ID;
+  orgId: ID;
+  /** Display reference e.g. "T-042". Generated as "T-" + id after insert. */
+  ref: string;
+  title: string;
+  description: string;
+  acceptanceCriteria: AcceptanceCriterion[];
+  status: TaskStatus;
+  assigneeAgentId?: ID;
+  /** The owned session (0..1) — null until a session is started. */
+  sessionId?: ID;
+  area?: string;
+  codebase?: string;
+  prNumber?: number;
+  prUrl?: string;
+  createdBy: ID;
+  createdAt: ISODateTime;
+  updatedAt: ISODateTime;
+}
+
+// ── Sessions ────────────────────────────────────────────────────────────────────
 export type SessionOrigin = "web" | "slack" | "github" | "jira" | "cron";
 
 export interface Session {

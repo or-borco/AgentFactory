@@ -11,3 +11,4 @@ export * from "./repositories/sessions";
 export * from "./repositories/messages";
 export * from "./repositories/runs";
 export * from "./repositories/events";
+export * from "./repositories/tasks";

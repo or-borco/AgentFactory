@@ -12,7 +12,7 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core";
-import type { ModelSpec, ToolPolicy } from "@agentfactory/core";
+import type { AcceptanceCriterion, ModelSpec, ToolPolicy } from "@agentfactory/core";
 
 // `generatedByDefaultAsIdentity` (not `generatedAlways`) so seed.ts can still assign explicit,
 // stable ids for its fixture rows via `.overridingSystemValue()`, while app-created rows omit
@@ -187,6 +187,58 @@ export const runs = pgTable("runs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
 });
+
+// ── Tasks ───────────────────────────────────────────────────────────────────────
+// A Task is a human-authored unit of work (title, description, acceptance criteria) that
+// owns 0..1 sessions. It cannot simply extend Session because an open/unassigned task has
+// no agent (sessions.agent_id is NOT NULL). The task status is a separate axis from Run.status.
+export const taskStatusEnum = pgEnum("task_status", [
+  "open",
+  "assigned",
+  "in_progress",
+  "needs_input",
+  "pr_open",
+  "review_cycle",
+  "done",
+]);
+
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    // Display ref ("T-042") — set to "T-" + id in a post-insert update. Unique per org.
+    ref: text("ref").notNull().default(""),
+    title: text("title").notNull(),
+    description: text("description").notNull().default(""),
+    acceptanceCriteria: jsonb("acceptance_criteria")
+      .$type<AcceptanceCriterion[]>()
+      .notNull()
+      .default([]),
+    status: taskStatusEnum("status").notNull().default("open"),
+    assigneeAgentId: integer("assignee_agent_id").references(() => agents.id, {
+      onDelete: "set null",
+    }),
+    // The owned session (0..1). null until "Start agent session" is invoked.
+    sessionId: integer("session_id").references((): AnyPgColumn => sessions.id, {
+      onDelete: "set null",
+    }),
+    area: text("area"),
+    codebase: text("codebase"),
+    prNumber: integer("pr_number"),
+    prUrl: text("pr_url"),
+    createdBy: integer("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("tasks_title_max_length", sql`char_length(${t.title}) <= 200`),
+  ],
+);
 
 // No monthly partitioning yet — ARCHITECTURE.md flags this as "the one table that will hurt"
 // at scale, but partitioning tooling for zero rows is pure overhead. Revisit when it's real.
