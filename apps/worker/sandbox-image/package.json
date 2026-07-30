@@ -1,0 +1,10 @@
+{
+  "name": "agentfactory-sandbox-runner",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.220",
+    "tsx": "^4.19.2"
+  }
+}
