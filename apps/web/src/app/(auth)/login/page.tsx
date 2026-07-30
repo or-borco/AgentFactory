@@ -1,15 +1,35 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AuthCard, AuthDivider } from "@/components/AuthCard";
+import { AuthCard } from "@/components/AuthCard";
 import { Button, TextInput } from "@agentfactory/shared";
+import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
-import { ArrowRightIcon, GoogleIcon, LockIcon, MailIcon } from "@/lib/icons";
+import { ArrowRightIcon, LockIcon, MailIcon } from "@/lib/icons";
 
 export default function LoginPage() {
   const router = useRouter();
   const { t } = useTranslation();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      await apiFetch("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
+      router.push("/agents");
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("auth.genericError"));
+      setSubmitting(false);
+    }
+  };
 
   return (
     <AuthCard
@@ -25,27 +45,17 @@ export default function LoginPage() {
         </>
       }
     >
-      <button
-        type="button"
-        onClick={() => router.push("/agents")}
-        className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-      >
-        <GoogleIcon className="h-4 w-4" />
-        {t("auth.continueWithGoogle")}
-      </button>
-
-      <AuthDivider />
-
-      <form
-        className="space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          router.push("/agents");
-        }}
-      >
+      <form className="space-y-4" onSubmit={handleSubmit}>
         <div>
           <label className="mb-1.5 block text-sm font-medium text-slate-700">{t("auth.emailLabel")}</label>
-          <TextInput type="email" placeholder={t("auth.emailPlaceholder")} icon={<MailIcon className="h-4 w-4" />} required />
+          <TextInput
+            type="email"
+            placeholder={t("auth.emailPlaceholder")}
+            icon={<MailIcon className="h-4 w-4" />}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
         </div>
         <div>
           <div className="mb-1.5 flex items-center justify-between">
@@ -54,10 +64,18 @@ export default function LoginPage() {
               {t("auth.login.forgotPasswordLink")}
             </Link>
           </div>
-          <TextInput type="password" placeholder={t("auth.passwordPlaceholder")} icon={<LockIcon className="h-4 w-4" />} required />
+          <TextInput
+            type="password"
+            placeholder={t("auth.passwordPlaceholder")}
+            icon={<LockIcon className="h-4 w-4" />}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
         </div>
-        <Button type="submit" className="w-full justify-center">
-          {t("auth.login.submit")}
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        <Button type="submit" className="w-full justify-center" disabled={submitting}>
+          {submitting ? t("auth.login.submitting") : t("auth.login.submit")}
         </Button>
       </form>
     </AuthCard>
