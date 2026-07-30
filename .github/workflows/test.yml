@@ -98,10 +98,48 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:queue
 
-  # E2E (Playwright) jobs are added by later PRs in the test suite rollout;
-  # this job is the merge gate until then.
+  e2e-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: agentfactory
+          POSTGRES_PASSWORD: agentfactory
+          POSTGRES_DB: agentfactory_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agentfactory -d agentfactory_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://agentfactory:agentfactory@localhost:5432/agentfactory_test
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @agentfactory/db db:migrate
+      - run: pnpm --filter @agentfactory/web exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+
   all-tests:
-    needs: [lint, typecheck, unit-test, db-integration-test, queue-integration-test]
+    needs: [lint, typecheck, unit-test, db-integration-test, queue-integration-test, e2e-test]
     runs-on: ubuntu-latest
     steps:
       - run: echo "All required checks passed"
