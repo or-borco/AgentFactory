@@ -111,6 +111,7 @@ const en = {
     startConversationWith: "Start a conversation with {name}",
     messagePlaceholder: "Send a message... (Enter to send, Shift+Enter for new line)",
     send: "Send",
+    replyFailed: "The agent couldn't reply — please try again.",
   },
   skills: {
     title: "Skills",

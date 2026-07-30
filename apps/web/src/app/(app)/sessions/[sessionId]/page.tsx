@@ -64,13 +64,21 @@ export default function SessionPage() {
             {messages.map((m) => (
               <div key={m.id} className={`flex gap-3 ${m.role === "user" ? "flex-row-reverse" : ""}`}>
                 {m.role === "assistant" && (
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
+                  <div
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-white ${
+                      m.error ? "bg-red-500" : "bg-gradient-to-br from-indigo-500 to-purple-600"
+                    }`}
+                  >
                     <BotIcon className="h-4 w-4" />
                   </div>
                 )}
                 <div
                   className={`max-w-lg rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-                    m.role === "user" ? "bg-indigo-600 text-white" : "border border-slate-200 bg-white text-slate-800"
+                    m.role === "user"
+                      ? "bg-indigo-600 text-white"
+                      : m.error
+                        ? "border border-red-200 bg-red-50 text-red-700"
+                        : "border border-slate-200 bg-white text-slate-800"
                   }`}
                 >
                   {m.content || (m.streaming ? "…" : "")}

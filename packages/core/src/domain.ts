@@ -166,6 +166,7 @@ export interface Run {
   sessionId: ID;
   status: RunStatus;
   triggeringMessageId?: ID;
+  providerSessionRef?: string;
   promptHash?: string;
   costUsd: number;
   tokensUsed: number;
