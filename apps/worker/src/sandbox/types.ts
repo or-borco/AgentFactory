@@ -27,4 +27,7 @@ export interface SandboxProvider {
   exec(id: string, cmd: string[], opts?: ExecOptions): AsyncIterable<OutputChunk>;
   writeFiles(id: string, files: Record<string, string>): Promise<void>;
   destroy(id: string): Promise<void>;
+  // Whether `id` still refers to a live, running container — lets a caller reuse a session's
+  // warm sandbox across runs instead of assuming it survived (worker restart, manual removal, ...).
+  exists(id: string): Promise<boolean>;
 }
