@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
@@ -16,7 +17,7 @@ export default function ActivityPage() {
   const prOpenCount = tasks.filter((tk) => tk.status === "pr_open").length;
 
   // "Done this week" = done tasks updated within the last 7 days
-  const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const [oneWeekAgo] = useState(() => Date.now() - 7 * 24 * 60 * 60 * 1000);
   const doneThisWeek = tasks.filter(
     (tk) => tk.status === "done" && new Date(tk.updatedAt).getTime() > oneWeekAgo,
   ).length;

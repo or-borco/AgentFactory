@@ -18,7 +18,6 @@ export default function TaskDetailPage() {
   const { t } = useTranslation();
 
   const [starting, setStarting] = useState(false);
-  const [runId, setRunId] = useState<number | null>(null);
   const [runStatus, setRunStatus] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -95,7 +94,6 @@ export default function TaskDetailPage() {
     setStarting(true);
     try {
       const result = await runTask(task.id);
-      setRunId(result.runId);
       setRunStatus("queued");
       pollRun(result.runId, result.session.id);
     } finally {
@@ -338,7 +336,7 @@ export default function TaskDetailPage() {
                     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleReply(); }
                   }}
                   placeholder="Reply to the agent… (Enter to send, Shift+Enter for new line)"
-                  disabled={replying || isRunning}
+                  disabled={replying || !!isRunning}
                   rows={1}
                   style={{
                     flex: 1,
@@ -352,12 +350,12 @@ export default function TaskDetailPage() {
                     padding: "9px 14px",
                     outline: "none",
                     fontFamily: "inherit",
-                    opacity: (replying || isRunning) ? 0.5 : 1,
+                    opacity: (replying || !!isRunning) ? 0.5 : 1,
                   }}
                 />
                 <button
                   onClick={handleReply}
-                  disabled={!reply.trim() || replying || isRunning}
+                  disabled={!reply.trim() || replying || !!isRunning}
                   style={{
                     flexShrink: 0,
                     background: "var(--color-accent)",
@@ -368,7 +366,7 @@ export default function TaskDetailPage() {
                     fontWeight: 600,
                     padding: "9px 18px",
                     cursor: "pointer",
-                    opacity: (!reply.trim() || replying || isRunning) ? 0.4 : 1,
+                    opacity: (!reply.trim() || replying || !!isRunning) ? 0.4 : 1,
                     transition: "opacity 0.15s",
                   }}
                 >
