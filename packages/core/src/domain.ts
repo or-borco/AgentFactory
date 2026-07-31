@@ -212,6 +212,7 @@ export interface Run {
   costUsd: number;
   tokensUsed: number;
   budgetExceeded?: boolean;
+  workspaceSnapshot?: Record<string, string>;
   createdAt: ISODateTime;
   finishedAt?: ISODateTime;
 }

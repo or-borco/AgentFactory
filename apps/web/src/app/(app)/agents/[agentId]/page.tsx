@@ -56,7 +56,9 @@ export default function AgentDetailPage() {
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
           {t("agents.systemPrompt")}
         </p>
-        <Card className="p-4 text-sm text-[var(--color-neutral-400)]">{agent.systemPrompt}</Card>
+        <Card className="p-4 text-sm text-[var(--color-neutral-400)]">
+          <pre style={{ margin: 0, fontFamily: "inherit", fontSize: "inherit", whiteSpace: "pre-wrap", lineHeight: 1.7, color: "inherit" }}>{agent.systemPrompt}</pre>
+        </Card>
       </div>
 
       <div className="px-10 pt-8">

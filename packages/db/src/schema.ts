@@ -184,6 +184,9 @@ export const runs = pgTable("runs", {
   costUsd: doublePrecision("cost_usd").notNull().default(0),
   tokensUsed: integer("tokens_used").notNull().default(0),
   budgetExceeded: boolean("budget_exceeded"),
+  // Snapshot of /workspace at run completion: path → utf-8 content. Excludes node_modules and
+  // binary files. Null until the run finishes or if the sandbox was unreachable at teardown.
+  workspaceSnapshot: jsonb("workspace_snapshot").$type<Record<string, string>>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
 });

@@ -26,8 +26,9 @@ export interface SandboxProvider {
   create(spec: SandboxSpec): Promise<Sandbox>;
   exec(id: string, cmd: string[], opts?: ExecOptions): AsyncIterable<OutputChunk>;
   writeFiles(id: string, files: Record<string, string>): Promise<void>;
+  // Returns text files under /workspace, keyed by path relative to /workspace.
+  // Skips node_modules, .git, and binary files. Best-effort — never throws.
+  readWorkspace(id: string): Promise<Record<string, string>>;
   destroy(id: string): Promise<void>;
-  // Whether `id` still refers to a live, running container — lets a caller reuse a session's
-  // warm sandbox across runs instead of assuming it survived (worker restart, manual removal, ...).
   exists(id: string): Promise<boolean>;
 }

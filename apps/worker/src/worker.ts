@@ -13,6 +13,7 @@ import {
   setSessionSandboxId,
   touchSessionActivity,
   updateRunStatus,
+  updateRunWorkspace,
 } from "@agentfactory/db";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { runAgentTurn } from "./agent-runtime";
@@ -67,6 +68,11 @@ new Worker<RunJobData>(
       await createMessage(run.sessionId, "assistant", text, runId);
       await createEvent(runId, 1, "text_delta", { text });
       await createEvent(runId, 2, "done", { reason: "completed" });
+
+      const workspaceSnapshot = await sandboxProvider.readWorkspace(sandboxId);
+      if (Object.keys(workspaceSnapshot).length > 0) {
+        await updateRunWorkspace(runId, workspaceSnapshot);
+      }
 
       await updateRunStatus(runId, "done", { finishedAt: new Date(), providerSessionRef });
       await touchSessionActivity(session.id);

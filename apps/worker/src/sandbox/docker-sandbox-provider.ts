@@ -1,7 +1,39 @@
 import { PassThrough } from "node:stream";
 import Docker from "dockerode";
-import { pack } from "tar-stream";
+import { extract, pack } from "tar-stream";
 import type { ExecOptions, OutputChunk, Sandbox, SandboxProvider, SandboxSpec } from "./types.js";
+
+const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__"]);
+const MAX_FILE_BYTES = 512 * 1024; // 512 KB per file — skip larger blobs
+
+async function extractTar(stream: NodeJS.ReadableStream): Promise<Record<string, string>> {
+  const files: Record<string, string> = {};
+  return new Promise((resolve) => {
+    const ex = extract();
+    ex.on("entry", (header, entryStream, next) => {
+      const parts = header.name.split("/");
+      const skip = parts.some((p) => SKIP_DIRS.has(p)) || header.type !== "file";
+      if (skip || (header.size ?? 0) > MAX_FILE_BYTES) {
+        entryStream.resume();
+        return next();
+      }
+      const chunks: Buffer[] = [];
+      entryStream.on("data", (c: Buffer) => chunks.push(c));
+      entryStream.on("end", () => {
+        const buf = Buffer.concat(chunks);
+        // Skip binary — a null byte is a reliable-enough heuristic.
+        if (!buf.includes(0)) {
+          const relPath = parts.slice(1).join("/"); // strip leading "workspace/" prefix
+          if (relPath) files[relPath] = buf.toString("utf8");
+        }
+        next();
+      });
+    });
+    ex.on("finish", () => resolve(files));
+    ex.on("error", () => resolve(files)); // best-effort
+    stream.pipe(ex);
+  });
+}
 
 const docker = new Docker();
 
@@ -86,6 +118,16 @@ export class DockerSandboxProvider implements SandboxProvider {
     // below; with Tty:true Docker returns a single raw stream and demuxing hangs.
     const stream = await dockerExec.start({ Tty: false });
     yield* demux(stream);
+  }
+
+  async readWorkspace(id: string): Promise<Record<string, string>> {
+    try {
+      const container = docker.getContainer(id);
+      const stream = await container.getArchive({ path: "/workspace" });
+      return await extractTar(stream as unknown as NodeJS.ReadableStream);
+    } catch {
+      return {};
+    }
   }
 
   async writeFiles(id: string, files: Record<string, string>): Promise<void> {

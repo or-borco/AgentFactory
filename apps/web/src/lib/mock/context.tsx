@@ -58,9 +58,10 @@ interface MockBackendValue extends MockState {
     patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode">>,
   ) => Promise<void>;
   createSession: (agentId: number, title: string) => Promise<Session>;
-  sendMessage: (sessionId: number, text: string) => Promise<void>;
+  sendMessage: (sessionId: number, text: string) => Promise<{ runId: number }>;
   createTask: (input: NewTaskInput) => Promise<Task>;
   updateTask: (taskId: number, patch: Partial<Task>) => Promise<void>;
+  runTask: (taskId: number) => Promise<{ task: Task; session: Session; runId: number }>;
 }
 
 const MockBackendContext = createContext<MockBackendValue | null>(null);
@@ -202,6 +203,22 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     setState((s) => ({ ...s, tasks: s.tasks.map((tk) => (tk.id === taskId ? task : tk)) }));
   }, []);
 
+  const runTask = useCallback(
+    async (taskId: number) => {
+      const result = await apiFetch<{ task: Task; session: Session; runId: number }>(
+        `/api/tasks/${taskId}/run`,
+        { method: "POST" },
+      );
+      setState((s) => ({
+        ...s,
+        tasks: s.tasks.map((tk) => (tk.id === taskId ? result.task : tk)),
+        sessions: [...s.sessions, result.session],
+      }));
+      return result;
+    },
+    [],
+  );
+
   const sendMessage = useCallback(
     async (sessionId: number, text: string) => {
       const { userMessage, session, runId } = await apiFetch<{
@@ -268,6 +285,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
         }, 1200);
       };
       poll();
+      return { runId };
     },
     [t],
   );
@@ -302,6 +320,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     sendMessage,
     createTask,
     updateTask,
+    runTask,
   };
 
   return <MockBackendContext.Provider value={value}>{children}</MockBackendContext.Provider>;
