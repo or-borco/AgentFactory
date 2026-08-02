@@ -223,6 +223,115 @@ function AreaMapEditor({
   );
 }
 
+// ── New agent panel ────────────────────────────────────────────────────────────
+
+function NewAgentPanel({ teamId, onCreated, onCancel }: {
+  teamId: number;
+  onCreated: (agentId: number) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  const { createAgent } = useMockBackend();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [systemPrompt, setSystemPrompt] = useState("");
+  const [mode, setMode] = useState<"manual" | "automatic">("manual");
+  const [saving, setSaving] = useState(false);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) return;
+    setSaving(true);
+    try {
+      const agent = await createAgent({ name: name.trim(), description: description.trim(), systemPrompt: systemPrompt.trim(), mode, teamId });
+      onCreated(agent.id);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form onSubmit={handleCreate} className="flex flex-col h-full">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--color-divider)]">
+        <span className="text-2xl leading-none">🤖</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-[var(--color-neutral-100)]">{t("teamsV2.newAgentTitle")}</div>
+          <div className="text-xs text-[var(--color-neutral-500)]">{t("teamsV2.newAgentSubtitle")}</div>
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.agentNameLabel")}
+          </label>
+          <TextInput
+            autoFocus
+            placeholder={t("teamsV2.agentNamePlaceholder")}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.agentDescriptionLabel")}
+          </label>
+          <TextInput
+            placeholder={t("teamsV2.agentDescriptionPlaceholder")}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.systemPromptLabel")}
+          </label>
+          <Textarea
+            rows={4}
+            placeholder={t("teamsV2.systemPromptPlaceholder")}
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="mb-2 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.agentModeLabel")}
+          </label>
+          <div className="flex gap-2">
+            {(["manual", "automatic"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMode(m)}
+                className={[
+                  "flex-1 rounded-[var(--radius-sm)] border px-3 py-2 text-sm transition-colors cursor-pointer",
+                  mode === m
+                    ? "border-[var(--color-accent-500)] bg-[var(--color-accent-900)] text-[var(--color-accent-200)]"
+                    : "border-[var(--color-divider)] text-[var(--color-neutral-400)] hover:text-[var(--color-neutral-200)]",
+                ].join(" ")}
+              >
+                {m === "automatic" ? t("common.automatic") : "Manual"}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--color-divider)]">
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+        <Button type="submit" disabled={!name.trim() || saving}>
+          {saving ? t("teamsV2.creatingAgent") : t("teamsV2.createAgent")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 // ── Agent detail panel ─────────────────────────────────────────────────────────
 
 function AgentDetailPanel({ agent }: { agent: Agent }) {
@@ -358,17 +467,10 @@ function AgentsTab({ team }: { team: Team }) {
   const { agentsForTeam } = useMockBackend();
   const agents = agentsForTeam(team.id);
   const [selectedId, setSelectedId] = useState<number | null>(agents[0]?.id ?? null);
+  const [creating, setCreating] = useState(false);
 
   // If the selected agent was deleted or agents changed, fall back to first
   const selected = agents.find((a) => a.id === selectedId) ?? agents[0] ?? null;
-
-  if (agents.length === 0) {
-    return (
-      <div className="py-6">
-        <EmptyState icon="🤖" title={t("teamsV2.noAgents")} subtitle="" />
-      </div>
-    );
-  }
 
   return (
     <div className="mt-6 flex rounded-[var(--radius-md)] border border-[var(--color-divider)] overflow-hidden" style={{ minHeight: "460px" }}>
@@ -378,14 +480,22 @@ function AgentsTab({ team }: { team: Team }) {
           <span className="text-xs font-semibold uppercase tracking-wide text-[var(--color-neutral-500)]">
             {t("teamsV2.tabAgents")}
           </span>
+          <button
+            onClick={() => { setCreating(true); setSelectedId(null); }}
+            className="text-lg leading-none text-[var(--color-neutral-500)] hover:text-[var(--color-neutral-100)] transition-colors cursor-pointer"
+            title={t("teamsV2.newAgentTitle")}
+            aria-label={t("teamsV2.newAgentTitle")}
+          >
+            +
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto">
           {agents.map((agent) => {
-            const isActive = agent.id === (selected?.id ?? -1);
+            const isActive = !creating && agent.id === (selected?.id ?? -1);
             return (
               <button
                 key={agent.id}
-                onClick={() => setSelectedId(agent.id)}
+                onClick={() => { setSelectedId(agent.id); setCreating(false); }}
                 className={[
                   "w-full flex items-center gap-2.5 px-3 py-2.5 text-left border-b border-[var(--color-divider)] last:border-0 transition-colors cursor-pointer",
                   isActive
@@ -420,9 +530,19 @@ function AgentsTab({ team }: { team: Team }) {
 
       {/* Detail panel */}
       <div className="flex-1 min-w-0">
-        {selected ? (
+        {creating ? (
+          <NewAgentPanel
+            teamId={team.id}
+            onCreated={(id) => { setSelectedId(id); setCreating(false); }}
+            onCancel={() => { setCreating(false); }}
+          />
+        ) : selected ? (
           <AgentDetailPanel key={selected.id} agent={selected} />
-        ) : null}
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <EmptyState icon="🤖" title={t("teamsV2.noAgents")} subtitle={t("teamsV2.noAgentsSub")} />
+          </div>
+        )}
       </div>
     </div>
   );
