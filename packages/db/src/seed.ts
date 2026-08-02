@@ -2,7 +2,7 @@ import "dotenv/config";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { sql } from "drizzle-orm";
-import { agents, memberships, messages, orgs, sessions, teams, users } from "./schema";
+import { agents, memberships, messages, orgs, sessions, tasks, teams, users } from "./schema";
 import { hashPassword } from "./password";
 
 // Mirrors apps/web/src/lib/mock/seed.ts's seedTeams/seedAgents exactly (same IDs), so the
@@ -195,12 +195,178 @@ async function main() {
     ])
     .onConflictDoNothing();
 
+  // ── Tasks ──────────────────────────────────────────────────────────────────────
+  // Mirrors the prototype's T-035…T-042 rows, covering every TaskStatus.
+  await db
+    .insert(tasks)
+    .overridingSystemValue()
+    .values([
+      {
+        id: 35,
+        orgId: ORG_ID,
+        ref: "T-035",
+        title: "Add OAuth2 refresh-token rotation",
+        description: "Implement silent refresh so users aren't logged out mid-session.",
+        acceptanceCriteria: [
+          { text: "Refresh token stored encrypted at rest", done: true },
+          { text: "Silent refresh triggers <60 s before expiry", done: true },
+          { text: "Unit tests for rotation logic", done: false },
+        ],
+        status: "open",
+        area: "src/auth/",
+        codebase: "acme-corp/backend",
+        createdBy: 1,
+        createdAt: hoursAgo(72),
+        updatedAt: hoursAgo(72),
+      },
+      {
+        id: 36,
+        orgId: ORG_ID,
+        ref: "T-036",
+        title: "Migrate search index to Postgres full-text",
+        description: "Replace Algolia with tsvector-based search to cut costs.",
+        acceptanceCriteria: [
+          { text: "All search endpoints return results within 200 ms", done: false },
+          { text: "Algolia SDK removed from dependencies", done: false },
+        ],
+        status: "assigned",
+        assigneeAgentId: 2,
+        area: "src/search/",
+        codebase: "acme-corp/backend",
+        createdBy: 1,
+        createdAt: hoursAgo(48),
+        updatedAt: hoursAgo(48),
+      },
+      {
+        id: 37,
+        orgId: ORG_ID,
+        ref: "T-037",
+        title: "Refactor billing webhook handler",
+        description: "Harden Stripe webhook processing with idempotency keys.",
+        acceptanceCriteria: [
+          { text: "Idempotency enforced on all event types", done: false },
+          { text: "Failed events logged to dead-letter queue", done: false },
+        ],
+        status: "assigned",
+        assigneeAgentId: 1,
+        area: "src/billing/",
+        codebase: "acme-corp/backend",
+        createdBy: 1,
+        createdAt: hoursAgo(36),
+        updatedAt: hoursAgo(36),
+      },
+      {
+        id: 38,
+        orgId: ORG_ID,
+        ref: "T-038",
+        title: "Paginate /api/activity endpoint",
+        description: "The activity endpoint loads all rows — add cursor-based pagination.",
+        acceptanceCriteria: [
+          { text: "Cursor pagination with next_cursor token", done: true },
+          { text: "Default page size 25, max 100", done: true },
+          { text: "Backward-compatible: existing callers work with limit param", done: true },
+        ],
+        status: "done",
+        assigneeAgentId: 1,
+        sessionId: 1,
+        area: "src/api/",
+        codebase: "acme-corp/backend",
+        prNumber: 218,
+        prUrl: "https://github.com/acme-corp/backend/pull/218",
+        createdBy: 1,
+        createdAt: hoursAgo(120),
+        updatedAt: hoursAgo(24),
+      },
+      {
+        id: 39,
+        orgId: ORG_ID,
+        ref: "T-039",
+        title: "Add dark mode to the design system",
+        description: "Implement CSS custom-property-based dark mode with a user toggle.",
+        acceptanceCriteria: [
+          { text: "Dark and light tokens defined in globals.css", done: true },
+          { text: "Toggle persisted in localStorage", done: false },
+          { text: "All existing components pass contrast checks", done: false },
+        ],
+        status: "needs_input",
+        assigneeAgentId: 2,
+        sessionId: 2,
+        area: "src/styles/",
+        codebase: "acme-corp/frontend",
+        createdBy: 1,
+        createdAt: hoursAgo(96),
+        updatedAt: hoursAgo(8),
+      },
+      {
+        id: 40,
+        orgId: ORG_ID,
+        ref: "T-040",
+        title: "Set up E2E test suite with Playwright",
+        description: "Add Playwright for critical user flows: login, checkout, order status.",
+        acceptanceCriteria: [
+          { text: "Login flow covered", done: true },
+          { text: "Checkout flow covered", done: false },
+          { text: "Order status flow covered", done: false },
+          { text: "CI runs on every PR", done: false },
+        ],
+        status: "in_progress",
+        assigneeAgentId: 3,
+        area: "tests/e2e/",
+        codebase: "acme-corp/frontend",
+        createdBy: 1,
+        createdAt: hoursAgo(24),
+        updatedAt: hoursAgo(1),
+      },
+      {
+        id: 41,
+        orgId: ORG_ID,
+        ref: "T-041",
+        title: "Extract shared Button component",
+        description: "Move the Button into packages/shared and update all import sites.",
+        acceptanceCriteria: [
+          { text: "Button exported from @agentfactory/shared", done: false },
+          { text: "All usages updated", done: false },
+        ],
+        status: "pr_open",
+        assigneeAgentId: 1,
+        area: "packages/shared/",
+        codebase: "acme-corp/frontend",
+        prNumber: 221,
+        prUrl: "https://github.com/acme-corp/frontend/pull/221",
+        createdBy: 1,
+        createdAt: hoursAgo(30),
+        updatedAt: hoursAgo(4),
+      },
+      {
+        id: 42,
+        orgId: ORG_ID,
+        ref: "T-042",
+        title: "Write DB migration guide for v2 schema",
+        description: "Document the steps to migrate from v1 schema to v2, including rollback.",
+        acceptanceCriteria: [
+          { text: "Step-by-step migration script included", done: false },
+          { text: "Rollback procedure documented", done: false },
+        ],
+        status: "review_cycle",
+        assigneeAgentId: 2,
+        prNumber: 219,
+        prUrl: "https://github.com/acme-corp/backend/pull/219",
+        area: "docs/",
+        codebase: "acme-corp/backend",
+        createdBy: 1,
+        createdAt: hoursAgo(60),
+        updatedAt: hoursAgo(12),
+      },
+    ])
+    .onConflictDoNothing();
+
   await resetIdentitySequence(db, "orgs");
   await resetIdentitySequence(db, "users");
   await resetIdentitySequence(db, "teams");
   await resetIdentitySequence(db, "agents");
   await resetIdentitySequence(db, "sessions");
   await resetIdentitySequence(db, "messages");
+  await resetIdentitySequence(db, "tasks");
 
   await sql_.end();
   console.log("Seed complete");

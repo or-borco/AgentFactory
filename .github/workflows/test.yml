@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: test-${{ github.ref }}
@@ -72,6 +73,7 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @agentfactory/db db:migrate
       - run: pnpm test:db
 
   queue-integration-test:

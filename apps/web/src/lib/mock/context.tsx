@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { Agent, ChatMessage, Connection, Run, Session, Skill, Team } from "@agentfactory/core";
+import type { Agent, ChatMessage, Connection, Run, Session, Skill, Task, Team } from "@agentfactory/core";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
@@ -15,9 +15,10 @@ interface MockState {
   messages: DisplayMessage[];
   skills: Skill[];
   connections: Connection[];
+  tasks: Task[];
 }
 
-const EMPTY_STATE: MockState = { teams: [], agents: [], sessions: [], messages: [], skills: [], connections: [] };
+const EMPTY_STATE: MockState = { teams: [], agents: [], sessions: [], messages: [], skills: [], connections: [], tasks: [] };
 
 interface NewAgentInput {
   name: string;
@@ -27,12 +28,22 @@ interface NewAgentInput {
   teamId?: number;
 }
 
+interface NewTaskInput {
+  title: string;
+  description: string;
+  acceptanceCriteria: Task["acceptanceCriteria"];
+  assigneeAgentId?: number;
+  area?: string;
+  codebase?: string;
+}
+
 interface MockBackendValue extends MockState {
   toast: TranslationKey | null;
   notify: (key: TranslationKey) => void;
   getAgent: (id: number) => Agent | undefined;
   getTeam: (id: number) => Team | undefined;
   getSession: (id: number) => Session | undefined;
+  getTask: (id: number) => Task | undefined;
   sessionsForAgent: (agentId: number) => Session[];
   agentsForTeam: (teamId: number) => Agent[];
   messagesForSession: (sessionId: number) => DisplayMessage[];
@@ -47,7 +58,10 @@ interface MockBackendValue extends MockState {
     patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode">>,
   ) => Promise<void>;
   createSession: (agentId: number, title: string) => Promise<Session>;
-  sendMessage: (sessionId: number, text: string) => Promise<void>;
+  sendMessage: (sessionId: number, text: string) => Promise<{ runId: number }>;
+  createTask: (input: NewTaskInput) => Promise<Task>;
+  updateTask: (taskId: number, patch: Partial<Task>) => Promise<void>;
+  runTask: (taskId: number) => Promise<{ task: Task; session: Session; runId: number }>;
 }
 
 const MockBackendContext = createContext<MockBackendValue | null>(null);
@@ -68,10 +82,11 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
       apiFetch<Session[]>("/api/sessions"),
       apiFetch<Skill[]>("/api/skills"),
       apiFetch<Connection[]>("/api/connections"),
+      apiFetch<Task[]>("/api/tasks"),
     ])
-      .then(([teams, agents, sessions, skills, connections]) => {
+      .then(([teams, agents, sessions, skills, connections, tasks]) => {
         if (cancelled) return;
-        setState({ teams, agents, sessions, messages: [], skills, connections });
+        setState({ teams, agents, sessions, messages: [], skills, connections, tasks });
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -93,6 +108,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   const getAgent = useCallback((id: number) => state.agents.find((a) => a.id === id), [state.agents]);
   const getTeam = useCallback((id: number) => state.teams.find((t) => t.id === id), [state.teams]);
   const getSession = useCallback((id: number) => state.sessions.find((s) => s.id === id), [state.sessions]);
+  const getTask = useCallback((id: number) => state.tasks.find((tk) => tk.id === id), [state.tasks]);
   const sessionsForAgent = useCallback(
     (agentId: number) =>
       state.sessions
@@ -172,6 +188,37 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     return session;
   }, []);
 
+  const createTask = useCallback(
+    async (input: NewTaskInput) => {
+      const task = await apiFetch<Task>("/api/tasks", { method: "POST", body: JSON.stringify(input) });
+      setState((s) => ({ ...s, tasks: [task, ...s.tasks] }));
+      showToast("toast.taskCreated");
+      return task;
+    },
+    [showToast],
+  );
+
+  const updateTask = useCallback(async (taskId: number, patch: Partial<Task>) => {
+    const task = await apiFetch<Task>(`/api/tasks/${taskId}`, { method: "PATCH", body: JSON.stringify(patch) });
+    setState((s) => ({ ...s, tasks: s.tasks.map((tk) => (tk.id === taskId ? task : tk)) }));
+  }, []);
+
+  const runTask = useCallback(
+    async (taskId: number) => {
+      const result = await apiFetch<{ task: Task; session: Session; runId: number }>(
+        `/api/tasks/${taskId}/run`,
+        { method: "POST" },
+      );
+      setState((s) => ({
+        ...s,
+        tasks: s.tasks.map((tk) => (tk.id === taskId ? result.task : tk)),
+        sessions: [...s.sessions, result.session],
+      }));
+      return result;
+    },
+    [],
+  );
+
   const sendMessage = useCallback(
     async (sessionId: number, text: string) => {
       const { userMessage, session, runId } = await apiFetch<{
@@ -238,6 +285,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
         }, 1200);
       };
       poll();
+      return { runId };
     },
     [t],
   );
@@ -257,6 +305,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     getAgent,
     getTeam,
     getSession,
+    getTask,
     sessionsForAgent,
     agentsForTeam,
     messagesForSession,
@@ -269,6 +318,9 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     updateAgent,
     createSession,
     sendMessage,
+    createTask,
+    updateTask,
+    runTask,
   };
 
   return <MockBackendContext.Provider value={value}>{children}</MockBackendContext.Provider>;

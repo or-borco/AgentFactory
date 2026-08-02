@@ -1,3 +1,4 @@
+// Icon barrel — all from @phosphor-icons/react v2
 export {
   ArrowRight as ArrowRightIcon,
   ArrowLeft as ArrowLeftIcon,
@@ -17,6 +18,8 @@ export {
   User as UserIcon,
   SignOut as LogOutIcon,
   Warning as AlertIcon,
+  ListChecks as TasksIcon,
+  Pulse as ActivityIcon,
 } from "@phosphor-icons/react";
 
 // Google brand icon kept as custom SVG

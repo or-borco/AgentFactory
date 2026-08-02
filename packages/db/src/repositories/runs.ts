@@ -14,9 +14,26 @@ function toRun(row: typeof runs.$inferSelect): Run {
     costUsd: row.costUsd,
     tokensUsed: row.tokensUsed,
     budgetExceeded: row.budgetExceeded ?? undefined,
+    workspaceSnapshot: (row.workspaceSnapshot as Record<string, string>) ?? undefined,
     createdAt: row.createdAt.toISOString(),
     finishedAt: row.finishedAt ? row.finishedAt.toISOString() : undefined,
   };
+}
+
+export async function getRunsForSession(sessionId: number): Promise<Run[]> {
+  const rows = await db
+    .select()
+    .from(runs)
+    .where(eq(runs.sessionId, sessionId))
+    .orderBy(desc(runs.createdAt));
+  return rows.map(toRun);
+}
+
+export async function updateRunWorkspace(
+  id: number,
+  workspaceSnapshot: Record<string, string>,
+): Promise<void> {
+  await db.update(runs).set({ workspaceSnapshot }).where(eq(runs.id, id));
 }
 
 export async function createRun(sessionId: number, triggeringMessageId?: number): Promise<Run> {
