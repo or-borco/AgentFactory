@@ -22,7 +22,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "pnpm start",
+    // `next dev` rather than `next build && next start` — E2E flows don't need a production
+    // build, and skipping it keeps CI simpler (no separate build step/artifact to wire up).
+    command: "pnpm dev",
     url: baseURL,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
