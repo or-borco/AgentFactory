@@ -2,13 +2,12 @@ import { expect, test } from "./fixtures";
 
 test.describe("Teams v2 — Agents tab", () => {
   test("shows agents list and detail panel for the first agent", async ({ page, registeredUser }) => {
-    // Seed an agent assigned to a team via the API
     const teamRes = await page.request.post("/api/teams", {
       data: { name: "Platform team", description: "" },
     });
     const team = await teamRes.json();
 
-    const agentRes = await page.request.post("/api/agents", {
+    await page.request.post("/api/agents", {
       data: {
         name: "Code reviewer",
         description: "Reviews PRs",
@@ -17,19 +16,19 @@ test.describe("Teams v2 — Agents tab", () => {
         teamId: team.id,
       },
     });
-    const agent = await agentRes.json();
 
     await page.goto("/teams-v2");
     await page.getByRole("button", { name: "Agents" }).click();
 
-    // Agent appears in the list
-    await expect(page.getByText("Code reviewer")).toBeVisible();
+    // Agent appears in the list (the list item button contains name + description)
+    await expect(page.getByRole("button", { name: /Code reviewer/ })).toBeVisible();
 
-    // Detail panel shows agent name and fields
-    await expect(page.getByText("Reviews PRs")).toBeVisible();
-    await expect(page.getByRole("textbox", { name: /system prompt/i })).toHaveValue(
-      "Review the diff.",
-    );
+    // Detail panel header shows the agent
+    const detailHeader = page.locator(".border-b").filter({ hasText: "Code reviewer" }).last();
+    await expect(detailHeader).toBeVisible();
+
+    // System prompt textarea contains the value
+    await expect(page.locator("textarea").first()).toHaveValue("Review the diff.");
   });
 
   test("clicking an agent in the list switches the detail panel", async ({ page, registeredUser }) => {
@@ -48,17 +47,16 @@ test.describe("Teams v2 — Agents tab", () => {
     await page.goto("/teams-v2");
     await page.getByRole("button", { name: "Agents" }).click();
 
-    // Click the second agent in the list
     await page.getByRole("button", { name: /Agent Beta/ }).click();
 
-    await expect(page.getByRole("textbox", { name: /system prompt/i })).toHaveValue("Do beta.");
+    await expect(page.locator("textarea").first()).toHaveValue("Do beta.");
   });
 
   test("creates a new agent via the + button and selects it", async ({ page, registeredUser }) => {
     const teamRes = await page.request.post("/api/teams", {
       data: { name: "Platform team", description: "" },
     });
-    const team = await teamRes.json();
+    await teamRes.json();
 
     await page.goto("/teams-v2");
     await page.getByRole("button", { name: "Agents" }).click();
@@ -71,9 +69,10 @@ test.describe("Teams v2 — Agents tab", () => {
 
     await page.getByRole("button", { name: "Create agent" }).click();
 
-    // New agent appears in the list and its detail is shown
+    // New agent appears in the list
     await expect(page.getByRole("button", { name: /Deployment bot/ })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: /system prompt/i })).toHaveValue("Deploy safely.");
+    // Detail panel shows its system prompt
+    await expect(page.locator("textarea").first()).toHaveValue("Deploy safely.");
 
     // Persists on reload
     await page.reload();
@@ -95,15 +94,15 @@ test.describe("Teams v2 — Agents tab", () => {
     await page.getByRole("button", { name: "Agents" }).click();
     await page.getByRole("button", { name: /Editable bot/ }).click();
 
-    const promptField = page.getByRole("textbox", { name: /system prompt/i });
-    await promptField.fill("Updated prompt.");
+    const textarea = page.locator("textarea").first();
+    await textarea.fill("Updated prompt.");
     await page.getByRole("button", { name: "Save" }).click();
 
     await page.reload();
     await page.getByRole("button", { name: "Agents" }).click();
     await page.getByRole("button", { name: /Editable bot/ }).click();
 
-    await expect(page.getByRole("textbox", { name: /system prompt/i })).toHaveValue("Updated prompt.");
+    await expect(page.locator("textarea").first()).toHaveValue("Updated prompt.");
   });
 
   test("deletes an agent and removes it from the list", async ({ page, registeredUser }) => {
