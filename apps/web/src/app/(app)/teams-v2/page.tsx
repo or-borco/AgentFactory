@@ -159,6 +159,20 @@ function MembersTab({ team }: { team: Team }) {
 
 // ── Area map editor ────────────────────────────────────────────────────────────
 
+type AreaMapRow = { id: number; path: string; desc: string };
+
+let nextRowId = 0;
+
+function mapToRows(areaMap: Record<string, string>): AreaMapRow[] {
+  return Object.entries(areaMap).map(([path, desc]) => ({ id: nextRowId++, path, desc }));
+}
+
+function rowsToMap(rows: AreaMapRow[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const row of rows) out[row.path] = row.desc;
+  return out;
+}
+
 function AreaMapEditor({
   areaMap,
   onChange,
@@ -167,56 +181,49 @@ function AreaMapEditor({
   onChange: (map: Record<string, string>) => void;
 }) {
   const { t } = useTranslation();
-  const entries = Object.entries(areaMap);
+  const [rows, setRows] = useState<AreaMapRow[]>(() => mapToRows(areaMap));
 
-  function updateEntry(oldPath: string, field: "path" | "desc", value: string) {
-    const next: Record<string, string> = {};
-    for (const [k, v] of Object.entries(areaMap)) {
-      if (k === oldPath) {
-        if (field === "path") next[value] = v;
-        else next[k] = value;
-      } else {
-        next[k] = v;
-      }
-    }
-    onChange(next);
+  function updateRow(id: number, field: "path" | "desc", value: string) {
+    const next = rows.map((r) => (r.id === id ? { ...r, [field]: value } : r));
+    setRows(next);
+    onChange(rowsToMap(next));
   }
 
-  function removeEntry(path: string) {
-    const next = { ...areaMap };
-    delete next[path];
-    onChange(next);
+  function removeRow(id: number) {
+    const next = rows.filter((r) => r.id !== id);
+    setRows(next);
+    onChange(rowsToMap(next));
   }
 
-  function addEntry() {
-    onChange({ ...areaMap, "": "" });
+  function addRow() {
+    setRows((prev) => [...prev, { id: nextRowId++, path: "", desc: "" }]);
   }
 
   return (
     <div className="space-y-2">
-      {entries.map(([path, desc]) => (
-        <div key={path} className="flex gap-2">
+      {rows.map((row) => (
+        <div key={row.id} className="flex gap-2">
           <TextInput
             placeholder={t("teamsV2.areaMapPathPlaceholder")}
-            value={path}
-            onChange={(e) => updateEntry(path, "path", e.target.value)}
+            value={row.path}
+            onChange={(e) => updateRow(row.id, "path", e.target.value)}
             className="w-48 shrink-0 font-mono text-xs"
           />
           <TextInput
             placeholder={t("teamsV2.areaMapDescPlaceholder")}
-            value={desc}
-            onChange={(e) => updateEntry(path, "desc", e.target.value)}
+            value={row.desc}
+            onChange={(e) => updateRow(row.id, "desc", e.target.value)}
             className="flex-1"
           />
           <button
-            onClick={() => removeEntry(path)}
+            onClick={() => removeRow(row.id)}
             className="px-2 text-[var(--color-neutral-500)] hover:text-red-400 transition-colors cursor-pointer"
           >
             ×
           </button>
         </div>
       ))}
-      <Button variant="secondary" onClick={addEntry} className="text-xs">
+      <Button variant="secondary" onClick={addRow} className="text-xs">
         + {t("teamsV2.addArea")}
       </Button>
     </div>
