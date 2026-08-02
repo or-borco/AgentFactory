@@ -50,6 +50,13 @@
       "when": 1785671138645,
       "tag": "0006_windy_justice",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785673809191,
+      "tag": "0007_lazy_red_hulk",
+      "breakpoints": true
     }
   ]
 }

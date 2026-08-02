@@ -1,7 +1,7 @@
 import { asc, eq } from "drizzle-orm";
-import type { Membership } from "@agentfactory/core";
+import type { Membership, OrgMember } from "@agentfactory/core";
 import { db } from "../client";
-import { memberships } from "../schema";
+import { memberships, users } from "../schema";
 
 function toMembership(row: typeof memberships.$inferSelect): Membership {
   return { orgId: row.orgId, userId: row.userId, role: row.role };
@@ -10,6 +10,23 @@ function toMembership(row: typeof memberships.$inferSelect): Membership {
 export async function createMembership(input: Membership): Promise<Membership> {
   const [row] = await db.insert(memberships).values(input).returning();
   return toMembership(row);
+}
+
+export async function listOrgMembers(orgId: number): Promise<OrgMember[]> {
+  const rows = await db
+    .select({
+      userId: memberships.userId,
+      orgId: memberships.orgId,
+      role: memberships.role,
+      joinedAt: memberships.createdAt,
+      email: users.email,
+      name: users.name,
+    })
+    .from(memberships)
+    .innerJoin(users, eq(memberships.userId, users.id))
+    .where(eq(memberships.orgId, orgId))
+    .orderBy(asc(memberships.createdAt));
+  return rows.map((r) => ({ ...r, joinedAt: r.joinedAt.toISOString() }));
 }
 
 // No org switcher yet — a user's "home" org is the first one they were added to. Revisit once

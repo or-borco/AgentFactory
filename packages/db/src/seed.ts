@@ -2,7 +2,7 @@ import "dotenv/config";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { sql } from "drizzle-orm";
-import { agents, memberships, messages, orgs, sessions, tasks, teams, users } from "./schema";
+import { agents, memberships, messages, orgs, sessions, tasks, teamContextItems, teams, users } from "./schema";
 import { hashPassword } from "./password";
 
 // Mirrors apps/web/src/lib/mock/seed.ts's seedTeams/seedAgents exactly (same IDs), so the
@@ -104,6 +104,8 @@ async function main() {
         },
         skillIds: [1],
         connectionIds: [1],
+        areaMap: { "apps/web/": "Next.js frontend", "packages/": "Shared packages" },
+        defaultCodebase: "acme-corp/backend",
         createdAt: hoursAgo(400),
         updatedAt: hoursAgo(3),
       },
@@ -122,6 +124,7 @@ async function main() {
         toolPolicy: { defaultDecision: "deny", rules: [] },
         skillIds: [],
         connectionIds: [1],
+        defaultCodebase: "acme-corp/backend",
         createdAt: hoursAgo(200),
         updatedAt: hoursAgo(200),
       },
@@ -192,6 +195,17 @@ async function main() {
           "well. I left inline comments on both.",
         createdAt: hoursAgo(3),
       },
+    ])
+    .onConflictDoNothing();
+
+  // ── Team context items ─────────────────────────────────────────────────────────
+  await db
+    .insert(teamContextItems)
+    .overridingSystemValue()
+    .values([
+      { id: 1, teamId: 1, title: "Engineering handbook", sizeBytes: 18200, createdAt: hoursAgo(300) },
+      { id: 2, teamId: 1, title: "API design guidelines", sizeBytes: 9400, createdAt: hoursAgo(200) },
+      { id: 3, teamId: 1, title: "Incident runbooks", sizeBytes: 31500, createdAt: hoursAgo(100) },
     ])
     .onConflictDoNothing();
 
@@ -360,6 +374,7 @@ async function main() {
     ])
     .onConflictDoNothing();
 
+  await resetIdentitySequence(db, "team_context_items");
   await resetIdentitySequence(db, "orgs");
   await resetIdentitySequence(db, "users");
   await resetIdentitySequence(db, "teams");

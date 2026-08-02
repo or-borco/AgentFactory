@@ -111,6 +111,8 @@ export const agents = pgTable(
     // and Connections have no real backend of their own. Revisit when they get one.
     skillIds: jsonb("skill_ids").$type<number[]>().notNull().default([]),
     connectionIds: jsonb("connection_ids").$type<number[]>().notNull().default([]),
+    areaMap: jsonb("area_map").$type<Record<string, string>>(),
+    defaultCodebase: text("default_codebase"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -242,6 +244,18 @@ export const tasks = pgTable(
     check("tasks_title_max_length", sql`char_length(${t.title}) <= 200`),
   ],
 );
+
+// Metadata-only stubs for now (no S3/upload yet). Large reference docs the team shares with
+// agents — tracked here for the usage meter and future indexing pipeline.
+export const teamContextItems = pgTable("team_context_items", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  teamId: integer("team_id")
+    .notNull()
+    .references(() => teams.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  sizeBytes: integer("size_bytes").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 // No monthly partitioning yet — ARCHITECTURE.md flags this as "the one table that will hurt"
 // at scale, but partitioning tooling for zero rows is pure overhead. Revisit when it's real.
