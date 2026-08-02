@@ -35,8 +35,12 @@ function MembersTab({ team }: { team: Team }) {
   }
 
   async function handleDeleteItem(item: TeamContextItem) {
-    await deleteContextItem(team.id, item.id);
-    notify("toast.contextItemDeleted");
+    try {
+      await deleteContextItem(team.id, item.id);
+      notify("toast.contextItemDeleted");
+    } catch {
+      notify("toast.error");
+    }
   }
 
   return (
@@ -343,7 +347,7 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
 
 function AgentDetailPanel({ agent }: { agent: Agent }) {
   const { t } = useTranslation();
-  const { updateAgent, deleteAgent } = useMockBackend();
+  const { updateAgent, deleteAgent, notify } = useMockBackend();
 
   const [systemPrompt, setSystemPrompt] = useState(agent.systemPrompt);
   const [defaultCodebase, setDefaultCodebase] = useState(agent.defaultCodebase ?? "");
@@ -352,21 +356,14 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  // Reset local state whenever the selected agent changes
-  const agentId = agent.id;
-  const [trackedId, setTrackedId] = useState(agentId);
-  if (trackedId !== agentId) {
-    setTrackedId(agentId);
-    setSystemPrompt(agent.systemPrompt);
-    setDefaultCodebase(agent.defaultCodebase ?? "");
-    setAreaMap(agent.areaMap ?? {});
-    setConfirmDelete(false);
+  function sortedJson(map: Record<string, string>) {
+    return JSON.stringify(Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b))));
   }
 
   const dirty =
     systemPrompt !== agent.systemPrompt ||
     defaultCodebase !== (agent.defaultCodebase ?? "") ||
-    JSON.stringify(areaMap) !== JSON.stringify(agent.areaMap ?? {});
+    sortedJson(areaMap) !== sortedJson(agent.areaMap ?? {});
 
   async function handleSave() {
     setSaving(true);
@@ -381,7 +378,8 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
     setDeleting(true);
     try {
       await deleteAgent(agent.id);
-    } finally {
+    } catch {
+      notify("toast.error");
       setDeleting(false);
     }
   }

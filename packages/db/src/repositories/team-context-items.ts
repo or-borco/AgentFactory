@@ -1,7 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { TeamContextItem } from "@agentfactory/core";
 import { db } from "../client";
-import { teamContextItems } from "../schema";
+import { teamContextItems, teams } from "../schema";
 
 function toItem(row: typeof teamContextItems.$inferSelect): TeamContextItem {
   return {
@@ -36,4 +36,15 @@ export async function createTeamContextItem(
 
 export async function deleteTeamContextItem(id: number): Promise<void> {
   await db.delete(teamContextItems).where(eq(teamContextItems.id, id));
+}
+
+export async function deleteTeamContextItemForOrg(id: number, orgId: number): Promise<boolean> {
+  const [item] = await db
+    .select({ id: teamContextItems.id })
+    .from(teamContextItems)
+    .innerJoin(teams, eq(teamContextItems.teamId, teams.id))
+    .where(and(eq(teamContextItems.id, id), eq(teams.orgId, orgId)));
+  if (!item) return false;
+  await db.delete(teamContextItems).where(eq(teamContextItems.id, id));
+  return true;
 }

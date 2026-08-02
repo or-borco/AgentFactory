@@ -283,6 +283,7 @@ const en = {
     agentDeleted: "Agent deleted",
     contextItemAdded: "Document added",
     contextItemDeleted: "Document removed",
+    error: "Something went wrong",
     importFromGitComingSoon: "Import from git — coming soon",
     skillAuthoringComingSoon: "Skill authoring — coming soon",
     connectProviderComingSoon: "Connect a provider — coming soon",

@@ -90,11 +90,14 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
       apiFetch<Connection[]>("/api/connections"),
       apiFetch<Task[]>("/api/tasks"),
       apiFetch<OrgMember[]>("/api/teams/members"),
-      apiFetch<TeamContextItem[]>("/api/teams/1/context-items"),
     ])
-      .then(([teams, agents, sessions, skills, connections, tasks, orgMembers, teamContextItems]) => {
+      .then(async ([teams, agents, sessions, skills, connections, tasks, orgMembers]) => {
         if (cancelled) return;
-        setState({ teams, agents, sessions, messages: [], skills, connections, tasks, orgMembers, teamContextItems });
+        const contextArrays = await Promise.all(
+          teams.map((t) => apiFetch<TeamContextItem[]>(`/api/teams/${t.id}/context-items`)),
+        );
+        if (cancelled) return;
+        setState({ teams, agents, sessions, messages: [], skills, connections, tasks, orgMembers, teamContextItems: contextArrays.flat() });
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
