@@ -223,11 +223,11 @@ function AreaMapEditor({
   );
 }
 
-// ── Agent card ─────────────────────────────────────────────────────────────────
+// ── Agent detail panel ─────────────────────────────────────────────────────────
 
-function AgentCard({ agent }: { agent: Agent }) {
+function AgentDetailPanel({ agent }: { agent: Agent }) {
   const { t } = useTranslation();
-  const { updateAgent, deleteAgent, notify } = useMockBackend();
+  const { updateAgent, deleteAgent } = useMockBackend();
 
   const [systemPrompt, setSystemPrompt] = useState(agent.systemPrompt);
   const [defaultCodebase, setDefaultCodebase] = useState(agent.defaultCodebase ?? "");
@@ -235,6 +235,22 @@ function AgentCard({ agent }: { agent: Agent }) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Reset local state whenever the selected agent changes
+  const agentId = agent.id;
+  const [trackedId, setTrackedId] = useState(agentId);
+  if (trackedId !== agentId) {
+    setTrackedId(agentId);
+    setSystemPrompt(agent.systemPrompt);
+    setDefaultCodebase(agent.defaultCodebase ?? "");
+    setAreaMap(agent.areaMap ?? {});
+    setConfirmDelete(false);
+  }
+
+  const dirty =
+    systemPrompt !== agent.systemPrompt ||
+    defaultCodebase !== (agent.defaultCodebase ?? "") ||
+    JSON.stringify(areaMap) !== JSON.stringify(agent.areaMap ?? {});
 
   async function handleSave() {
     setSaving(true);
@@ -254,69 +270,60 @@ function AgentCard({ agent }: { agent: Agent }) {
     }
   }
 
-  const dirty =
-    systemPrompt !== agent.systemPrompt ||
-    defaultCodebase !== (agent.defaultCodebase ?? "") ||
-    JSON.stringify(areaMap) !== JSON.stringify(agent.areaMap ?? {});
-
   return (
-    <div className="rounded-[var(--radius-md)] border border-[var(--color-divider)] p-5 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-2xl">{agent.avatarEmoji ?? "🤖"}</span>
-          <div>
-            <div className="font-medium text-[var(--color-neutral-100)]">{agent.name}</div>
-            {agent.description && (
-              <Truncate text={agent.description} className="text-xs text-[var(--color-neutral-500)]" />
-            )}
-          </div>
+    <div className="flex flex-col h-full">
+      {/* Detail header */}
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--color-divider)]">
+        <span className="text-2xl leading-none">{agent.avatarEmoji ?? "🤖"}</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-[var(--color-neutral-100)] truncate">{agent.name}</div>
+          {agent.description && (
+            <div className="text-xs text-[var(--color-neutral-500)] truncate">{agent.description}</div>
+          )}
         </div>
         <Badge tone={agent.mode === "automatic" ? "success" : "neutral"}>
           {agent.mode === "automatic" ? t("common.automatic") : "Manual"}
         </Badge>
       </div>
 
-      {/* Default codebase */}
-      <div>
-        <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
-          {t("teamsV2.defaultCodebaseLabel")}
-        </label>
-        <TextInput
-          placeholder={t("teamsV2.defaultCodebasePlaceholder")}
-          value={defaultCodebase}
-          onChange={(e) => setDefaultCodebase(e.target.value)}
-        />
-      </div>
-
-      {/* System prompt */}
-      <div>
-        <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
-          {t("teamsV2.systemPromptLabel")}
-        </label>
-        <Textarea
-          rows={3}
-          value={systemPrompt}
-          onChange={(e) => setSystemPrompt(e.target.value)}
-        />
-      </div>
-
-      {/* Area map */}
-      <div>
-        <div className="mb-2">
-          <div className="text-xs font-medium text-[var(--color-neutral-400)]">{t("teamsV2.areaMapSection")}</div>
-          <div className="text-xs text-[var(--color-neutral-500)]">{t("teamsV2.areaMapDescription")}</div>
+      {/* Scrollable fields */}
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.defaultCodebaseLabel")}
+          </label>
+          <TextInput
+            placeholder={t("teamsV2.defaultCodebasePlaceholder")}
+            value={defaultCodebase}
+            onChange={(e) => setDefaultCodebase(e.target.value)}
+          />
         </div>
-        <AreaMapEditor areaMap={areaMap} onChange={setAreaMap} />
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.systemPromptLabel")}
+          </label>
+          <Textarea
+            rows={4}
+            value={systemPrompt}
+            onChange={(e) => setSystemPrompt(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <div className="mb-2">
+            <div className="text-xs font-medium text-[var(--color-neutral-400)]">{t("teamsV2.areaMapSection")}</div>
+            <div className="text-xs text-[var(--color-neutral-500)]">{t("teamsV2.areaMapDescription")}</div>
+          </div>
+          <AreaMapEditor areaMap={areaMap} onChange={setAreaMap} />
+        </div>
       </div>
 
-      {/* Footer actions */}
-      <div className="flex items-center justify-between pt-1">
+      {/* Footer */}
+      <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--color-divider)]">
         {confirmDelete ? (
           <div className="flex items-center gap-3">
-            <span className="text-sm text-[var(--color-neutral-400)]">
-              {t("teamsV2.confirmDeleteSub")}
-            </span>
+            <span className="text-sm text-[var(--color-neutral-400)]">{t("teamsV2.confirmDeleteSub")}</span>
             <Button variant="secondary" onClick={() => setConfirmDelete(false)}>
               {t("common.cancel")}
             </Button>
@@ -336,11 +343,9 @@ function AgentCard({ agent }: { agent: Agent }) {
             {t("teamsV2.deleteAgent")}
           </button>
         )}
-        {dirty && (
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? t("common.save") + "…" : t("common.save")}
-          </Button>
-        )}
+        <Button onClick={handleSave} disabled={!dirty || saving}>
+          {saving ? t("common.save") + "…" : t("common.save")}
+        </Button>
       </div>
     </div>
   );
@@ -352,14 +357,73 @@ function AgentsTab({ team }: { team: Team }) {
   const { t } = useTranslation();
   const { agentsForTeam } = useMockBackend();
   const agents = agentsForTeam(team.id);
+  const [selectedId, setSelectedId] = useState<number | null>(agents[0]?.id ?? null);
+
+  // If the selected agent was deleted or agents changed, fall back to first
+  const selected = agents.find((a) => a.id === selectedId) ?? agents[0] ?? null;
+
+  if (agents.length === 0) {
+    return (
+      <div className="py-6">
+        <EmptyState icon="🤖" title={t("teamsV2.noAgents")} subtitle="" />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4 py-6">
-      {agents.length === 0 ? (
-        <EmptyState icon="🤖" title={t("teamsV2.noAgents")} subtitle="" />
-      ) : (
-        agents.map((agent) => <AgentCard key={agent.id} agent={agent} />)
-      )}
+    <div className="mt-6 flex rounded-[var(--radius-md)] border border-[var(--color-divider)] overflow-hidden" style={{ minHeight: "460px" }}>
+      {/* Agent list */}
+      <div className="w-56 shrink-0 border-r border-[var(--color-divider)] flex flex-col">
+        <div className="flex items-center justify-between px-3 py-2.5 border-b border-[var(--color-divider)]">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--color-neutral-500)]">
+            {t("teamsV2.tabAgents")}
+          </span>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {agents.map((agent) => {
+            const isActive = agent.id === (selected?.id ?? -1);
+            return (
+              <button
+                key={agent.id}
+                onClick={() => setSelectedId(agent.id)}
+                className={[
+                  "w-full flex items-center gap-2.5 px-3 py-2.5 text-left border-b border-[var(--color-divider)] last:border-0 transition-colors cursor-pointer",
+                  isActive
+                    ? "bg-[var(--color-accent-900)]"
+                    : "hover:bg-[var(--color-neutral-900)]",
+                ].join(" ")}
+              >
+                <span className="text-lg leading-none shrink-0">{agent.avatarEmoji ?? "🤖"}</span>
+                <div className="flex-1 min-w-0">
+                  <div className={[
+                    "text-sm font-medium truncate",
+                    isActive ? "text-[var(--color-accent-200)]" : "text-[var(--color-neutral-200)]",
+                  ].join(" ")}>
+                    {agent.name}
+                  </div>
+                  {agent.description && (
+                    <div className="text-xs text-[var(--color-neutral-500)] truncate">{agent.description}</div>
+                  )}
+                </div>
+                <div
+                  className={[
+                    "w-1.5 h-1.5 rounded-full shrink-0",
+                    agent.mode === "automatic" ? "bg-green-400" : "bg-[var(--color-neutral-600)]",
+                  ].join(" ")}
+                  title={agent.mode === "automatic" ? t("common.automatic") : "Manual"}
+                />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Detail panel */}
+      <div className="flex-1 min-w-0">
+        {selected ? (
+          <AgentDetailPanel key={selected.id} agent={selected} />
+        ) : null}
+      </div>
     </div>
   );
 }
