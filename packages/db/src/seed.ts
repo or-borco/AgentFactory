@@ -112,6 +112,7 @@ async function main() {
       {
         id: 2,
         orgId: ORG_ID,
+        teamId: 1,
         name: "Release notes writer",
         description: "Draft release notes from merged PRs",
         avatarEmoji: "📝",
@@ -131,6 +132,7 @@ async function main() {
       {
         id: 3,
         orgId: ORG_ID,
+        teamId: 1,
         name: "Support triager",
         description: "Label and route incoming support tickets",
         avatarEmoji: "🎧",
