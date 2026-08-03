@@ -53,6 +53,7 @@ async function listInstallationRepoNames(installationId: number): Promise<string
 export interface CloneTarget {
   cloneUrl: string;
   branch: string;
+  repoFullName: string;
 }
 
 // Finds which of the org's GitHub connections has access to repoFullName, and mints a fresh
@@ -73,32 +74,50 @@ export async function resolveCloneTarget(
     if (!repoNames.includes(repoFullName)) continue;
 
     const token = await getInstallationToken(installationId);
-    return { cloneUrl: `https://x-access-token:${token}@github.com/${repoFullName}.git`, branch };
+    return { cloneUrl: `https://x-access-token:${token}@github.com/${repoFullName}.git`, branch, repoFullName };
   }
   return undefined;
 }
 
 // Clones into /workspace on first use only — the same container is reused across a session's
 // later runs (worker.ts's ensureSandbox), and re-cloning would wipe any uncommitted changes an
-// earlier turn made. Exit status is read back via an echoed sentinel rather than a real exit
-// code, matching the existing pattern in agent-runtime.ts (SandboxProvider.exec has no exit-code
-// channel). The token lives only in an env var passed to the exec, never in argv.
+// earlier turn made. When /workspace already has a repo, its remote is checked against the
+// *current* target rather than assumed correct — a task's codebase can only be set once through
+// today's UI, but nothing stops a direct API call (or a future edit UI) from changing it after
+// the session already cloned a different repo, and silently continuing to work in the stale one
+// would be a much worse failure mode than erroring clearly. Exit status is read back via an
+// echoed sentinel rather than a real exit code, matching the existing pattern in
+// agent-runtime.ts (SandboxProvider.exec has no exit-code channel). The token lives only in an
+// env var passed to the exec, never in argv.
 export async function cloneIntoSandbox(
   sandboxProvider: SandboxProvider,
   sandboxId: string,
   target: CloneTarget,
 ): Promise<void> {
-  const script =
-    "test -d /workspace/.git && echo ALREADY_CLONED || " +
-    '(git clone "$CLONE_URL" /workspace && cd /workspace && git checkout -b "$BRANCH_NAME" && echo CLONE_OK) || echo CLONE_FAILED';
+  const script = `
+if [ -d /workspace/.git ]; then
+  CURRENT_REMOTE=$(cd /workspace && git remote get-url origin 2>/dev/null)
+  case "$CURRENT_REMOTE" in
+    *"github.com/$REPO_FULL_NAME.git") echo ALREADY_CLONED ;;
+    *) echo REPO_MISMATCH ;;
+  esac
+else
+  git clone "$CLONE_URL" /workspace && cd /workspace && git checkout -b "$BRANCH_NAME" && echo CLONE_OK || echo CLONE_FAILED
+fi`;
 
   let stdout = "";
   for await (const chunk of sandboxProvider.exec(sandboxId, ["sh", "-c", script], {
-    env: { CLONE_URL: target.cloneUrl, BRANCH_NAME: target.branch },
+    env: { CLONE_URL: target.cloneUrl, BRANCH_NAME: target.branch, REPO_FULL_NAME: target.repoFullName },
   })) {
     if (chunk.stream === "stdout") stdout += chunk.data;
   }
 
+  if (stdout.includes("REPO_MISMATCH")) {
+    throw new Error(
+      `Sandbox workspace already contains a different repository than "${target.repoFullName}" — ` +
+        "this session was likely started against a different task codebase and can't be reused for this one",
+    );
+  }
   const succeeded = stdout.includes("CLONE_OK") || stdout.includes("ALREADY_CLONED");
   if (!succeeded) {
     throw new Error("Failed to clone repository into sandbox workspace");

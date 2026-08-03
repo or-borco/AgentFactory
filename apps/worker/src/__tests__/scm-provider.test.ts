@@ -58,6 +58,7 @@ describe("resolveCloneTarget", () => {
     expect(target).toEqual({
       cloneUrl: "https://x-access-token:ghs_clone@github.com/acme-org/platform.git",
       branch: "agent/session-42",
+      repoFullName: "acme-org/platform",
     });
   });
 
@@ -106,16 +107,27 @@ describe("cloneIntoSandbox", () => {
     };
   }
 
-  const target = { cloneUrl: "https://x-access-token:ghs@github.com/acme-org/platform.git", branch: "agent/session-1" };
+  const target = {
+    cloneUrl: "https://x-access-token:ghs@github.com/acme-org/platform.git",
+    branch: "agent/session-1",
+    repoFullName: "acme-org/platform",
+  };
 
   it("resolves when the clone succeeds", async () => {
     const sandbox = fakeSandbox([{ stream: "stdout", data: "CLONE_OK\n" }]);
     await expect(cloneIntoSandbox(sandbox, "sandbox-1", target)).resolves.toBeUndefined();
   });
 
-  it("resolves without re-cloning when the workspace already has a repo", async () => {
+  it("resolves without re-cloning when the workspace already has the same repo", async () => {
     const sandbox = fakeSandbox([{ stream: "stdout", data: "ALREADY_CLONED\n" }]);
     await expect(cloneIntoSandbox(sandbox, "sandbox-1", target)).resolves.toBeUndefined();
+  });
+
+  it("throws a clear error when the workspace already has a different repo cloned", async () => {
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "REPO_MISMATCH\n" }]);
+    await expect(cloneIntoSandbox(sandbox, "sandbox-1", target)).rejects.toThrow(
+      'Sandbox workspace already contains a different repository than "acme-org/platform"',
+    );
   });
 
   it("throws when the clone fails", async () => {
@@ -128,7 +140,7 @@ describe("cloneIntoSandbox", () => {
     );
   });
 
-  it("passes the clone url and branch as env vars, not argv", async () => {
+  it("passes the clone url, branch, and target repo as env vars, not argv", async () => {
     let capturedEnv: Record<string, string> | undefined;
     const sandbox: SandboxProvider = {
       create: vi.fn(),
@@ -144,6 +156,10 @@ describe("cloneIntoSandbox", () => {
 
     await cloneIntoSandbox(sandbox, "sandbox-1", target);
 
-    expect(capturedEnv).toEqual({ CLONE_URL: target.cloneUrl, BRANCH_NAME: target.branch });
+    expect(capturedEnv).toEqual({
+      CLONE_URL: target.cloneUrl,
+      BRANCH_NAME: target.branch,
+      REPO_FULL_NAME: target.repoFullName,
+    });
   });
 });
