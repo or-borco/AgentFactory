@@ -20,6 +20,7 @@ export {
   Warning as AlertIcon,
   ListChecks as TasksIcon,
   Pulse as ActivityIcon,
+  Trash as TrashIcon,
 } from "@phosphor-icons/react";
 
 // Google brand icon kept as custom SVG

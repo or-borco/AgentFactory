@@ -1,8 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import { Badge, Button, Card, PageHeader } from "@agentfactory/shared";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useTranslation } from "@/lib/i18n/context";
-import { AlertIcon, LinkIcon, PlusIcon } from "@/lib/icons";
+import { AlertIcon, LinkIcon, TrashIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
 import type { Connection, ConnectionHealth, ConnectionKind } from "@agentfactory/core";
@@ -21,7 +23,7 @@ const SECTIONS: { kind: ConnectionKind; labelKey: TranslationKey }[] = [
   { kind: "tasks", labelKey: "connections.kind.tasks" },
 ];
 
-function ConnectionRow({ conn, t }: { conn: Connection; t: Translate }) {
+function ConnectionRow({ conn, t, onDisconnect }: { conn: Connection; t: Translate; onDisconnect: () => void }) {
   return (
     <Card className="flex items-center justify-between px-5 py-4">
       <div className="flex items-center gap-3">
@@ -35,19 +37,30 @@ function ConnectionRow({ conn, t }: { conn: Connection; t: Translate }) {
           {t(`connections.provider.${conn.provider}`)} · {conn.label}
         </p>
       </div>
-      <Badge tone={healthTone(conn.health)}>
-        <span className="flex items-center gap-1">
-          {conn.health === "needs-attention" && <AlertIcon size={11} />}
-          {t(`connections.health.${conn.health}`)}
-        </span>
-      </Badge>
+      <div className="flex items-center gap-3">
+        <Badge tone={healthTone(conn.health)}>
+          <span className="flex items-center gap-1">
+            {conn.health === "needs-attention" && <AlertIcon size={11} />}
+            {t(`connections.health.${conn.health}`)}
+          </span>
+        </Badge>
+        <button
+          type="button"
+          onClick={onDisconnect}
+          aria-label={t("connections.disconnect")}
+          className="text-[var(--color-neutral-500)] transition-colors hover:text-[var(--color-status-red)]"
+        >
+          <TrashIcon size={16} />
+        </button>
+      </div>
     </Card>
   );
 }
 
 export default function ConnectionsPage() {
-  const { connections, notify } = useMockBackend();
+  const { connections, deleteConnection } = useMockBackend();
   const { t } = useTranslation();
+  const [pendingDelete, setPendingDelete] = useState<Connection | null>(null);
 
   return (
     <div className="pb-16">
@@ -55,9 +68,9 @@ export default function ConnectionsPage() {
         title={t("connections.title")}
         subtitle={t("connections.subtitle")}
         action={
-          <Button onClick={() => notify("toast.connectProviderComingSoon")}>
-            <PlusIcon size={15} />
-            {t("connections.newConnection")}
+          <Button onClick={() => (window.location.href = "/api/connections/github/start")}>
+            <LinkIcon size={15} />
+            {t("connections.connectGithub")}
           </Button>
         }
       />
@@ -70,12 +83,26 @@ export default function ConnectionsPage() {
             <h2 className="mb-3 text-base font-semibold text-[var(--color-text)]">{t(labelKey)}</h2>
             <div className="space-y-2">
               {items.map((conn) => (
-                <ConnectionRow key={conn.id} conn={conn} t={t} />
+                <ConnectionRow key={conn.id} conn={conn} t={t} onDisconnect={() => setPendingDelete(conn)} />
               ))}
             </div>
           </div>
         );
       })}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title={t("connections.confirmDisconnectTitle", { label: pendingDelete.label })}
+          message={t("connections.confirmDisconnectMessage")}
+          confirmLabel={t("connections.disconnect")}
+          cancelLabel={t("common.cancel")}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => {
+            deleteConnection(pendingDelete.id);
+            setPendingDelete(null);
+          }}
+        />
+      )}
     </div>
   );
 }

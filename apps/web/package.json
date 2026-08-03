@@ -16,6 +16,7 @@
     "@agentfactory/queue": "workspace:*",
     "@agentfactory/shared": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
+    "jsonwebtoken": "^9.0.2",
     "next": "16.2.12",
     "react": "19.2.4",
     "react-dom": "19.2.4"
@@ -23,6 +24,7 @@
   "devDependencies": {
     "@playwright/test": "^1.62.0",
     "@tailwindcss/postcss": "^4",
+    "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",

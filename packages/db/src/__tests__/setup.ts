@@ -30,6 +30,7 @@ const TABLES_LEAVES_FIRST = [
   "runs",
   "messages",
   "sessions",
+  "connections",
   "agents",
   "teams",
   "auth_sessions",

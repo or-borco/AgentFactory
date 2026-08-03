@@ -117,6 +117,28 @@ export const agents = pgTable(
   (table) => [check("agents_name_max_length", sql`char_length(${table.name}) <= 80`)],
 );
 
+// A closed set matching Connection.kind/health in packages/core/src/domain.ts. provider is
+// deliberately NOT an enum — ConnectionProvider is expected to grow (bitbucket, telegram, jira,
+// ...), same reasoning as agents.runtimeKind above.
+export const connectionKindEnum = pgEnum("connection_kind", ["scm", "channel", "tasks"]);
+export const connectionHealthEnum = pgEnum("connection_health", ["healthy", "needs-attention", "expired"]);
+
+export const connections = pgTable("connections", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  orgId: integer("org_id")
+    .notNull()
+    .references(() => orgs.id, { onDelete: "cascade" }),
+  provider: text("provider").notNull(),
+  kind: connectionKindEnum("kind").notNull(),
+  label: text("label").notNull(),
+  health: connectionHealthEnum("health").notNull().default("healthy"),
+  // For github: { installationId, accountLogin, accountType }. No token/secret lives here —
+  // installation tokens are minted on demand from the platform's GitHub App private key
+  // (apps/web/src/server/github-app.ts), never persisted.
+  config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const sessionOriginEnum = pgEnum("session_origin", ["web", "slack", "github", "jira", "cron"]);
 
 export const sessions = pgTable("sessions", {
