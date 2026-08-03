@@ -9,7 +9,8 @@ vi.mock("jsonwebtoken", () => ({ default: { sign: vi.fn(() => "fake.app.jwt") } 
 const listConnectionsMock = vi.fn<(orgId: number) => Promise<Connection[]>>();
 vi.mock("@agentfactory/db", () => ({ listConnections: (orgId: number) => listConnectionsMock(orgId) }));
 
-const { cloneIntoSandbox, resolveCloneTarget } = await import("../scm-provider");
+const { cloneIntoSandbox, openDraftPullRequest, pushChangesIfDirty, resolveCloneTarget } =
+  await import("../scm-provider");
 
 function githubConnection(id: number, installationId: number): Connection {
   return {
@@ -21,6 +22,19 @@ function githubConnection(id: number, installationId: number): Connection {
     health: "healthy",
     config: { installationId },
     createdAt: new Date().toISOString(),
+  };
+}
+
+function fakeSandbox(chunks: OutputChunk[]): SandboxProvider {
+  return {
+    create: vi.fn(),
+    exec: async function* () {
+      for (const chunk of chunks) yield chunk;
+    },
+    writeFiles: vi.fn(),
+    readWorkspace: vi.fn(),
+    destroy: vi.fn(),
+    exists: vi.fn(),
   };
 }
 
@@ -59,6 +73,7 @@ describe("resolveCloneTarget", () => {
       cloneUrl: "https://x-access-token:ghs_clone@github.com/acme-org/platform.git",
       branch: "agent/session-42",
       repoFullName: "acme-org/platform",
+      installationId: 999,
     });
   });
 
@@ -94,23 +109,11 @@ describe("resolveCloneTarget", () => {
 });
 
 describe("cloneIntoSandbox", () => {
-  function fakeSandbox(chunks: OutputChunk[]): SandboxProvider {
-    return {
-      create: vi.fn(),
-      exec: async function* () {
-        for (const chunk of chunks) yield chunk;
-      },
-      writeFiles: vi.fn(),
-      readWorkspace: vi.fn(),
-      destroy: vi.fn(),
-      exists: vi.fn(),
-    };
-  }
-
   const target = {
     cloneUrl: "https://x-access-token:ghs@github.com/acme-org/platform.git",
     branch: "agent/session-1",
     repoFullName: "acme-org/platform",
+    installationId: 999,
   };
 
   it("resolves when the clone succeeds", async () => {
@@ -161,5 +164,118 @@ describe("cloneIntoSandbox", () => {
       BRANCH_NAME: target.branch,
       REPO_FULL_NAME: target.repoFullName,
     });
+  });
+});
+
+describe("pushChangesIfDirty", () => {
+  it("returns false and pushes nothing when the tree is clean", async () => {
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "NO_CHANGES\n" }]);
+    await expect(
+      pushChangesIfDirty(sandbox, "sandbox-1", "agent/session-1", "msg", "Code reviewer"),
+    ).resolves.toBe(false);
+  });
+
+  it("returns true when the commit and push succeed", async () => {
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
+    await expect(
+      pushChangesIfDirty(sandbox, "sandbox-1", "agent/session-1", "msg", "Code reviewer"),
+    ).resolves.toBe(true);
+  });
+
+  it("throws when the push fails", async () => {
+    const sandbox = fakeSandbox([
+      { stream: "stderr", data: "! [rejected]\n" },
+      { stream: "stdout", data: "PUSH_FAILED\n" },
+    ]);
+    await expect(
+      pushChangesIfDirty(sandbox, "sandbox-1", "agent/session-1", "msg", "Code reviewer"),
+    ).rejects.toThrow("Failed to push agent changes to the remote");
+  });
+
+  it("passes branch, commit message, and author as env vars, not argv", async () => {
+    let capturedEnv: Record<string, string> | undefined;
+    const sandbox: SandboxProvider = {
+      create: vi.fn(),
+      exec: async function* (_id, _cmd, opts) {
+        capturedEnv = opts?.env;
+        yield { stream: "stdout", data: "PUSH_OK\n" };
+      },
+      writeFiles: vi.fn(),
+      readWorkspace: vi.fn(),
+      destroy: vi.fn(),
+      exists: vi.fn(),
+    };
+
+    await pushChangesIfDirty(sandbox, "sandbox-1", "agent/session-1", "Fix the bug", "Code reviewer");
+
+    expect(capturedEnv).toEqual({
+      BRANCH_NAME: "agent/session-1",
+      COMMIT_MESSAGE: "Fix the bug",
+      AUTHOR_NAME: "Code reviewer",
+    });
+  });
+});
+
+describe("openDraftPullRequest", () => {
+  beforeEach(() => {
+    process.env.GITHUB_APP_ID = "12345";
+    process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.GITHUB_APP_ID;
+    delete process.env.GITHUB_APP_PRIVATE_KEY;
+  });
+
+  it("fetches the repo's default branch and opens a draft PR against it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_pr" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ default_branch: "develop" }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ number: 7, html_url: "https://github.com/acme-org/platform/pull/7" }), {
+          status: 200,
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const pr = await openDraftPullRequest(999, "acme-org/platform", "agent/session-1", "Fix the bug", "body text");
+
+    expect(pr).toEqual({ number: 7, url: "https://github.com/acme-org/platform/pull/7" });
+    const [, , prCall] = fetchMock.mock.calls;
+    expect(prCall[0]).toBe("https://api.github.com/repos/acme-org/platform/pulls");
+    expect(JSON.parse(prCall[1].body)).toEqual({
+      title: "Fix the bug",
+      head: "agent/session-1",
+      base: "develop",
+      body: "body text",
+      draft: true,
+    });
+  });
+
+  it("throws when the repo lookup fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_pr" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("not found", { status: 404 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      openDraftPullRequest(999, "acme-org/platform", "agent/session-1", "title", "body"),
+    ).rejects.toThrow("GitHub API repo lookup failed: 404");
+  });
+
+  it("throws when PR creation fails", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_pr" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ default_branch: "main" }), { status: 200 }))
+      .mockResolvedValueOnce(new Response("unprocessable", { status: 422 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      openDraftPullRequest(999, "acme-org/platform", "agent/session-1", "title", "body"),
+    ).rejects.toThrow("GitHub API PR creation failed: 422");
   });
 });

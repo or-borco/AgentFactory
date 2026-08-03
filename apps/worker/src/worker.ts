@@ -15,10 +15,11 @@ import {
   touchSessionActivity,
   updateRunStatus,
   updateRunWorkspace,
+  updateTask,
 } from "@agentfactory/db";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { runAgentTurn } from "./agent-runtime";
-import { resolveCloneTarget, type CloneTarget } from "./scm-provider";
+import { openDraftPullRequest, pushChangesIfDirty, resolveCloneTarget, type CloneTarget } from "./scm-provider";
 
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
@@ -82,6 +83,26 @@ new Worker<RunJobData>(
       await createMessage(run.sessionId, "assistant", text, runId);
       await createEvent(runId, 1, "text_delta", { text });
       await createEvent(runId, 2, "done", { reason: "completed" });
+
+      if (workspace && task) {
+        const pushed = await pushChangesIfDirty(
+          sandboxProvider,
+          sandboxId,
+          workspace.branch,
+          `${agent.name}: ${task.title}`,
+          agent.name,
+        );
+        if (pushed) {
+          const pr = await openDraftPullRequest(
+            workspace.installationId,
+            workspace.repoFullName,
+            workspace.branch,
+            task.title,
+            `Opened automatically by AgentFactory for task ${task.ref}.`,
+          );
+          await updateTask(task.id, { prNumber: pr.number, prUrl: pr.url, status: "pr_open" });
+        }
+      }
 
       const workspaceSnapshot = await sandboxProvider.readWorkspace(sandboxId);
       if (Object.keys(workspaceSnapshot).length > 0) {
