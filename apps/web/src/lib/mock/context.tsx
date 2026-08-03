@@ -62,6 +62,7 @@ interface MockBackendValue extends MockState {
   createTask: (input: NewTaskInput) => Promise<Task>;
   updateTask: (taskId: number, patch: Partial<Task>) => Promise<void>;
   runTask: (taskId: number) => Promise<{ task: Task; session: Session; runId: number }>;
+  deleteConnection: (connectionId: number) => Promise<void>;
 }
 
 const MockBackendContext = createContext<MockBackendValue | null>(null);
@@ -203,6 +204,15 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     setState((s) => ({ ...s, tasks: s.tasks.map((tk) => (tk.id === taskId ? task : tk)) }));
   }, []);
 
+  const deleteConnection = useCallback(
+    async (connectionId: number) => {
+      await apiFetch<void>(`/api/connections/${connectionId}`, { method: "DELETE" });
+      setState((s) => ({ ...s, connections: s.connections.filter((c) => c.id !== connectionId) }));
+      showToast("toast.connectionDeleted");
+    },
+    [showToast],
+  );
+
   const runTask = useCallback(
     async (taskId: number) => {
       const result = await apiFetch<{ task: Task; session: Session; runId: number }>(
@@ -321,6 +331,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     createTask,
     updateTask,
     runTask,
+    deleteConnection,
   };
 
   return <MockBackendContext.Provider value={value}>{children}</MockBackendContext.Provider>;
