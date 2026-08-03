@@ -59,3 +59,36 @@ export async function getInstallationToken(installationId: number): Promise<Inst
   );
   return { token: result.token, expiresAt: result.expires_at };
 }
+
+export interface InstallationRepo {
+  id: number;
+  fullName: string;
+  private: boolean;
+}
+
+// Requires an installation token (not the app JWT githubAppRequest signs) — this endpoint
+// answers "what can THIS installation see", which is meaningless for the app identity itself.
+export async function listInstallationRepos(installationId: number): Promise<InstallationRepo[]> {
+  const { token } = await getInstallationToken(installationId);
+  const res = await fetch(`${GITHUB_API}/installation/repositories?per_page=100`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+  });
+  if (!res.ok) {
+    throw new Error(
+      `GitHub API /installation/repositories failed: ${res.status} ${await res.text().catch(() => "")}`,
+    );
+  }
+  const body = (await res.json()) as { repositories: Array<{ id: number; full_name: string; private: boolean }> };
+  return body.repositories.map((r) => ({ id: r.id, fullName: r.full_name, private: r.private }));
+}
+
+// Merges repo lists from multiple installations (an org can connect more than one GitHub
+// account/org), deduping by repo id in case the same repo ever appears twice.
+export function dedupeRepos(lists: InstallationRepo[][]): InstallationRepo[] {
+  const seen = new Set<number>();
+  return lists.flat().filter((repo) => {
+    if (seen.has(repo.id)) return false;
+    seen.add(repo.id);
+    return true;
+  });
+}
