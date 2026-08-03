@@ -132,7 +132,10 @@ const en = {
   connections: {
     title: "Connections",
     subtitle: "Source control, channels, and task systems agents can use",
-    newConnection: "New connection",
+    connectGithub: "Connect GitHub",
+    disconnect: "Disconnect",
+    confirmDisconnectTitle: "Disconnect {label}?",
+    confirmDisconnectMessage: "AgentFactory will no longer be able to use this connection. This doesn't uninstall the GitHub App itself — do that from your GitHub account settings if needed.",
     provider: {
       github: "GitHub",
       bitbucket: "Bitbucket",
@@ -286,7 +289,7 @@ const en = {
     error: "Something went wrong",
     importFromGitComingSoon: "Import from git — coming soon",
     skillAuthoringComingSoon: "Skill authoring — coming soon",
-    connectProviderComingSoon: "Connect a provider — coming soon",
+    connectionDeleted: "Connection removed",
   },
   relativeTime: {
     justNow: "just now",
