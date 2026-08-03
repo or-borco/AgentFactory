@@ -106,6 +106,19 @@ describe("resolveCloneTarget", () => {
     const target = await resolveCloneTarget(1, "acme-org/platform", "agent/session-42");
     expect(target?.cloneUrl).toBe("https://x-access-token:ghs_clone@github.com/acme-org/platform.git");
   });
+
+  it("throws immediately when the app itself isn't configured, instead of reporting a misleading 'repo not accessible'", async () => {
+    delete process.env.GITHUB_APP_PRIVATE_KEY;
+    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(resolveCloneTarget(1, "acme-org/platform", "agent/session-42")).rejects.toThrow(
+      "GITHUB_APP_PRIVATE_KEY is not set",
+    );
+    // Never even tried to look anything up on GitHub — this is a config problem, not a per-repo one.
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("cloneIntoSandbox", () => {

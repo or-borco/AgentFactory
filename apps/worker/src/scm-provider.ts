@@ -65,6 +65,13 @@ export async function resolveCloneTarget(
   repoFullName: string,
   branch: string,
 ): Promise<CloneTarget | undefined> {
+  // Fail fast and loud on a misconfigured app — appId()/privateKey() already throw a clear
+  // "X is not set" error. Checked here, before the loop below, so that error can't get
+  // swallowed by the per-connection catch and misreported as "repo not accessible", which is a
+  // completely different (and much more confusing) problem for whoever's debugging a failed run.
+  appId();
+  privateKey();
+
   const githubConnections = (await listConnections(orgId)).filter((c) => c.provider === "github");
 
   for (const connection of githubConnections) {
