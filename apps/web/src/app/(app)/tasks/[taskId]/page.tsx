@@ -51,7 +51,8 @@ export default function TaskDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id]);
 
-  // Poll run status until terminal
+  // Poll run status until terminal, loading messages on completion (used for handleRun).
+  // For handleReply, use pollRunStatus instead — sendMessage already owns message streaming.
   const pollRun = useCallback(
     (id: number, sessionId: number) => {
       const tick = () => {
@@ -75,6 +76,20 @@ export default function TaskDetailPage() {
     [loadMessages],
   );
 
+  // Only tracks run status — does not load messages (sendMessage handles that for replies).
+  const pollRunStatus = useCallback((id: number) => {
+    const tick = () => {
+      setTimeout(async () => {
+        const run = await apiFetch<Run>(`/api/runs/${id}`);
+        setRunStatus(run.status);
+        if (run.status !== "done" && run.status !== "failed" && run.status !== "cancelled") {
+          tick();
+        }
+      }, 1500);
+    };
+    tick();
+  }, []);
+
   const handleReply = async () => {
     if (!reply.trim() || !session || replying) return;
     const text = reply.trim();
@@ -83,7 +98,7 @@ export default function TaskDetailPage() {
     setRunStatus("queued");
     try {
       const { runId } = await sendMessage(session.id, text);
-      pollRun(runId, session.id);
+      pollRunStatus(runId);
     } finally {
       setReplying(false);
     }

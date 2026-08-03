@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { getOrg, createOrg } from "../../repositories/orgs.js";
 import { getUserByEmail, getUserById, createUser } from "../../repositories/users.js";
-import { getPrimaryMembership } from "../../repositories/memberships.js";
+import { getPrimaryMembership, listOrgMembers } from "../../repositories/memberships.js";
 import { hashPassword } from "../../password.js";
 import { insertMembership, insertOrg, insertUser } from "../fixtures.js";
 
@@ -59,5 +59,58 @@ describe("memberships repository", () => {
   it("returns undefined when a user has no membership", async () => {
     const user = await insertUser();
     await expect(getPrimaryMembership(user.id)).resolves.toBeUndefined();
+  });
+});
+
+describe("listOrgMembers", () => {
+  it("returns members with user details joined", async () => {
+    const org = await insertOrg();
+    const user = await insertUser({ name: "Alice", email: "alice@example.com" });
+    await insertMembership(org.id, user.id, "owner");
+
+    const members = await listOrgMembers(org.id);
+
+    expect(members).toHaveLength(1);
+    expect(members[0]).toMatchObject({
+      userId: user.id,
+      orgId: org.id,
+      role: "owner",
+      name: "Alice",
+      email: "alice@example.com",
+    });
+    expect(typeof members[0].joinedAt).toBe("string");
+  });
+
+  it("returns multiple members ordered by join date", async () => {
+    const org = await insertOrg();
+    const alice = await insertUser({ name: "Alice" });
+    const bob = await insertUser({ name: "Bob" });
+    await insertMembership(org.id, alice.id, "owner");
+    await insertMembership(org.id, bob.id, "member");
+
+    const members = await listOrgMembers(org.id);
+
+    expect(members).toHaveLength(2);
+    expect(members[0].name).toBe("Alice");
+    expect(members[1].name).toBe("Bob");
+  });
+
+  it("returns empty list for an org with no members", async () => {
+    const org = await insertOrg();
+    await expect(listOrgMembers(org.id)).resolves.toEqual([]);
+  });
+
+  it("isolates members by org", async () => {
+    const org1 = await insertOrg();
+    const org2 = await insertOrg();
+    const user1 = await insertUser({ name: "Org1 User" });
+    const user2 = await insertUser({ name: "Org2 User" });
+    await insertMembership(org1.id, user1.id, "member");
+    await insertMembership(org2.id, user2.id, "member");
+
+    const members = await listOrgMembers(org1.id);
+
+    expect(members).toHaveLength(1);
+    expect(members[0].name).toBe("Org1 User");
   });
 });

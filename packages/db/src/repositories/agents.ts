@@ -24,6 +24,8 @@ function toAgent(row: typeof agents.$inferSelect): Agent {
     toolPolicy: row.toolPolicy,
     skillIds: row.skillIds,
     connectionIds: row.connectionIds,
+    areaMap: row.areaMap ?? undefined,
+    defaultCodebase: row.defaultCodebase ?? undefined,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -70,7 +72,7 @@ export async function createAgent(orgId: number, input: NewAgentInput): Promise<
 
 export async function updateAgent(
   agentId: number,
-  patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "teamId">>,
+  patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "teamId" | "areaMap" | "defaultCodebase">>,
 ): Promise<Agent | undefined> {
   const values: Partial<typeof agents.$inferInsert> = { updatedAt: new Date() };
   if (patch.name !== undefined) values.name = capName(patch.name);
@@ -78,7 +80,13 @@ export async function updateAgent(
   if (patch.systemPrompt !== undefined) values.systemPrompt = patch.systemPrompt;
   if (patch.mode !== undefined) values.mode = patch.mode;
   if ("teamId" in patch) values.teamId = patch.teamId ?? null;
+  if ("areaMap" in patch) values.areaMap = patch.areaMap ?? null;
+  if (patch.defaultCodebase !== undefined) values.defaultCodebase = patch.defaultCodebase || null;
 
   const [row] = await db.update(agents).set(values).where(eq(agents.id, agentId)).returning();
   return row ? toAgent(row) : undefined;
+}
+
+export async function deleteAgent(agentId: number): Promise<void> {
+  await db.delete(agents).where(eq(agents.id, agentId));
 }

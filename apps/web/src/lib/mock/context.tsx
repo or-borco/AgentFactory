@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { Agent, ChatMessage, Connection, Run, Session, Skill, Task, Team } from "@agentfactory/core";
+import type { Agent, ChatMessage, Connection, OrgMember, Run, Session, Skill, Task, Team, TeamContextItem } from "@agentfactory/core";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
@@ -16,9 +16,11 @@ interface MockState {
   skills: Skill[];
   connections: Connection[];
   tasks: Task[];
+  orgMembers: OrgMember[];
+  teamContextItems: TeamContextItem[];
 }
 
-const EMPTY_STATE: MockState = { teams: [], agents: [], sessions: [], messages: [], skills: [], connections: [], tasks: [] };
+const EMPTY_STATE: MockState = { teams: [], agents: [], sessions: [], messages: [], skills: [], connections: [], tasks: [], orgMembers: [], teamContextItems: [] };
 
 interface NewAgentInput {
   name: string;
@@ -44,6 +46,7 @@ interface MockBackendValue extends MockState {
   getTeam: (id: number) => Team | undefined;
   getSession: (id: number) => Session | undefined;
   getTask: (id: number) => Task | undefined;
+  contextItemsForTeam: (teamId: number) => TeamContextItem[];
   sessionsForAgent: (agentId: number) => Session[];
   agentsForTeam: (teamId: number) => Agent[];
   messagesForSession: (sessionId: number) => DisplayMessage[];
@@ -55,13 +58,16 @@ interface MockBackendValue extends MockState {
   createAgent: (input: NewAgentInput) => Promise<Agent>;
   updateAgent: (
     agentId: number,
-    patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode">>,
+    patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "areaMap" | "defaultCodebase">>,
   ) => Promise<void>;
+  deleteAgent: (agentId: number) => Promise<void>;
   createSession: (agentId: number, title: string) => Promise<Session>;
   sendMessage: (sessionId: number, text: string) => Promise<{ runId: number }>;
   createTask: (input: NewTaskInput) => Promise<Task>;
   updateTask: (taskId: number, patch: Partial<Task>) => Promise<void>;
   runTask: (taskId: number) => Promise<{ task: Task; session: Session; runId: number }>;
+  createContextItem: (teamId: number, title: string) => Promise<TeamContextItem>;
+  deleteContextItem: (teamId: number, itemId: number) => Promise<void>;
   deleteConnection: (connectionId: number) => Promise<void>;
 }
 
@@ -84,10 +90,15 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
       apiFetch<Skill[]>("/api/skills"),
       apiFetch<Connection[]>("/api/connections"),
       apiFetch<Task[]>("/api/tasks"),
+      apiFetch<OrgMember[]>("/api/teams/members"),
     ])
-      .then(([teams, agents, sessions, skills, connections, tasks]) => {
+      .then(async ([teams, agents, sessions, skills, connections, tasks, orgMembers]) => {
         if (cancelled) return;
-        setState({ teams, agents, sessions, messages: [], skills, connections, tasks });
+        const contextArrays = await Promise.all(
+          teams.map((t) => apiFetch<TeamContextItem[]>(`/api/teams/${t.id}/context-items`)),
+        );
+        if (cancelled) return;
+        setState({ teams, agents, sessions, messages: [], skills, connections, tasks, orgMembers, teamContextItems: contextArrays.flat() });
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -120,6 +131,10 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   const agentsForTeam = useCallback(
     (teamId: number) => state.agents.filter((a) => a.teamId === teamId),
     [state.agents],
+  );
+  const contextItemsForTeam = useCallback(
+    (teamId: number) => state.teamContextItems.filter((i) => i.teamId === teamId),
+    [state.teamContextItems],
   );
   const messagesForSession = useCallback(
     (sessionId: number) => state.messages.filter((m) => m.sessionId === sessionId),
@@ -175,13 +190,33 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   );
 
   const updateAgent = useCallback(
-    async (agentId: number, patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode">>) => {
+    async (agentId: number, patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "areaMap" | "defaultCodebase">>) => {
       const agent = await apiFetch<Agent>(`/api/agents/${agentId}`, { method: "PATCH", body: JSON.stringify(patch) });
       setState((s) => ({ ...s, agents: s.agents.map((a) => (a.id === agentId ? agent : a)) }));
       showToast("toast.agentUpdated");
     },
     [showToast],
   );
+
+  const deleteAgent = useCallback(async (agentId: number) => {
+    await apiFetch<void>(`/api/agents/${agentId}`, { method: "DELETE" });
+    setState((s) => ({ ...s, agents: s.agents.filter((a) => a.id !== agentId) }));
+    showToast("toast.agentDeleted");
+  }, [showToast]);
+
+  const createContextItem = useCallback(async (teamId: number, title: string) => {
+    const item = await apiFetch<TeamContextItem>(`/api/teams/${teamId}/context-items`, {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    });
+    setState((s) => ({ ...s, teamContextItems: [...s.teamContextItems, item] }));
+    return item;
+  }, []);
+
+  const deleteContextItem = useCallback(async (teamId: number, itemId: number) => {
+    await apiFetch<void>(`/api/teams/${teamId}/context-items/${itemId}`, { method: "DELETE" });
+    setState((s) => ({ ...s, teamContextItems: s.teamContextItems.filter((i) => i.id !== itemId) }));
+  }, []);
 
   const createSession = useCallback(async (agentId: number, title: string) => {
     const session = await apiFetch<Session>("/api/sessions", { method: "POST", body: JSON.stringify({ agentId, title }) });
@@ -316,6 +351,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     getTeam,
     getSession,
     getTask,
+    contextItemsForTeam,
     sessionsForAgent,
     agentsForTeam,
     messagesForSession,
@@ -326,11 +362,14 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     assignAgentToTeam,
     createAgent,
     updateAgent,
+    deleteAgent,
     createSession,
     sendMessage,
     createTask,
     updateTask,
     runTask,
+    createContextItem,
+    deleteContextItem,
     deleteConnection,
   };
 

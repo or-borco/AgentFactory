@@ -37,12 +37,17 @@ export interface TeamContextItem {
   id: ID;
   teamId: ID;
   title: string;
-  source: "upload" | "gdrive" | "notion" | "url";
-  mime: string;
   sizeBytes: number;
-  uploadedBy: ID;
-  status: "pending" | "indexing" | "indexed" | "failed";
   createdAt: ISODateTime;
+}
+
+export interface OrgMember {
+  userId: ID;
+  orgId: ID;
+  email: string;
+  name: string;
+  role: Role;
+  joinedAt: ISODateTime;
 }
 
 export type AgentMode = "manual" | "automatic";
@@ -76,6 +81,8 @@ export interface Agent {
   toolPolicy: ToolPolicy;
   skillIds: ID[];
   connectionIds: ID[];
+  areaMap?: Record<string, string>;
+  defaultCodebase?: string;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;
 }

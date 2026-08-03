@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { db } from "../../client.js";
 import { teams } from "../../schema.js";
-import { createAgent, getAgent, listAgents, updateAgent } from "../../repositories/agents.js";
+import { createAgent, deleteAgent, getAgent, listAgents, updateAgent } from "../../repositories/agents.js";
 import { insertAgent, insertOrg, insertTeam } from "../fixtures.js";
 
 describe("agents repository", () => {
@@ -68,5 +68,51 @@ describe("agents repository", () => {
 
     const reloaded = await getAgent(agent.id);
     expect(reloaded?.teamId).toBeUndefined();
+  });
+
+  it("stores and returns areaMap and defaultCodebase", async () => {
+    const org = await insertOrg();
+    const agent = await createAgent(org.id, {
+      name: "Mapper",
+      description: "",
+      systemPrompt: "Map areas.",
+      mode: "manual",
+    });
+
+    const areaMap = { "src/auth/": "Auth module", "src/billing/": "Billing module" };
+    const updated = await updateAgent(agent.id, { areaMap, defaultCodebase: "acme/backend" });
+
+    expect(updated?.areaMap).toEqual(areaMap);
+    expect(updated?.defaultCodebase).toBe("acme/backend");
+
+    const reloaded = await getAgent(agent.id);
+    expect(reloaded?.areaMap).toEqual(areaMap);
+    expect(reloaded?.defaultCodebase).toBe("acme/backend");
+  });
+
+  it("clears areaMap when patched to undefined, and defaultCodebase when patched to empty string", async () => {
+    const org = await insertOrg();
+    const agent = await insertAgent(org.id);
+    await updateAgent(agent.id, { areaMap: { "src/": "All" }, defaultCodebase: "acme/backend" });
+
+    // undefined clears areaMap (stored as null → returned as undefined)
+    // empty string clears defaultCodebase (treated as falsy → stored as null → returned as undefined)
+    const cleared = await updateAgent(agent.id, { areaMap: undefined, defaultCodebase: "" });
+
+    expect(cleared?.areaMap).toBeUndefined();
+    expect(cleared?.defaultCodebase).toBeUndefined();
+  });
+
+  it("deletes an agent by id", async () => {
+    const org = await insertOrg();
+    const agent = await insertAgent(org.id);
+
+    await deleteAgent(agent.id);
+
+    await expect(getAgent(agent.id)).resolves.toBeUndefined();
+  });
+
+  it("deleteAgent is a no-op for a non-existent id", async () => {
+    await expect(deleteAgent(999_999)).resolves.toBeUndefined();
   });
 });
