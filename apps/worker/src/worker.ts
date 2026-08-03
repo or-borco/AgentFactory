@@ -10,6 +10,7 @@ import {
   getMessage,
   getRun,
   getSession,
+  getTaskBySessionId,
   setSessionSandboxId,
   touchSessionActivity,
   updateRunStatus,
@@ -17,6 +18,7 @@ import {
 } from "@agentfactory/db";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { runAgentTurn } from "./agent-runtime";
+import { resolveCloneTarget, type CloneTarget } from "./scm-provider";
 
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
@@ -56,6 +58,17 @@ new Worker<RunJobData>(
       const triggeringMessage = run.triggeringMessageId ? await getMessage(run.triggeringMessageId) : undefined;
       const resumeSessionRef = await getLatestProviderSessionRef(session.id, runId);
 
+      const task = await getTaskBySessionId(session.id);
+      let workspace: CloneTarget | undefined;
+      if (task?.codebase) {
+        workspace = await resolveCloneTarget(agent.orgId, task.codebase, `agent/session-${session.id}`);
+        if (!workspace) {
+          throw new Error(
+            `Task ${task.ref}'s codebase "${task.codebase}" isn't accessible via any connected GitHub installation`,
+          );
+        }
+      }
+
       const { text, providerSessionRef } = await runAgentTurn({
         sandboxProvider,
         sandboxId,
@@ -63,6 +76,7 @@ new Worker<RunJobData>(
         model: agent.model,
         userText: triggeringMessage?.content ?? "",
         resumeSessionRef,
+        workspace,
       });
 
       await createMessage(run.sessionId, "assistant", text, runId);

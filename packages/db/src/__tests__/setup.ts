@@ -29,6 +29,7 @@ const TABLES_LEAVES_FIRST = [
   "events",
   "runs",
   "messages",
+  "tasks",
   "sessions",
   "connections",
   "agents",

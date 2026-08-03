@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import type { Agent, AgentMode, Membership, Org, Role, Session, Team, User } from "@agentfactory/core";
+import type { Agent, AgentMode, Membership, Org, Role, Session, Task, Team, User } from "@agentfactory/core";
 import { createAgent } from "../repositories/agents.js";
 import { createMembership } from "../repositories/memberships.js";
 import { createOrg } from "../repositories/orgs.js";
 import { createSession } from "../repositories/sessions.js";
+import { createTask } from "../repositories/tasks.js";
 import { createTeam } from "../repositories/teams.js";
 import { createUser } from "../repositories/users.js";
 import { hashPassword } from "../password.js";
@@ -63,4 +64,18 @@ export async function insertAgent(
 
 export async function insertSession(orgId: number, agentId: number, title = "Test session"): Promise<Session> {
   return createSession(orgId, agentId, title);
+}
+
+export async function insertTask(
+  orgId: number,
+  createdBy: number,
+  overrides: Partial<{ title: string; description: string; codebase: string; assigneeAgentId: number }> = {},
+): Promise<Task> {
+  return createTask(orgId, createdBy, {
+    title: overrides.title ?? "Test task",
+    description: overrides.description ?? "",
+    acceptanceCriteria: [],
+    codebase: overrides.codebase,
+    assigneeAgentId: overrides.assigneeAgentId,
+  });
 }
