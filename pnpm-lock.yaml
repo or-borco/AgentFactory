@@ -108,6 +108,9 @@ importers:
       dockerode:
         specifier: ^5.0.1
         version: 5.0.1(supports-color@7.2.0)
+      jsonwebtoken:
+        specifier: ^9.0.2
+        version: 9.0.3
       tar-stream:
         specifier: ^3.2.0
         version: 3.2.0
@@ -115,6 +118,9 @@ importers:
       '@types/dockerode':
         specifier: ^4.0.1
         version: 4.0.1
+      '@types/jsonwebtoken':
+        specifier: ^9.0.7
+        version: 9.0.10
       '@types/node':
         specifier: ^22
         version: 22.20.1

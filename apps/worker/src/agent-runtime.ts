@@ -1,5 +1,6 @@
 import type { ModelSpec } from "@agentfactory/core";
 import type { SandboxProvider } from "./sandbox/types";
+import { cloneIntoSandbox, type CloneTarget } from "./scm-provider";
 
 export interface AgentTurnResult {
   text: string;
@@ -22,8 +23,13 @@ export async function runAgentTurn(params: {
   model: ModelSpec;
   userText: string;
   resumeSessionRef?: string;
+  workspace?: CloneTarget;
 }): Promise<AgentTurnResult> {
-  const { sandboxProvider, sandboxId, systemPrompt, model, userText, resumeSessionRef } = params;
+  const { sandboxProvider, sandboxId, systemPrompt, model, userText, resumeSessionRef, workspace } = params;
+
+  if (workspace) {
+    await cloneIntoSandbox(sandboxProvider, sandboxId, workspace);
+  }
 
   const env: Record<string, string> = {
     SYSTEM_PROMPT: systemPrompt,

@@ -38,6 +38,13 @@ export async function getTask(id: number): Promise<Task | undefined> {
   return row ? toTask(row) : undefined;
 }
 
+// The FK points tasks -> sessions (a task owns 0..1 sessions), so finding "the task for this
+// session" is a reverse lookup — needed by the worker to resolve a run's target repo.
+export async function getTaskBySessionId(sessionId: number): Promise<Task | undefined> {
+  const [row] = await db.select().from(tasks).where(eq(tasks.sessionId, sessionId));
+  return row ? toTask(row) : undefined;
+}
+
 export interface NewTaskInput {
   title: string;
   description: string;
