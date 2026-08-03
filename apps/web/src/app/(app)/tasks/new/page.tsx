@@ -1,11 +1,17 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button, Breadcrumb, PageHeader, TextInput, Textarea } from "@agentfactory/shared";
+import { apiFetch } from "@/lib/api-client";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
+
+interface RepoOption {
+  id: number;
+  fullName: string;
+}
 
 export default function NewTaskPage() {
   const router = useRouter();
@@ -19,6 +25,22 @@ export default function NewTaskPage() {
   const [area, setArea] = useState("");
   const [codebase, setCodebase] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [repos, setRepos] = useState<RepoOption[]>([]);
+  const [reposLoading, setReposLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<RepoOption[]>("/api/connections/github/repos")
+      .then((result) => {
+        if (!cancelled) setRepos(result);
+      })
+      .finally(() => {
+        if (!cancelled) setReposLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -92,15 +114,7 @@ export default function NewTaskPage() {
           <select
             value={assigneeAgentId ?? ""}
             onChange={(e) => setAssigneeAgentId(e.target.value ? Number(e.target.value) : undefined)}
-            style={{
-              width: "100%",
-              padding: "8px 10px",
-              borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--color-neutral-700)",
-              background: "var(--color-surface)",
-              color: assigneeAgentId ? "var(--color-text)" : "var(--color-neutral-500)",
-              fontSize: 13,
-            }}
+            style={selectStyle(assigneeAgentId !== undefined)}
           >
             <option value="">{t("tasks.create.assigneePlaceholder")}</option>
             {agents.map((agent) => (
@@ -121,11 +135,24 @@ export default function NewTaskPage() {
             />
           </Field>
           <Field label={t("tasks.create.codebaseLabel")}>
-            <TextInput
-              placeholder={t("tasks.create.codebasePlaceholder")}
-              value={codebase}
-              onChange={(e) => setCodebase(e.target.value)}
-            />
+            <select value={codebase} onChange={(e) => setCodebase(e.target.value)} style={selectStyle(!!codebase)}>
+              <option value="">
+                {reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
+              </option>
+              {repos.map((repo) => (
+                <option key={repo.id} value={repo.fullName}>
+                  {repo.fullName}
+                </option>
+              ))}
+            </select>
+            {!reposLoading && repos.length === 0 && (
+              <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>
+                {t("tasks.create.codebaseEmpty")}{" "}
+                <Link href="/connections" style={{ color: "var(--color-accent-2)" }}>
+                  {t("tasks.create.codebaseEmptyLink")}
+                </Link>
+              </p>
+            )}
           </Field>
         </div>
 
@@ -157,6 +184,18 @@ export default function NewTaskPage() {
       </form>
     </div>
   );
+}
+
+function selectStyle(hasValue: boolean): React.CSSProperties {
+  return {
+    width: "100%",
+    padding: "8px 10px",
+    borderRadius: "var(--radius-sm)",
+    border: "1px solid var(--color-neutral-700)",
+    background: "var(--color-surface)",
+    color: hasValue ? "var(--color-text)" : "var(--color-neutral-500)",
+    fontSize: 13,
+  };
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
