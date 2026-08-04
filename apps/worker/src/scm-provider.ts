@@ -57,14 +57,10 @@ export interface CloneTarget {
   installationId: number;
 }
 
-// Finds which of the org's GitHub connections has access to repoFullName, and mints a fresh
-// installation token embedded directly in the clone URL. Nothing here is persisted — the token
-// is used once, for one clone, and expires on its own (~1hr) per ARCHITECTURE.md §5/§6.
-export async function resolveCloneTarget(
-  orgId: number,
-  repoFullName: string,
-  branch: string,
-): Promise<CloneTarget | undefined> {
+// Finds which of the org's GitHub connections has access to repoFullName — the same org-scoping
+// check backs both cloning/pushing (resolveCloneTarget) and API reads like fetchIssue below, so a
+// repo outside every one of the org's installations is invisible to that org either way.
+async function findInstallationForRepo(orgId: number, repoFullName: string): Promise<number | undefined> {
   // Fail fast and loud on a misconfigured app — appId()/privateKey() already throw a clear
   // "X is not set" error. Checked here, before the loop below, so that error can't get
   // swallowed by the per-connection catch and misreported as "repo not accessible", which is a
@@ -79,17 +75,70 @@ export async function resolveCloneTarget(
     if (typeof installationId !== "number") continue;
 
     const repoNames = await listInstallationRepoNames(installationId).catch((): string[] => []);
-    if (!repoNames.includes(repoFullName)) continue;
-
-    const token = await getInstallationToken(installationId);
-    return {
-      cloneUrl: `https://x-access-token:${token}@github.com/${repoFullName}.git`,
-      branch,
-      repoFullName,
-      installationId,
-    };
+    if (repoNames.includes(repoFullName)) return installationId;
   }
   return undefined;
+}
+
+// Finds which of the org's GitHub connections has access to repoFullName, and mints a fresh
+// installation token embedded directly in the clone URL. Nothing here is persisted — the token
+// is used once, for one clone, and expires on its own (~1hr) per ARCHITECTURE.md §5/§6.
+export async function resolveCloneTarget(
+  orgId: number,
+  repoFullName: string,
+  branch: string,
+): Promise<CloneTarget | undefined> {
+  const installationId = await findInstallationForRepo(orgId, repoFullName);
+  if (installationId === undefined) return undefined;
+
+  const token = await getInstallationToken(installationId);
+  return {
+    cloneUrl: `https://x-access-token:${token}@github.com/${repoFullName}.git`,
+    branch,
+    repoFullName,
+    installationId,
+  };
+}
+
+export interface GitHubIssue {
+  title: string;
+  body: string;
+}
+
+const ISSUE_URL_RE = /github\.com\/([^/\s]+\/[^/\s.]+)\/issues\/(\d+)/;
+
+// Task descriptions often are (or contain) a GitHub issue link — e.g. "https://github.com/
+// acme/widgets/issues/37" — pasted in as "what needs to be done". This is the only place that
+// link gets parsed; nothing else in the codebase looks for issue references today.
+export function parseIssueReference(text: string): { repoFullName: string; issueNumber: number } | undefined {
+  const match = ISSUE_URL_RE.exec(text);
+  if (!match) return undefined;
+  return { repoFullName: match[1], issueNumber: Number(match[2]) };
+}
+
+// Fetches an issue's title/body via the same per-org installation lookup as resolveCloneTarget,
+// so a task can only ever pull issue content from a repo the org's own GitHub App installation
+// can see — org A can't reach org B's issues this way any more than it can clone org B's repo.
+// Runs on the worker host (which already holds the App's private key), not inside the sandbox —
+// the sandbox has no GitHub credentials or HTTP client, by design (see cloneIntoSandbox's
+// comment on why the agent never gets a usable token).
+export async function fetchIssue(
+  orgId: number,
+  repoFullName: string,
+  issueNumber: number,
+): Promise<GitHubIssue | undefined> {
+  const installationId = await findInstallationForRepo(orgId, repoFullName);
+  if (installationId === undefined) return undefined;
+
+  const token = await getInstallationToken(installationId);
+  const res = await fetch(`${GITHUB_API}/repos/${repoFullName}/issues/${issueNumber}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+  });
+  if (!res.ok) {
+    throw new Error(`GitHub API issue fetch failed: ${res.status} ${await res.text().catch(() => "")}`);
+  }
+  const issue = (await res.json()) as { title: string; body: string | null };
+  return { title: issue.title, body: issue.body ?? "" };
 }
 
 // Clones into /workspace on first use only — the same container is reused across a session's

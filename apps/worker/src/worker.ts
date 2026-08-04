@@ -21,7 +21,9 @@ import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { runAgentTurn } from "./agent-runtime";
 import {
   buildPullRequestBody,
+  fetchIssue,
   openDraftPullRequest,
+  parseIssueReference,
   pushChangesIfDirty,
   resolveCloneTarget,
   type CloneTarget,
@@ -76,12 +78,29 @@ new Worker<RunJobData>(
         }
       }
 
+      // The sandbox has no GitHub credentials or HTTP client (see scm-provider.ts's fetchIssue
+      // comment), so if the task's description is a GitHub issue link, resolve its content here
+      // on the host and hand it to the agent as plain text — the only way it can see the issue
+      // at all otherwise is by asking the human to paste it in.
+      let issueContext = "";
+      const issueRef = parseIssueReference(task?.description ?? "");
+      if (issueRef) {
+        try {
+          const issue = await fetchIssue(agent.orgId, issueRef.repoFullName, issueRef.issueNumber);
+          if (issue) {
+            issueContext = `\n\nGitHub issue ${issueRef.repoFullName}#${issueRef.issueNumber}: ${issue.title}\n\n${issue.body}`;
+          }
+        } catch (err) {
+          console.error(`Failed to fetch GitHub issue for task ${task?.ref}:`, err);
+        }
+      }
+
       const { text, providerSessionRef } = await runAgentTurn({
         sandboxProvider,
         sandboxId,
         systemPrompt: agent.systemPrompt,
         model: agent.model,
-        userText: triggeringMessage?.content ?? "",
+        userText: (triggeringMessage?.content ?? "") + issueContext,
         resumeSessionRef,
         workspace,
       });

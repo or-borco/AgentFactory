@@ -9,8 +9,15 @@ vi.mock("jsonwebtoken", () => ({ default: { sign: vi.fn(() => "fake.app.jwt") } 
 const listConnectionsMock = vi.fn<(orgId: number) => Promise<Connection[]>>();
 vi.mock("@agentfactory/db", () => ({ listConnections: (orgId: number) => listConnectionsMock(orgId) }));
 
-const { buildPullRequestBody, cloneIntoSandbox, openDraftPullRequest, pushChangesIfDirty, resolveCloneTarget } =
-  await import("../scm-provider");
+const {
+  buildPullRequestBody,
+  cloneIntoSandbox,
+  fetchIssue,
+  openDraftPullRequest,
+  parseIssueReference,
+  pushChangesIfDirty,
+  resolveCloneTarget,
+} = await import("../scm-provider");
 
 function githubConnection(id: number, installationId: number): Connection {
   return {
@@ -283,6 +290,118 @@ describe("pushChangesIfDirty", () => {
       PUSH_TOKEN: "ghs_push",
     });
     expect(capturedCmd?.join(" ")).not.toContain("ghs_push");
+  });
+});
+
+describe("parseIssueReference", () => {
+  it("extracts the repo and issue number from a github issue url", () => {
+    expect(parseIssueReference("https://github.com/acme-org/platform/issues/37")).toEqual({
+      repoFullName: "acme-org/platform",
+      issueNumber: 37,
+    });
+  });
+
+  it("finds the link even when it's embedded in surrounding text", () => {
+    expect(parseIssueReference("Please review https://github.com/acme-org/platform/issues/8 today")).toEqual({
+      repoFullName: "acme-org/platform",
+      issueNumber: 8,
+    });
+  });
+
+  it("returns undefined when there's no issue link", () => {
+    expect(parseIssueReference("Add a retry button to the failed-run banner.")).toBeUndefined();
+  });
+
+  it("returns undefined for a pull request link", () => {
+    expect(parseIssueReference("https://github.com/acme-org/platform/pull/37")).toBeUndefined();
+  });
+});
+
+describe("fetchIssue", () => {
+  beforeEach(() => {
+    process.env.GITHUB_APP_ID = "12345";
+    process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    listConnectionsMock.mockReset();
+    delete process.env.GITHUB_APP_ID;
+    delete process.env.GITHUB_APP_PRIVATE_KEY;
+  });
+
+  it("fetches the issue's title and body via the org's installation that has the repo", async () => {
+    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ repositories: [{ full_name: "acme-org/platform" }] }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_issue" }), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ title: "Crash on startup", body: "Steps to reproduce..." }), { status: 200 }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const issue = await fetchIssue(1, "acme-org/platform", 37);
+
+    expect(issue).toEqual({ title: "Crash on startup", body: "Steps to reproduce..." });
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "https://api.github.com/repos/acme-org/platform/issues/37",
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer ghs_issue" }) }),
+    );
+  });
+
+  it("returns undefined when no connection in the org has access to the repo", async () => {
+    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ repositories: [{ full_name: "other-org/other-repo" }] }), { status: 200 }),
+        ),
+    );
+
+    await expect(fetchIssue(1, "acme-org/platform", 37)).resolves.toBeUndefined();
+  });
+
+  it("never sees org B's repo when called with org A's id, even if org B's installation has it", async () => {
+    // org 1 (the caller) only has an installation covering "other-org/other-repo"; the repo
+    // requested belongs to org 2's installation and must stay invisible to org 1's lookup.
+    listConnectionsMock.mockImplementation(async (orgId: number) =>
+      orgId === 1 ? [githubConnection(1, 111)] : [githubConnection(2, 222)],
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ repositories: [{ full_name: "other-org/other-repo" }] }), { status: 200 }),
+        ),
+    );
+
+    await expect(fetchIssue(1, "acme-org/platform", 37)).resolves.toBeUndefined();
+  });
+
+  it("throws when the issue lookup fails", async () => {
+    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ repositories: [{ full_name: "acme-org/platform" }] }), { status: 200 }),
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_issue" }), { status: 200 }))
+        .mockResolvedValueOnce(new Response("not found", { status: 404 })),
+    );
+
+    await expect(fetchIssue(1, "acme-org/platform", 37)).rejects.toThrow("GitHub API issue fetch failed: 404");
   });
 });
 
