@@ -65,6 +65,7 @@ interface MockBackendValue extends MockState {
   sendMessage: (sessionId: number, text: string) => Promise<{ runId: number }>;
   createTask: (input: NewTaskInput) => Promise<Task>;
   updateTask: (taskId: number, patch: Partial<Task>) => Promise<void>;
+  deleteTask: (taskId: number) => Promise<void>;
   runTask: (taskId: number) => Promise<{ task: Task; session: Session; runId: number }>;
   createContextItem: (teamId: number, title: string) => Promise<TeamContextItem>;
   deleteContextItem: (teamId: number, itemId: number) => Promise<void>;
@@ -239,6 +240,15 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     setState((s) => ({ ...s, tasks: s.tasks.map((tk) => (tk.id === taskId ? task : tk)) }));
   }, []);
 
+  const deleteTask = useCallback(
+    async (taskId: number) => {
+      await apiFetch<void>(`/api/tasks/${taskId}`, { method: "DELETE" });
+      setState((s) => ({ ...s, tasks: s.tasks.filter((tk) => tk.id !== taskId) }));
+      showToast("toast.taskDeleted");
+    },
+    [showToast],
+  );
+
   const deleteConnection = useCallback(
     async (connectionId: number) => {
       await apiFetch<void>(`/api/connections/${connectionId}`, { method: "DELETE" });
@@ -367,6 +377,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     sendMessage,
     createTask,
     updateTask,
+    deleteTask,
     runTask,
     createContextItem,
     deleteContextItem,

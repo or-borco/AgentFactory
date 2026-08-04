@@ -233,6 +233,13 @@ const en = {
     unassigned: "Unassigned",
     viewPr: "View PR",
     metaLabel: "Details",
+    markDone: "Mark as done",
+    markingDone: "Marking done…",
+    deleteTask: "Delete task",
+    deleting: "Deleting…",
+    confirmDeleteTitle: "Delete '{title}'?",
+    confirmDeleteMessage: "This will permanently remove the task and tear down its sandbox. This can't be undone.",
+    confirmDeleteButton: "Delete",
   },
   teamsV2: {
     title: "Teams",
@@ -305,6 +312,8 @@ const en = {
     importFromGitComingSoon: "Import from git — coming soon",
     skillAuthoringComingSoon: "Skill authoring — coming soon",
     connectionDeleted: "Connection removed",
+    taskDeleted: "Task deleted",
+    taskMarkedDone: "Task marked as done",
   },
   legacyAgents: {
     heading: "Agents have moved",

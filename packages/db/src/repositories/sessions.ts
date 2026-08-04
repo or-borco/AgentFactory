@@ -49,3 +49,7 @@ export async function touchSessionActivity(id: number): Promise<void> {
 export async function setSessionSandboxId(id: number, sandboxId: string): Promise<void> {
   await db.update(sessions).set({ sandboxId }).where(eq(sessions.id, id));
 }
+
+export async function clearSessionSandboxId(id: number): Promise<void> {
+  await db.update(sessions).set({ sandboxId: null }).where(eq(sessions.id, id));
+}
