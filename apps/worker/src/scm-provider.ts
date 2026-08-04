@@ -101,7 +101,13 @@ export async function resolveCloneTarget(
 // would be a much worse failure mode than erroring clearly. Exit status is read back via an
 // echoed sentinel rather than a real exit code, matching the existing pattern in
 // agent-runtime.ts (SandboxProvider.exec has no exit-code channel). The token lives only in an
-// env var passed to the exec, never in argv.
+// env var passed to the exec, never in argv — and once the clone succeeds, the remote is
+// immediately rewritten to a plain, credential-free URL. Leaving the token embedded in
+// .git/config would sit there for the agent's entire turn, readable and directly usable by
+// anything with Bash access (the agent has full unrestricted tool access — no canUseTool gate
+// exists) to push anywhere or call GitHub's API on its own initiative — a real gap this closes,
+// not a hypothetical one. The set-url runs unconditionally (even if checkout fails) so a
+// credential is never left behind on a partial failure.
 export async function cloneIntoSandbox(
   sandboxProvider: SandboxProvider,
   sandboxId: string,
@@ -115,7 +121,12 @@ if [ -d /workspace/.git ]; then
     *) echo REPO_MISMATCH ;;
   esac
 else
-  git clone "$CLONE_URL" /workspace && cd /workspace && git checkout -b "$BRANCH_NAME" && echo CLONE_OK || echo CLONE_FAILED
+  git clone "$CLONE_URL" /workspace
+  CLONE_STATUS=$?
+  cd /workspace 2>/dev/null && git checkout -b "$BRANCH_NAME"
+  CHECKOUT_STATUS=$?
+  cd /workspace 2>/dev/null && git remote set-url origin "https://github.com/$REPO_FULL_NAME.git"
+  if [ "$CLONE_STATUS" -eq 0 ] && [ "$CHECKOUT_STATUS" -eq 0 ]; then echo CLONE_OK; else echo CLONE_FAILED; fi
 fi`;
 
   let stdout = "";
@@ -139,30 +150,46 @@ fi`;
 
 // Commits and pushes only if the agent actually changed something — a read-only turn (e.g. "what
 // does this file do?") leaves /workspace clean, and there's nothing to push or open a PR for.
-// Returns whether anything was pushed. Reuses the origin remote already configured by
-// cloneIntoSandbox (same embedded token, still within its ~1hr lifetime at this point in the
-// run), so no fresh token is minted here.
+// Returns whether anything was pushed. This only ever runs *after* the agent's turn has already
+// finished (called from worker.ts, not from anything the agent invokes), so it mints its own
+// fresh token rather than relying on anything left over from cloneIntoSandbox — which no longer
+// leaves a usable credential behind anyway (see that function's comment). The token is attached
+// to the remote only for the duration of the push itself and stripped again immediately
+// afterward, unconditionally (even on push failure), so a later turn in the same session never
+// finds a working credential sitting in .git/config either.
 export async function pushChangesIfDirty(
   sandboxProvider: SandboxProvider,
   sandboxId: string,
-  branch: string,
+  target: CloneTarget,
   commitMessage: string,
   authorName: string,
 ): Promise<boolean> {
+  const token = await getInstallationToken(target.installationId);
+
   const script = `
 cd /workspace || { echo PUSH_FAILED; exit 0; }
 if [ -z "$(git status --porcelain)" ]; then
   echo NO_CHANGES
 else
-  git add -A &&
-  git -c user.email="agent@agentfactory.local" -c user.name="$AUTHOR_NAME" commit -m "$COMMIT_MESSAGE" &&
-  git push -u origin "$BRANCH_NAME" &&
-  echo PUSH_OK || echo PUSH_FAILED
+  git add -A
+  git -c user.email="agent@agentfactory.local" -c user.name="$AUTHOR_NAME" commit -m "$COMMIT_MESSAGE"
+  COMMIT_STATUS=$?
+  git remote set-url origin "https://x-access-token:$PUSH_TOKEN@github.com/$REPO_FULL_NAME.git"
+  git push -u origin "$BRANCH_NAME"
+  PUSH_STATUS=$?
+  git remote set-url origin "https://github.com/$REPO_FULL_NAME.git"
+  if [ "$COMMIT_STATUS" -eq 0 ] && [ "$PUSH_STATUS" -eq 0 ]; then echo PUSH_OK; else echo PUSH_FAILED; fi
 fi`;
 
   let stdout = "";
   for await (const chunk of sandboxProvider.exec(sandboxId, ["sh", "-c", script], {
-    env: { BRANCH_NAME: branch, COMMIT_MESSAGE: commitMessage, AUTHOR_NAME: authorName },
+    env: {
+      BRANCH_NAME: target.branch,
+      REPO_FULL_NAME: target.repoFullName,
+      COMMIT_MESSAGE: commitMessage,
+      AUTHOR_NAME: authorName,
+      PUSH_TOKEN: token,
+    },
   })) {
     if (chunk.stream === "stdout") stdout += chunk.data;
   }

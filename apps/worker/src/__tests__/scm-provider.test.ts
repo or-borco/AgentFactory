@@ -181,35 +181,72 @@ describe("cloneIntoSandbox", () => {
 });
 
 describe("pushChangesIfDirty", () => {
+  const target = {
+    cloneUrl: "https://x-access-token:ghs_clone@github.com/acme-org/platform.git",
+    branch: "agent/session-1",
+    repoFullName: "acme-org/platform",
+    installationId: 999,
+  };
+
+  beforeEach(() => {
+    process.env.GITHUB_APP_ID = "12345";
+    process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.GITHUB_APP_ID;
+    delete process.env.GITHUB_APP_PRIVATE_KEY;
+  });
+
+  function mockTokenMint() {
+    return vi.fn().mockResolvedValue(new Response(JSON.stringify({ token: "ghs_push" }), { status: 200 }));
+  }
+
   it("returns false and pushes nothing when the tree is clean", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
     const sandbox = fakeSandbox([{ stream: "stdout", data: "NO_CHANGES\n" }]);
-    await expect(
-      pushChangesIfDirty(sandbox, "sandbox-1", "agent/session-1", "msg", "Code reviewer"),
-    ).resolves.toBe(false);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toBe(false);
   });
 
   it("returns true when the commit and push succeed", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
     const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
-    await expect(
-      pushChangesIfDirty(sandbox, "sandbox-1", "agent/session-1", "msg", "Code reviewer"),
-    ).resolves.toBe(true);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toBe(true);
   });
 
   it("throws when the push fails", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
     const sandbox = fakeSandbox([
       { stream: "stderr", data: "! [rejected]\n" },
       { stream: "stdout", data: "PUSH_FAILED\n" },
     ]);
-    await expect(
-      pushChangesIfDirty(sandbox, "sandbox-1", "agent/session-1", "msg", "Code reviewer"),
-    ).rejects.toThrow("Failed to push agent changes to the remote");
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).rejects.toThrow(
+      "Failed to push agent changes to the remote",
+    );
   });
 
-  it("passes branch, commit message, and author as env vars, not argv", async () => {
+  it("mints its own fresh token rather than reusing anything from the clone step", async () => {
+    const fetchMock = mockTokenMint();
+    vi.stubGlobal("fetch", fetchMock);
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
+
+    await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/app/installations/999/access_tokens",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("passes the token, repo, branch, commit message, and author as env vars, not argv — the token never appears in the command itself", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
     let capturedEnv: Record<string, string> | undefined;
+    let capturedCmd: string[] | undefined;
     const sandbox: SandboxProvider = {
       create: vi.fn(),
-      exec: async function* (_id, _cmd, opts) {
+      exec: async function* (_id, cmd, opts) {
+        capturedCmd = cmd;
         capturedEnv = opts?.env;
         yield { stream: "stdout", data: "PUSH_OK\n" };
       },
@@ -219,13 +256,16 @@ describe("pushChangesIfDirty", () => {
       exists: vi.fn(),
     };
 
-    await pushChangesIfDirty(sandbox, "sandbox-1", "agent/session-1", "Fix the bug", "Code reviewer");
+    await pushChangesIfDirty(sandbox, "sandbox-1", target, "Fix the bug", "Code reviewer");
 
     expect(capturedEnv).toEqual({
       BRANCH_NAME: "agent/session-1",
+      REPO_FULL_NAME: "acme-org/platform",
       COMMIT_MESSAGE: "Fix the bug",
       AUTHOR_NAME: "Code reviewer",
+      PUSH_TOKEN: "ghs_push",
     });
+    expect(capturedCmd?.join(" ")).not.toContain("ghs_push");
   });
 });
 

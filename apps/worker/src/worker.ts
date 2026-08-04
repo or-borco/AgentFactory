@@ -88,7 +88,7 @@ new Worker<RunJobData>(
         const pushed = await pushChangesIfDirty(
           sandboxProvider,
           sandboxId,
-          workspace.branch,
+          workspace,
           `${agent.name}: ${task.title}`,
           agent.name,
         );
