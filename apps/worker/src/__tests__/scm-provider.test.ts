@@ -9,7 +9,7 @@ vi.mock("jsonwebtoken", () => ({ default: { sign: vi.fn(() => "fake.app.jwt") } 
 const listConnectionsMock = vi.fn<(orgId: number) => Promise<Connection[]>>();
 vi.mock("@agentfactory/db", () => ({ listConnections: (orgId: number) => listConnectionsMock(orgId) }));
 
-const { cloneIntoSandbox, openDraftPullRequest, pushChangesIfDirty, resolveCloneTarget } =
+const { buildPullRequestBody, cloneIntoSandbox, openDraftPullRequest, pushChangesIfDirty, resolveCloneTarget } =
   await import("../scm-provider");
 
 function githubConnection(id: number, installationId: number): Connection {
@@ -203,16 +203,33 @@ describe("pushChangesIfDirty", () => {
     return vi.fn().mockResolvedValue(new Response(JSON.stringify({ token: "ghs_push" }), { status: 200 }));
   }
 
-  it("returns false and pushes nothing when the tree is clean", async () => {
+  it("returns pushed:false and no changed files when the tree is clean", async () => {
     vi.stubGlobal("fetch", mockTokenMint());
     const sandbox = fakeSandbox([{ stream: "stdout", data: "NO_CHANGES\n" }]);
-    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toBe(false);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toEqual({
+      pushed: false,
+      changedFiles: [],
+    });
   });
 
-  it("returns true when the commit and push succeed", async () => {
+  it("returns pushed:true when the commit and push succeed", async () => {
     vi.stubGlobal("fetch", mockTokenMint());
     const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
-    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toBe(true);
+    await expect(
+      pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer"),
+    ).resolves.toMatchObject({ pushed: true });
+  });
+
+  it("returns the paths committed in this turn, parsed out of the diff-tree marker lines", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const sandbox = fakeSandbox([
+      { stream: "stdout", data: "CHANGED_FILE:src/foo.ts\nCHANGED_FILE:README.md\n" },
+      { stream: "stdout", data: "PUSH_OK\n" },
+    ]);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toEqual({
+      pushed: true,
+      changedFiles: ["src/foo.ts", "README.md"],
+    });
   });
 
   it("throws when the push fails", async () => {
@@ -266,6 +283,29 @@ describe("pushChangesIfDirty", () => {
       PUSH_TOKEN: "ghs_push",
     });
     expect(capturedCmd?.join(" ")).not.toContain("ghs_push");
+  });
+});
+
+describe("buildPullRequestBody", () => {
+  it("includes the task reference, the agent's summary, the task description, and the changed files", () => {
+    const body = buildPullRequestBody({
+      taskRef: "T-042",
+      taskDescription: "Add a retry button to the failed-run banner.",
+      summary: "Added a Retry button that re-enqueues the run.",
+      changedFiles: ["src/RunBanner.tsx", "src/api.ts"],
+    });
+
+    expect(body).toContain("Opened automatically by AgentFactory for task T-042.");
+    expect(body).toContain("Added a Retry button that re-enqueues the run.");
+    expect(body).toContain("Add a retry button to the failed-run banner.");
+    expect(body).toContain("- `src/RunBanner.tsx`");
+    expect(body).toContain("- `src/api.ts`");
+  });
+
+  it("omits empty sections instead of leaving blank headings", () => {
+    const body = buildPullRequestBody({ taskRef: "T-1", taskDescription: "", summary: "", changedFiles: [] });
+
+    expect(body).toBe("Opened automatically by AgentFactory for task T-1.");
   });
 });
 
