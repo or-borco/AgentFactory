@@ -43,9 +43,10 @@ export default function TaskDetailPage() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [rawEvents, setRawEvents] = useState<RawEvent[]>([]);
   const [showToolCalls] = useState(false);
-  const [showThinking] = useState(false);
+  const [showThinking] = useState(true);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const userScrolledRef = useRef(false);
 
   const task = getTask(Number(taskId));
   const assignee = task?.assigneeAgentId
@@ -60,10 +61,18 @@ export default function TaskDetailPage() {
     [session?.id, messagesForSession],
   );
 
-  // Auto-scroll to bottom on new messages.
+  const handleTranscriptScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    userScrolledRef.current = el.scrollHeight - el.scrollTop - el.clientHeight > 60;
+  }, []);
+
+  // Auto-scroll to bottom on new content, unless user has scrolled up.
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, runStatus]);
+    if (!userScrolledRef.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, runStatus, rawEvents]);
 
   // Load existing messages, workspace, and events when a session is linked.
   useEffect(() => {
@@ -166,10 +175,25 @@ export default function TaskDetailPage() {
       resultEvent: rawEvents.find((e) => e.type === "tool_result" && (e.data as { tool: string }).tool === (callEvent.data as { tool: string }).tool && e.seq > callEvent.seq) ?? null,
     }));
 
-  const thinkingText = rawEvents
-    .filter((e) => e.type === "thinking_delta")
-    .map((e) => (e.data as { text: string }).text)
-    .join("");
+  // Group consecutive thinking_delta events into separate blocks.
+  const thinkingBlocks = useMemo(() => {
+    const blocks: string[] = [];
+    let lastWasThinking = false;
+    for (const event of rawEvents) {
+      if (event.type === "thinking_delta") {
+        const text = (event.data as { text: string }).text;
+        if (lastWasThinking && blocks.length > 0) {
+          blocks[blocks.length - 1] += text;
+        } else {
+          blocks.push(text);
+        }
+        lastWasThinking = true;
+      } else {
+        lastWasThinking = false;
+      }
+    }
+    return blocks;
+  }, [rawEvents]);
 
   const panelWidth = panelOpen ? 360 : 16;
 
@@ -470,42 +494,15 @@ export default function TaskDetailPage() {
         {activeTab === "transcript" && (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {/* Messages scroll area */}
-            <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "22px 28px 20px" }}>
+            <div ref={scrollRef} onScroll={handleTranscriptScroll} style={{ flex: 1, overflowY: "auto", padding: "22px 28px 20px" }}>
               {runStatus === "failed" && (
                 <div style={{ fontSize: 13, color: "#e8a44a", marginBottom: 14 }}>Run failed — check worker logs.</div>
               )}
 
-              {/* Thinking block (hidden by default) */}
-              {showThinking && thinkingText && (
-                <div
-                  style={{
-                    marginLeft: 2,
-                    marginBottom: 14,
-                    borderLeft: "2px solid var(--color-neutral-800)",
-                    borderRadius: "0 var(--radius-sm) var(--radius-sm) 0",
-                    background: "rgba(0,0,0,0.15)",
-                    padding: "6px 12px 6px 14px",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "block",
-                      fontSize: 10,
-                      fontWeight: 600,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.06em",
-                      color: "var(--color-neutral-700)",
-                      marginBottom: 2,
-                      fontStyle: "normal",
-                    }}
-                  >
-                    THINKING
-                  </span>
-                  <span style={{ fontSize: 12, fontStyle: "italic", color: "var(--color-neutral-600)", lineHeight: 1.6 }}>
-                    {thinkingText}
-                  </span>
-                </div>
-              )}
+              {/* Thinking blocks */}
+              {showThinking && thinkingBlocks.map((text, i) => (
+                <ThinkingBlock key={i} text={text} />
+              ))}
 
               {/* Tool call rows (hidden by default) */}
               {showToolCalls && toolCallEntries.length > 0 && (
@@ -765,6 +762,70 @@ export default function TaskDetailPage() {
           to   { opacity: 1; transform: none; }
         }
       `}</style>
+    </div>
+  );
+}
+
+function ThinkingBlock({ text }: { text: string }) {
+  const [collapsed, setCollapsed] = useState(false);
+  return (
+    <div
+      style={{
+        marginLeft: 2,
+        marginBottom: 14,
+        borderLeft: "2px solid var(--color-neutral-800)",
+        borderRadius: "0 var(--radius-sm) var(--radius-sm) 0",
+        background: "rgba(0,0,0,0.15)",
+        overflow: "hidden",
+      }}
+    >
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          width: "100%",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "6px 12px 6px 14px",
+          textAlign: "left",
+        }}
+      >
+        <svg
+          width={8}
+          height={8}
+          viewBox="0 0 8 8"
+          fill="none"
+          style={{
+            flexShrink: 0,
+            transform: collapsed ? "rotate(-90deg)" : "none",
+            transition: "transform 0.15s",
+          }}
+        >
+          <path d="M1 2.5L4 5.5L7 2.5" stroke="var(--color-neutral-700)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: "var(--color-neutral-700)",
+            fontStyle: "normal",
+          }}
+        >
+          THINKING
+        </span>
+      </button>
+      {!collapsed && (
+        <div style={{ padding: "0 12px 8px 14px" }}>
+          <span style={{ fontSize: 12, fontStyle: "italic", color: "var(--color-neutral-600)", lineHeight: 1.6 }}>
+            {text}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
