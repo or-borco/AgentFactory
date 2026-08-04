@@ -98,8 +98,12 @@ export default function TaskDetailPage() {
     (id: number, sessionId: number) => {
       const tick = () => {
         setTimeout(async () => {
-          const run = await apiFetch<Run>(`/api/runs/${id}`);
+          const [run, events] = await Promise.all([
+            apiFetch<Run>(`/api/runs/${id}`),
+            apiFetch<RawEvent[]>(`/api/sessions/${sessionId}/events`).catch(() => [] as RawEvent[]),
+          ]);
           setRunStatus(run.status);
+          setRawEvents(events);
           if (run.status === "done") {
             await loadMessages(sessionId);
             if (run.workspaceSnapshot && Object.keys(run.workspaceSnapshot).length > 0) {
@@ -117,11 +121,15 @@ export default function TaskDetailPage() {
     [loadMessages],
   );
 
-  const pollRunStatus = useCallback((id: number) => {
+  const pollRunStatus = useCallback((id: number, sessionId: number) => {
     const tick = () => {
       setTimeout(async () => {
-        const run = await apiFetch<Run>(`/api/runs/${id}`);
+        const [run, events] = await Promise.all([
+          apiFetch<Run>(`/api/runs/${id}`),
+          apiFetch<RawEvent[]>(`/api/sessions/${sessionId}/events`).catch(() => [] as RawEvent[]),
+        ]);
         setRunStatus(run.status);
+        setRawEvents(events);
         if (run.status !== "done" && run.status !== "failed" && run.status !== "cancelled") {
           tick();
         }
@@ -138,7 +146,7 @@ export default function TaskDetailPage() {
     setRunStatus("queued");
     try {
       const { runId } = await sendMessage(session.id, text);
-      pollRunStatus(runId);
+      pollRunStatus(runId, session.id);
     } finally {
       setReplying(false);
     }
