@@ -215,6 +215,14 @@ fi`;
   throw new Error("Failed to push agent changes to the remote");
 }
 
+// The agent's summary is written from inside the sandbox, where the repo is checked out at
+// /workspace — a container-internal mount point that means nothing on GitHub (and isn't even
+// accurate there: the file is at the repo root, not under a "/workspace" directory). Strip it
+// out before anything the agent wrote reaches a PR body meant for human reviewers.
+function stripSandboxPaths(text: string): string {
+  return text.replace(/\/workspace\//g, "").replace(/\/workspace\b/g, "the repo root");
+}
+
 // Composes an informative PR body from what the run actually produced, rather than the one-line
 // "opened automatically for task T-xxx" placeholder — reviewers need the task's own description
 // and the agent's own account of what it did to judge a draft PR without reading every diff line.
@@ -225,7 +233,7 @@ export function buildPullRequestBody(params: {
   changedFiles: string[];
 }): string {
   const sections = [`Opened automatically by AgentFactory for task ${params.taskRef}.`];
-  if (params.summary.trim()) sections.push(`## What changed\n${params.summary.trim()}`);
+  if (params.summary.trim()) sections.push(`## What changed\n${stripSandboxPaths(params.summary.trim())}`);
   if (params.taskDescription.trim()) sections.push(`## Task\n${params.taskDescription.trim()}`);
   if (params.changedFiles.length > 0) {
     sections.push(`## Files changed\n${params.changedFiles.map((f) => `- \`${f}\``).join("\n")}`);
