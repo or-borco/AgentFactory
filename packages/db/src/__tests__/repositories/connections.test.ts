@@ -16,7 +16,7 @@ describe("connections repository", () => {
       config: { installationId: 123, accountLogin: "acme-org", accountType: "Organization" },
     });
 
-    await expect(getConnection(connection.id)).resolves.toEqual(connection);
+    await expect(getConnection(org.id, connection.id)).resolves.toEqual(connection);
   });
 
   it("defaults health to healthy on create", async () => {
@@ -42,6 +42,14 @@ describe("connections repository", () => {
     expect(connections[0]).toEqual(conn1);
   });
 
+  it("does not return a connection when queried under a different org", async () => {
+    const org1 = await insertOrg();
+    const org2 = await insertOrg();
+    const connection = await createConnection(org1.id, { provider: "github", kind: "scm", label: "org1/repo", config: {} });
+
+    await expect(getConnection(org2.id, connection.id)).resolves.toBeUndefined();
+  });
+
   it("stores arbitrary provider-specific config as opaque json", async () => {
     const org = await insertOrg();
     const config = { installationId: 999, accountLogin: "some-org", accountType: "Organization" };
@@ -56,7 +64,7 @@ describe("connections repository", () => {
 
     await deleteConnection(connection.id);
 
-    await expect(getConnection(connection.id)).resolves.toBeUndefined();
+    await expect(getConnection(org.id, connection.id)).resolves.toBeUndefined();
   });
 
   it("is deleted when its org is deleted", async () => {
@@ -65,6 +73,6 @@ describe("connections repository", () => {
 
     await db.delete(orgs).where(eq(orgs.id, org.id));
 
-    await expect(getConnection(connection.id)).resolves.toBeUndefined();
+    await expect(getConnection(org.id, connection.id)).resolves.toBeUndefined();
   });
 });

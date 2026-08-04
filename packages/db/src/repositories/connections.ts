@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Connection, ConnectionKind, ConnectionProvider } from "@agentfactory/core";
 import { db } from "../client";
 import { connections } from "../schema";
@@ -21,8 +21,8 @@ export async function listConnections(orgId: number): Promise<Connection[]> {
   return rows.map(toConnection);
 }
 
-export async function getConnection(id: number): Promise<Connection | undefined> {
-  const [row] = await db.select().from(connections).where(eq(connections.id, id));
+export async function getConnection(orgId: number, id: number): Promise<Connection | undefined> {
+  const [row] = await db.select().from(connections).where(and(eq(connections.orgId, orgId), eq(connections.id, id)));
   return row ? toConnection(row) : undefined;
 }
 
