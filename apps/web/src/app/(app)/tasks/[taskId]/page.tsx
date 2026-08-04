@@ -195,8 +195,13 @@ export default function TaskDetailPage() {
             flexDirection: "column",
             borderRight: "1px solid var(--color-divider)",
             opacity: panelOpen ? 1 : 0,
+            visibility: panelOpen ? "visible" : "hidden",
             pointerEvents: panelOpen ? "auto" : "none",
-            transition: "opacity 0.2s ease",
+            // visibility switches immediately on open (so content appears as it fades in),
+            // but waits for the opacity fade to finish before hiding on close.
+            transition: panelOpen
+              ? "opacity 0.2s ease, visibility 0s 0s"
+              : "opacity 0.2s ease, visibility 0s 0.2s",
           }}
         >
           {/* Pane header — 48px, always visible */}
