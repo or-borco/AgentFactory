@@ -30,7 +30,7 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
   const initials = user.email.slice(0, 2).toUpperCase();
 
   return (
-    <div className="flex min-h-screen bg-[var(--color-bg)]">
+    <div className="flex h-screen overflow-hidden bg-[var(--color-bg)]">
       <aside
         className="flex shrink-0 flex-col border-r border-[var(--color-divider)] bg-[var(--color-surface)]"
         style={{ width: 188 }}
@@ -149,7 +149,7 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1">{children}</main>
+      <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
 
       {toast && (
         <div

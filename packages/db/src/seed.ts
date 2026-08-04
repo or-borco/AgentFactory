@@ -2,7 +2,7 @@ import "dotenv/config";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { sql } from "drizzle-orm";
-import { agents, memberships, messages, orgs, sessions, tasks, teamContextItems, teams, users } from "./schema";
+import { agents, events, memberships, messages, orgs, runs, sessions, tasks, teamContextItems, teams, users } from "./schema";
 import { hashPassword } from "./password";
 
 // Mirrors apps/web/src/lib/mock/seed.ts's seedTeams/seedAgents exactly (same IDs), so the
@@ -200,6 +200,36 @@ async function main() {
     ])
     .onConflictDoNothing();
 
+  // ── Seed run + events for session 2 (PR review) — used to develop tool call / thinking UI ──
+  await db
+    .insert(runs)
+    .overridingSystemValue()
+    .values({
+      id: 1,
+      sessionId: 2,
+      status: "done",
+      triggeringMessageId: 1,
+      costUsd: 0,
+      tokensUsed: 0,
+      createdAt: hoursAgo(3),
+      finishedAt: hoursAgo(3),
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(events)
+    .overridingSystemValue()
+    .values([
+      { id: 1, runId: 1, seq: 0, type: "thinking_delta", data: { text: "The user wants me to review PR 1234. I should fetch the diff and check for correctness, test coverage, and style issues." }, createdAt: hoursAgo(3) },
+      { id: 2, runId: 1, seq: 1, type: "tool_call",      data: { tool: "read_file", input: { path: "src/config/parseConfig.ts" } }, createdAt: hoursAgo(3) },
+      { id: 3, runId: 1, seq: 2, type: "tool_result",    data: { tool: "read_file", output: "export function parseConfig(raw) { return { timeout: raw.timeout }; }", isError: false }, createdAt: hoursAgo(3) },
+      { id: 4, runId: 1, seq: 3, type: "tool_call",      data: { tool: "comment_pr", input: { prNumber: 1234, body: "parseConfig doesn't default `timeout` — falls through to undefined." } }, createdAt: hoursAgo(3) },
+      { id: 5, runId: 1, seq: 4, type: "tool_result",    data: { tool: "comment_pr", output: { commentId: 99 }, isError: false }, createdAt: hoursAgo(3) },
+      { id: 6, runId: 1, seq: 5, type: "text_delta",     data: { text: "I looked over PR 1234…" }, createdAt: hoursAgo(3) },
+      { id: 7, runId: 1, seq: 6, type: "done",           data: { reason: "completed" }, createdAt: hoursAgo(3) },
+    ])
+    .onConflictDoNothing();
+
   // ── Team context items ─────────────────────────────────────────────────────────
   await db
     .insert(teamContextItems)
@@ -383,6 +413,8 @@ async function main() {
   await resetIdentitySequence(db, "agents");
   await resetIdentitySequence(db, "sessions");
   await resetIdentitySequence(db, "messages");
+  await resetIdentitySequence(db, "runs");
+  await resetIdentitySequence(db, "events");
   await resetIdentitySequence(db, "tasks");
 
   await sql_.end();

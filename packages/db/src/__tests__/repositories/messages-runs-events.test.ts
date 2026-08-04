@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { db } from "../../client.js";
 import { events } from "../../schema.js";
-import { createEvent } from "../../repositories/events.js";
+import { createEvent, listEventsForSession } from "../../repositories/events.js";
 import { createMessage, getMessage, listMessages } from "../../repositories/messages.js";
 import { createRun, getLatestProviderSessionRef, getRun, updateRunStatus } from "../../repositories/runs.js";
 import { insertAgent, insertOrg, insertSession } from "../fixtures.js";
@@ -76,5 +76,36 @@ describe("events repository", () => {
     const rows = await db.select().from(events).where(eq(events.runId, run.id));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ seq: 1, type: "text_delta", data: { text: "Hello" } });
+  });
+
+  it("listEventsForSession returns events ordered by run then seq", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+
+    await createEvent(run.id, 0, "thinking_delta", { text: "Let me think…" });
+    await createEvent(run.id, 1, "tool_call", { tool: "read_file", input: { path: "src/index.ts" } });
+    await createEvent(run.id, 2, "tool_result", { tool: "read_file", output: "export {};", isError: false });
+
+    const result = await listEventsForSession(session.id);
+
+    expect(result).toHaveLength(3);
+    expect(result[0]).toMatchObject({ seq: 0, type: "thinking_delta", data: { text: "Let me think…" } });
+    expect(result[1]).toMatchObject({ seq: 1, type: "tool_call", data: { tool: "read_file" } });
+    expect(result[2]).toMatchObject({ seq: 2, type: "tool_result", data: { tool: "read_file", isError: false } });
+    expect(result[0].runId).toBe(run.id);
+  });
+
+  it("listEventsForSession returns nothing for a session with no runs", async () => {
+    const session = await setupSession();
+    await expect(listEventsForSession(session.id)).resolves.toEqual([]);
+  });
+
+  it("listEventsForSession does not return events from another session's runs", async () => {
+    const sessionA = await setupSession();
+    const sessionB = await setupSession();
+    const runA = await createRun(sessionA.id);
+    await createEvent(runA.id, 0, "text_delta", { text: "Session A event" });
+
+    await expect(listEventsForSession(sessionB.id)).resolves.toEqual([]);
   });
 });
