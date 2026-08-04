@@ -111,3 +111,7 @@ export async function updateTask(id: number, patch: UpdateTaskInput): Promise<Ta
 export async function attachTaskSession(taskId: number, sessionId: number): Promise<Task> {
   return updateTask(taskId, { sessionId, status: "in_progress" });
 }
+
+export async function deleteTask(id: number): Promise<void> {
+  await db.delete(tasks).where(eq(tasks.id, id));
+}

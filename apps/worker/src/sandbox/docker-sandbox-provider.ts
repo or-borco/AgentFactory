@@ -143,7 +143,9 @@ export class DockerSandboxProvider implements SandboxProvider {
   async destroy(id: string): Promise<void> {
     const container = docker.getContainer(id);
     await container.stop().catch(() => undefined);
-    await container.remove();
+    // Idempotent: teardown can be requested more than once for the same sandbox (e.g. a task
+    // marked done after it was already deleted) — a missing container is a no-op, not an error.
+    await container.remove().catch(() => undefined);
   }
 
   async exists(id: string): Promise<boolean> {
