@@ -9,8 +9,8 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { connectionId } = await params;
-  const connection = await getConnection(Number(connectionId));
-  if (!connection || connection.orgId !== ctx.orgId) {
+  const connection = await getConnection(ctx.orgId, Number(connectionId));
+  if (!connection) {
     return NextResponse.json({ error: "Connection not found" }, { status: 404 });
   }
 
