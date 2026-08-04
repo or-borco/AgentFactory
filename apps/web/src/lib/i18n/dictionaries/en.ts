@@ -294,6 +294,11 @@ const en = {
     skillAuthoringComingSoon: "Skill authoring — coming soon",
     connectionDeleted: "Connection removed",
   },
+  legacyAgents: {
+    heading: "Agents have moved",
+    body: "Agent management has moved to the Teams page. You can create, configure, and delete agents directly from the Agents tab inside each team. This page will be removed in a future update.",
+    cta: "Go to Teams",
+  },
   relativeTime: {
     justNow: "just now",
     minuteOne: "about {count} minute ago",
