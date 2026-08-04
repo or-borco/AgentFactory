@@ -307,6 +307,19 @@ describe("buildPullRequestBody", () => {
 
     expect(body).toBe("Opened automatically by AgentFactory for task T-1.");
   });
+
+  it("strips the sandbox's /workspace mount path out of the agent's summary", () => {
+    const body = buildPullRequestBody({
+      taskRef: "T-057",
+      taskDescription: "",
+      summary: "Created `/workspace/README.md` with a full local-setup guide. Files live under /workspace.",
+      changedFiles: [],
+    });
+
+    expect(body).toContain("Created `README.md` with a full local-setup guide.");
+    expect(body).toContain("Files live under the repo root.");
+    expect(body).not.toContain("/workspace");
+  });
 });
 
 describe("openDraftPullRequest", () => {
