@@ -17,12 +17,12 @@ test.describe("authentication", () => {
     await page.getByRole("button", { name: "Create account" }).click();
 
     await expect(page).toHaveURL(/\/agents$/);
-    await expect(page.getByRole("heading", { name: "Agents" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Agents have moved" })).toBeVisible();
   });
 
   test("logging out redirects to /login and clears the session", async ({ page, registeredUser }) => {
     await page.goto("/agents");
-    await expect(page.getByRole("heading", { name: "Agents" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Agents have moved" })).toBeVisible();
 
     await page.locator('[title="Log out"]').click();
 
