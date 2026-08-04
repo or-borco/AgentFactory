@@ -157,13 +157,21 @@ fi`;
 // to the remote only for the duration of the push itself and stripped again immediately
 // afterward, unconditionally (even on push failure), so a later turn in the same session never
 // finds a working credential sitting in .git/config either.
+export interface PushResult {
+  pushed: boolean;
+  // Paths committed in this turn, per `git diff-tree` on the new commit — not the whole repo
+  // tree, so callers (the workspace-snapshot UI, the PR body) can show just what changed instead
+  // of every file the clone happened to bring in.
+  changedFiles: string[];
+}
+
 export async function pushChangesIfDirty(
   sandboxProvider: SandboxProvider,
   sandboxId: string,
   target: CloneTarget,
   commitMessage: string,
   authorName: string,
-): Promise<boolean> {
+): Promise<PushResult> {
   const token = await getInstallationToken(target.installationId);
 
   const script = `
@@ -174,6 +182,7 @@ else
   git add -A
   git -c user.email="agent@agentfactory.local" -c user.name="$AUTHOR_NAME" commit -m "$COMMIT_MESSAGE"
   COMMIT_STATUS=$?
+  git diff-tree --no-commit-id --name-only -r HEAD | sed 's/^/CHANGED_FILE:/'
   git remote set-url origin "https://x-access-token:$PUSH_TOKEN@github.com/$REPO_FULL_NAME.git"
   git push -u origin "$BRANCH_NAME"
   PUSH_STATUS=$?
@@ -194,9 +203,34 @@ fi`;
     if (chunk.stream === "stdout") stdout += chunk.data;
   }
 
-  if (stdout.includes("NO_CHANGES")) return false;
-  if (stdout.includes("PUSH_OK")) return true;
+  if (stdout.includes("NO_CHANGES")) return { pushed: false, changedFiles: [] };
+  if (stdout.includes("PUSH_OK")) {
+    const changedFiles = stdout
+      .split("\n")
+      .filter((line) => line.startsWith("CHANGED_FILE:"))
+      .map((line) => line.slice("CHANGED_FILE:".length).trim())
+      .filter(Boolean);
+    return { pushed: true, changedFiles };
+  }
   throw new Error("Failed to push agent changes to the remote");
+}
+
+// Composes an informative PR body from what the run actually produced, rather than the one-line
+// "opened automatically for task T-xxx" placeholder — reviewers need the task's own description
+// and the agent's own account of what it did to judge a draft PR without reading every diff line.
+export function buildPullRequestBody(params: {
+  taskRef: string;
+  taskDescription: string;
+  summary: string;
+  changedFiles: string[];
+}): string {
+  const sections = [`Opened automatically by AgentFactory for task ${params.taskRef}.`];
+  if (params.summary.trim()) sections.push(`## What changed\n${params.summary.trim()}`);
+  if (params.taskDescription.trim()) sections.push(`## Task\n${params.taskDescription.trim()}`);
+  if (params.changedFiles.length > 0) {
+    sections.push(`## Files changed\n${params.changedFiles.map((f) => `- \`${f}\``).join("\n")}`);
+  }
+  return sections.join("\n\n");
 }
 
 export interface OpenedPullRequest {

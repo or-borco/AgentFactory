@@ -19,7 +19,13 @@ import {
 } from "@agentfactory/db";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { runAgentTurn } from "./agent-runtime";
-import { openDraftPullRequest, pushChangesIfDirty, resolveCloneTarget, type CloneTarget } from "./scm-provider";
+import {
+  buildPullRequestBody,
+  openDraftPullRequest,
+  pushChangesIfDirty,
+  resolveCloneTarget,
+  type CloneTarget,
+} from "./scm-provider";
 
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
@@ -84,27 +90,41 @@ new Worker<RunJobData>(
       await createEvent(runId, 1, "text_delta", { text });
       await createEvent(runId, 2, "done", { reason: "completed" });
 
+      let changedFiles: string[] = [];
       if (workspace && task) {
-        const pushed = await pushChangesIfDirty(
+        const result = await pushChangesIfDirty(
           sandboxProvider,
           sandboxId,
           workspace,
           `${agent.name}: ${task.title}`,
           agent.name,
         );
-        if (pushed) {
+        changedFiles = result.changedFiles;
+        if (result.pushed) {
           const pr = await openDraftPullRequest(
             workspace.installationId,
             workspace.repoFullName,
             workspace.branch,
             task.title,
-            `Opened automatically by AgentFactory for task ${task.ref}.`,
+            buildPullRequestBody({
+              taskRef: task.ref,
+              taskDescription: task.description,
+              summary: text,
+              changedFiles,
+            }),
           );
           await updateTask(task.id, { prNumber: pr.number, prUrl: pr.url, status: "pr_open" });
         }
       }
 
-      const workspaceSnapshot = await sandboxProvider.readWorkspace(sandboxId);
+      // Once a real repo is cloned, the sandbox's whole checkout lives under /workspace — showing
+      // it unfiltered would surface the entire repo (hundreds of pre-existing files) as if the
+      // agent had touched all of them. Narrow to what this turn actually changed; a workspace-less
+      // run (no codebase attached) keeps the old full-tree snapshot since there's no diff to take.
+      const fullSnapshot = await sandboxProvider.readWorkspace(sandboxId);
+      const workspaceSnapshot = workspace
+        ? Object.fromEntries(changedFiles.filter((f) => f in fullSnapshot).map((f) => [f, fullSnapshot[f]]))
+        : fullSnapshot;
       if (Object.keys(workspaceSnapshot).length > 0) {
         await updateRunWorkspace(runId, workspaceSnapshot);
       }
