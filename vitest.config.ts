@@ -16,6 +16,7 @@ export default defineConfig({
             "**/e2e/**",
             "**/__tests__/repositories/**",
             "packages/queue/src/__tests__/**",
+            ".claude/worktrees/**",
           ],
         },
       },
