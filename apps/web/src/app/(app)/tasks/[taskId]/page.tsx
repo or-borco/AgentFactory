@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
@@ -53,7 +54,11 @@ export default function TaskDetailPage() {
   const session = task?.sessionId
     ? sessions.find((s) => s.id === task.sessionId)
     : undefined;
-  const messages = session ? messagesForSession(session.id) : [];
+  const messages = useMemo(
+    () => (session ? messagesForSession(session.id) : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session?.id, messagesForSession],
+  );
 
   // Auto-scroll to bottom on new messages.
   useEffect(() => {
@@ -205,7 +210,7 @@ export default function TaskDetailPage() {
               alignItems: "center",
             }}
           >
-            <a
+            <Link
               href="/tasks"
               style={{
                 fontSize: 12,
@@ -217,7 +222,7 @@ export default function TaskDetailPage() {
               }}
             >
               ← {t("tasks.title")}
-            </a>
+            </Link>
           </div>
 
           {/* Scrollable spec body */}
