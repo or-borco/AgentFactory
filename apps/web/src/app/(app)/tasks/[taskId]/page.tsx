@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { StatusPill } from "@/components/StatusPill";
-import { CheckIcon } from "@/lib/icons";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { CheckIcon, TrashIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
 import type { Run } from "@agentfactory/core";
 
@@ -97,11 +98,18 @@ function humanizeStep(data: Record<string, unknown>): string {
 
 export default function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
-  const { getTask, agents, sessions, messagesForSession, loadMessages, runTask, sendMessage } = useMockBackend();
+  const router = useRouter();
+  const { getTask, agents, sessions, messagesForSession, loadMessages, runTask, sendMessage, updateTask, deleteTask, notify } =
+    useMockBackend();
   const { t } = useTranslation();
 
   const [starting, setStarting] = useState(false);
+  const [markingDone, setMarkingDone] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [runStatus, setRunStatus] = useState<string | null>(null);
+  const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"transcript" | "files">("transcript");
@@ -216,6 +224,7 @@ export default function TaskDetailPage() {
     setReply("");
     setReplying(true);
     setRunStatus("queued");
+    setRunStartedAt(Date.now());
     try {
       const { runId } = await sendMessage(session.id, text);
       pollRunStatus(runId, session.id);
@@ -230,6 +239,7 @@ export default function TaskDetailPage() {
     try {
       const result = await runTask(task.id);
       setRunStatus("queued");
+      setRunStartedAt(Date.now());
       pollRun(result.runId, result.session.id);
     } finally {
       setStarting(false);
@@ -259,6 +269,41 @@ export default function TaskDetailPage() {
     return byRun;
   }, [rawEvents]);
 
+  // Marking a task done tears down its sandbox server-side (see PATCH /api/tasks/[taskId]) —
+  // the running container is no longer needed once the work is closed out.
+  const handleMarkDone = async () => {
+    if (!task) return;
+    setMarkingDone(true);
+    try {
+      await updateTask(task.id, { status: "done" });
+      notify("toast.taskMarkedDone");
+    } finally {
+      setMarkingDone(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!task) return;
+    setDeleting(true);
+    try {
+      await deleteTask(task.id);
+      router.push("/tasks");
+    } finally {
+      setDeleting(false);
+      setConfirmingDelete(false);
+    }
+  };
+
+  const isRunning = runStatus && !["done", "failed", "cancelled"].includes(runStatus);
+
+  // Tick once a second while a run is in flight so the elapsed-time readout stays live —
+  // without this, a run stuck in one phase for a while reads as frozen rather than working.
+  useEffect(() => {
+    if (!isRunning) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [isRunning]);
+
   if (!task) {
     return (
       <div style={{ padding: "40px", color: "var(--color-neutral-500)" }}>Task not found.</div>
@@ -267,7 +312,6 @@ export default function TaskDetailPage() {
 
   const doneCriteria = task.acceptanceCriteria.filter((c) => c.done).length;
   const totalCriteria = task.acceptanceCriteria.length;
-  const isRunning = runStatus && !["done", "failed", "cancelled"].includes(runStatus);
   const replyDisabled = replying || !!isRunning;
 
   // Build tool call entries for rendering (each call paired with its result).
@@ -279,6 +323,7 @@ export default function TaskDetailPage() {
     }));
 
   const panelWidth = panelOpen ? 360 : 16;
+  const elapsedSec = runStartedAt ? Math.max(0, Math.floor((nowTick - runStartedAt) / 1000)) : 0;
 
   return (
     <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
@@ -476,6 +521,20 @@ export default function TaskDetailPage() {
                 </Button>
               </div>
             )}
+
+            {/* Status / lifecycle actions */}
+            <div style={{ marginTop: 32, display: "flex", gap: 10 }}>
+              {task.status !== "done" && (
+                <Button variant="secondary" disabled={markingDone} onClick={handleMarkDone}>
+                  <CheckIcon size={14} />
+                  {markingDone ? t("taskDetail.markingDone") : t("taskDetail.markDone")}
+                </Button>
+              )}
+              <Button variant="secondary" disabled={deleting} onClick={() => setConfirmingDelete(true)}>
+                <TrashIcon size={14} />
+                {t("taskDetail.deleteTask")}
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -527,6 +586,18 @@ export default function TaskDetailPage() {
       </div>
 
       {/* ── Right pane ──────────────────────────────────────────────────── */}
+
+      {confirmingDelete && (
+        <ConfirmDialog
+          title={t("taskDetail.confirmDeleteTitle", { title: task.title })}
+          message={t("taskDetail.confirmDeleteMessage")}
+          confirmLabel={deleting ? t("taskDetail.deleting") : t("taskDetail.confirmDeleteButton")}
+          cancelLabel={t("common.cancel")}
+          onCancel={() => setConfirmingDelete(false)}
+          onConfirm={handleDelete}
+        />
+      )}
+
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
         {/* Tab bar */}
         <div
@@ -711,18 +782,12 @@ export default function TaskDetailPage() {
 
                   {/* Agent working indicator — last item in the list */}
                   {isRunning && (
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "2px 0" }}>
-                      <span
-                        style={{
-                          width: 7,
-                          height: 7,
-                          borderRadius: "50%",
-                          background: "var(--color-accent)",
-                          animation: "pulse 1.2s ease-in-out infinite",
-                          flexShrink: 0,
-                        }}
-                      />
-                      <span style={{ fontSize: 13, color: "var(--color-neutral-500)" }}>Agent is working…</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--color-neutral-400)", fontSize: 13 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--color-accent)", animation: "pulse 1.2s ease-in-out infinite" }} />
+                      {runStatusLabel(runStatus)}
+                      {elapsedSec >= 10 && (
+                        <span style={{ color: "var(--color-neutral-600)" }}>· {elapsedSec}s</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -936,6 +1001,24 @@ function ThinkingBlock({ steps }: { steps: ThinkStep[] }) {
       )}
     </div>
   );
+}
+
+// Maps the run's actual state-machine phase (see runs.status / ARCHITECTURE.md) to
+// user-facing text, so the loading state reflects what's really happening instead of
+// one static "Agent is working…" string for the whole run.
+function runStatusLabel(status: string | null): string {
+  switch (status) {
+    case "queued":
+      return "Queued — waiting for a sandbox…";
+    case "provisioning":
+      return "Setting up the sandbox…";
+    case "running":
+      return "Agent is working…";
+    case "finalizing":
+      return "Wrapping up — pushing changes…";
+    default:
+      return "Agent is working…";
+  }
 }
 
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {

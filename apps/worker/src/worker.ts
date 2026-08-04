@@ -1,8 +1,15 @@
 import "dotenv/config";
 import { Worker } from "bullmq";
-import { RUN_QUEUE_NAME, queueConnection, type RunJobData } from "@agentfactory/queue";
+import {
+  RUN_QUEUE_NAME,
+  SANDBOX_TEARDOWN_QUEUE_NAME,
+  queueConnection,
+  type RunJobData,
+  type SandboxTeardownJobData,
+} from "@agentfactory/queue";
 import type { Session } from "@agentfactory/core";
 import {
+  clearSessionSandboxId,
   createEvent,
   createMessage,
   getAgent,
@@ -113,6 +120,8 @@ new Worker<RunJobData>(
       await createEvent(runId, seq++, "text_delta", { text });
       await createEvent(runId, seq++, "done", { reason: "completed" });
 
+      await updateRunStatus(runId, "finalizing");
+
       let changedFiles: string[] = [];
       if (workspace && task) {
         const result = await pushChangesIfDirty(
@@ -162,4 +171,18 @@ new Worker<RunJobData>(
   { connection: queueConnection },
 );
 
-console.log(`apps/worker listening on queue "${RUN_QUEUE_NAME}"`);
+// Triggered when a task is marked done or deleted (apps/web's task routes) — tears down the
+// session's warm sandbox since it's no longer needed, without touching the run/message history.
+new Worker<SandboxTeardownJobData>(
+  SANDBOX_TEARDOWN_QUEUE_NAME,
+  async (job) => {
+    const { sessionId } = job.data;
+    const session = await getSession(sessionId);
+    if (!session?.sandboxId) return;
+    await sandboxProvider.destroy(session.sandboxId);
+    await clearSessionSandboxId(sessionId);
+  },
+  { connection: queueConnection },
+);
+
+console.log(`apps/worker listening on queues "${RUN_QUEUE_NAME}", "${SANDBOX_TEARDOWN_QUEUE_NAME}"`);
