@@ -9,6 +9,8 @@ export interface AgentTurnResult {
 
 // Must match RESULT_MARKER in apps/worker/sandbox-image/run-turn.ts.
 const RESULT_MARKER = "__RESULT__";
+// Must match EVENT_MARKER in apps/worker/sandbox-image/run-turn.ts.
+const EVENT_MARKER = "__EVENT__";
 
 // The Claude Agent SDK call now runs *inside* the sandbox (apps/worker/sandbox-image/run-turn.ts),
 // not on the worker's own host process — this function just execs into it and parses the one
@@ -24,8 +26,9 @@ export async function runAgentTurn(params: {
   userText: string;
   resumeSessionRef?: string;
   workspace?: CloneTarget;
+  onEvent?: (type: string, data: Record<string, unknown>) => Promise<void>;
 }): Promise<AgentTurnResult> {
-  const { sandboxProvider, sandboxId, systemPrompt, model, userText, resumeSessionRef, workspace } = params;
+  const { sandboxProvider, sandboxId, systemPrompt, model, userText, resumeSessionRef, workspace, onEvent } = params;
 
   if (workspace) {
     await cloneIntoSandbox(sandboxProvider, sandboxId, workspace);
@@ -41,6 +44,7 @@ export async function runAgentTurn(params: {
   };
   if (resumeSessionRef) env.RESUME_SESSION_REF = resumeSessionRef;
 
+  let lineBuffer = "";
   let stdout = "";
   let stderr = "";
   for await (const chunk of sandboxProvider.exec(
@@ -48,8 +52,37 @@ export async function runAgentTurn(params: {
     ["/agent/node_modules/.bin/tsx", "/agent/run-turn.ts"],
     { env },
   )) {
-    if (chunk.stream === "stdout") stdout += chunk.data;
-    else stderr += chunk.data;
+    if (chunk.stream === "stdout") {
+      lineBuffer += chunk.data;
+      const lines = lineBuffer.split("\n");
+      lineBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        stdout += line + "\n";
+        if (onEvent && line.startsWith(EVENT_MARKER)) {
+          let payload: ({ type: string } & Record<string, unknown>) | undefined;
+          try {
+            payload = JSON.parse(line.slice(EVENT_MARKER.length)) as { type: string } & Record<string, unknown>;
+          } catch {
+            // ignore malformed (non-JSON) event lines
+          }
+          if (payload) await onEvent(payload.type, payload);
+        }
+      }
+    } else {
+      stderr += chunk.data;
+    }
+  }
+  if (lineBuffer) {
+    stdout += lineBuffer;
+    if (onEvent && lineBuffer.startsWith(EVENT_MARKER)) {
+      let payload: ({ type: string } & Record<string, unknown>) | undefined;
+      try {
+        payload = JSON.parse(lineBuffer.slice(EVENT_MARKER.length)) as { type: string } & Record<string, unknown>;
+      } catch {
+        // ignore malformed (non-JSON) event lines
+      }
+      if (payload) await onEvent(payload.type, payload);
+    }
   }
 
   const markerIndex = stdout.lastIndexOf(RESULT_MARKER);

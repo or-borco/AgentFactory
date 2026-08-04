@@ -95,6 +95,7 @@ new Worker<RunJobData>(
         }
       }
 
+      let seq = 1;
       const { text, providerSessionRef } = await runAgentTurn({
         sandboxProvider,
         sandboxId,
@@ -103,11 +104,14 @@ new Worker<RunJobData>(
         userText: (triggeringMessage?.content ?? "") + issueContext,
         resumeSessionRef,
         workspace,
+        onEvent: async (type, data) => {
+          await createEvent(runId, seq++, type, data);
+        },
       });
 
       await createMessage(run.sessionId, "assistant", text, runId);
-      await createEvent(runId, 1, "text_delta", { text });
-      await createEvent(runId, 2, "done", { reason: "completed" });
+      await createEvent(runId, seq++, "text_delta", { text });
+      await createEvent(runId, seq++, "done", { reason: "completed" });
 
       let changedFiles: string[] = [];
       if (workspace && task) {
