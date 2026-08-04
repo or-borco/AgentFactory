@@ -156,25 +156,6 @@ export default function TaskDetailPage() {
     }
   };
 
-  if (!task) {
-    return (
-      <div style={{ padding: "40px", color: "var(--color-neutral-500)" }}>Task not found.</div>
-    );
-  }
-
-  const doneCriteria = task.acceptanceCriteria.filter((c) => c.done).length;
-  const totalCriteria = task.acceptanceCriteria.length;
-  const isRunning = runStatus && !["done", "failed", "cancelled"].includes(runStatus);
-  const replyDisabled = replying || !!isRunning;
-
-  // Build tool call entries for rendering (each call paired with its result).
-  const toolCallEntries: ToolCallEntry[] = rawEvents
-    .filter((e) => e.type === "tool_call")
-    .map((callEvent) => ({
-      callEvent,
-      resultEvent: rawEvents.find((e) => e.type === "tool_result" && (e.data as { tool: string }).tool === (callEvent.data as { tool: string }).tool && e.seq > callEvent.seq) ?? null,
-    }));
-
   // Group consecutive thinking_delta events into separate blocks.
   const thinkingBlocks = useMemo(() => {
     const blocks: string[] = [];
@@ -194,6 +175,25 @@ export default function TaskDetailPage() {
     }
     return blocks;
   }, [rawEvents]);
+
+  if (!task) {
+    return (
+      <div style={{ padding: "40px", color: "var(--color-neutral-500)" }}>Task not found.</div>
+    );
+  }
+
+  const doneCriteria = task.acceptanceCriteria.filter((c) => c.done).length;
+  const totalCriteria = task.acceptanceCriteria.length;
+  const isRunning = runStatus && !["done", "failed", "cancelled"].includes(runStatus);
+  const replyDisabled = replying || !!isRunning;
+
+  // Build tool call entries for rendering (each call paired with its result).
+  const toolCallEntries: ToolCallEntry[] = rawEvents
+    .filter((e) => e.type === "tool_call")
+    .map((callEvent) => ({
+      callEvent,
+      resultEvent: rawEvents.find((e) => e.type === "tool_result" && (e.data as { tool: string }).tool === (callEvent.data as { tool: string }).tool && e.seq > callEvent.seq) ?? null,
+    }));
 
   const panelWidth = panelOpen ? 360 : 16;
 
