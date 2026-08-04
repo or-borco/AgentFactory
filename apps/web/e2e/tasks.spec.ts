@@ -1,5 +1,56 @@
 import { expect, test } from "./fixtures";
 
+// ── Task detail layout (issue #32) ───────────────────────────────────────────
+
+test("task detail shows split-pane layout with reply bar always visible", async ({ page, registeredUser }) => {
+  const res = await page.request.post("/api/tasks", {
+    data: { title: "Layout test task", description: "Verify split-pane layout." },
+  });
+  const task = await res.json();
+  await page.goto(`/tasks/${task.id}`);
+
+  // Left pane: breadcrumb back-link
+  await expect(page.getByRole("link", { name: /← Tasks/i })).toBeVisible();
+
+  // Right pane: Transcript tab
+  await expect(page.getByRole("button", { name: "Transcript" })).toBeVisible();
+
+  // Reply bar is always rendered, even without a session
+  await expect(page.getByPlaceholder(/Reply to the agent/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Send" })).toBeVisible();
+});
+
+test("reply bar is disabled when task has no active session", async ({ page, registeredUser }) => {
+  const res = await page.request.post("/api/tasks", { data: { title: "No-session task" } });
+  const task = await res.json();
+  await page.goto(`/tasks/${task.id}`);
+
+  const textarea = page.getByPlaceholder(/Reply to the agent/);
+  const sendBtn = page.getByRole("button", { name: "Send" });
+
+  await expect(textarea).toBeDisabled();
+  await expect(sendBtn).toBeDisabled();
+});
+
+test("collapse handle toggles the left pane", async ({ page, registeredUser }) => {
+  const res = await page.request.post("/api/tasks", { data: { title: "Collapse test task" } });
+  const task = await res.json();
+  await page.goto(`/tasks/${task.id}`);
+
+  // Breadcrumb is visible in the expanded state
+  await expect(page.getByRole("link", { name: /← Tasks/i })).toBeVisible();
+
+  // Collapse the panel
+  await page.getByTitle("Collapse panel").click();
+
+  // Breadcrumb content is now hidden (pointer-events:none + opacity:0)
+  await expect(page.getByRole("link", { name: /← Tasks/i })).not.toBeVisible();
+
+  // Expand it back
+  await page.getByTitle("Expand panel").click();
+  await expect(page.getByRole("link", { name: /← Tasks/i })).toBeVisible();
+});
+
 test("shows a link to the opened PR once the task has one", async ({ page, registeredUser }) => {
   const createRes = await page.request.post("/api/tasks", {
     data: { title: "Add dark mode toggle", description: "Add a dark mode toggle to settings." },
