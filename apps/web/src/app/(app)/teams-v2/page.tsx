@@ -234,6 +234,86 @@ function AreaMapEditor({
   );
 }
 
+// ── New team panel ─────────────────────────────────────────────────────────────
+
+function NewTeamPanel({ onCreated, onCancel }: {
+  onCreated: (teamId: number) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  const { createTeam } = useMockBackend();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [nameError, setNameError] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  async function handleCreate(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) { setNameError(true); return; }
+    setSaving(true);
+    try {
+      const team = await createTeam(name.trim(), description.trim());
+      onCreated(team.id);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Escape") onCancel();
+  }
+
+  return (
+    <form onSubmit={handleCreate} onKeyDown={handleKeyDown} className="mt-6 rounded-[var(--radius-md)] border border-[var(--color-divider)] overflow-hidden">
+      <div className="flex items-center gap-3 px-5 py-4 border-b border-[var(--color-divider)]">
+        <span className="text-2xl leading-none">🏢</span>
+        <div className="flex-1 min-w-0">
+          <div className="font-medium text-[var(--color-neutral-100)]">{t("teamsV2.newTeamTitle")}</div>
+          <div className="text-xs text-[var(--color-neutral-500)]">{t("teamsV2.newTeamSubtitle")}</div>
+        </div>
+      </div>
+
+      <div className="px-5 py-4 space-y-4">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.teamNameLabel")}
+          </label>
+          <TextInput
+            autoFocus
+            placeholder={t("teamsV2.teamNamePlaceholder")}
+            value={name}
+            onChange={(e) => { setName(e.target.value); if (nameError) setNameError(false); }}
+            maxLength={80}
+          />
+          {nameError && (
+            <p className="mt-1 text-xs text-red-400">{t("teamsV2.nameRequired")}</p>
+          )}
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.teamDescriptionLabel")}
+          </label>
+          <TextInput
+            placeholder={t("teamsV2.teamDescriptionPlaceholder")}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--color-divider)]">
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+        <Button type="submit" disabled={saving}>
+          {saving ? t("teamsV2.creatingTeam") : t("teamsV2.createTeam")}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 // ── New agent panel ────────────────────────────────────────────────────────────
 
 function NewAgentPanel({ teamId, onCreated, onCancel }: {
@@ -560,6 +640,7 @@ export default function TeamsV2Page() {
   const { teams } = useMockBackend();
   const [activeTab, setActiveTab] = useState<string>("members");
   const [activeTeamId, setActiveTeamId] = useState<number | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const team = activeTeamId != null
     ? teams.find((t) => t.id === activeTeamId)
@@ -570,38 +651,65 @@ export default function TeamsV2Page() {
     { key: "agents", label: t("teamsV2.tabAgents") },
   ];
 
+  function handleTeamCreated(teamId: number) {
+    setActiveTeamId(teamId);
+    setCreating(false);
+  }
+
   return (
     <div className="px-10 pt-10 max-w-4xl">
       <PageHeader title={t("teamsV2.title")} subtitle={t("teamsV2.subtitle")} />
 
-      {/* Team selector (if multiple teams) */}
-      {teams.length > 1 && (
-        <div className="mt-4 flex gap-2">
-          {teams.map((tm) => (
-            <button
-              key={tm.id}
-              onClick={() => setActiveTeamId(tm.id)}
-              className={[
-                "rounded-[var(--radius-sm)] px-3 py-1.5 text-sm transition-colors cursor-pointer",
-                tm.id === team?.id
-                  ? "bg-[var(--color-accent-800)] text-[var(--color-accent-200)]"
-                  : "text-[var(--color-neutral-400)] hover:text-[var(--color-neutral-200)]",
-              ].join(" ")}
-            >
-              {tm.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {/* Team selector — always visible so the + button has a consistent home */}
+      <div className="mt-4 flex items-center gap-2">
+        {teams.map((tm) => (
+          <button
+            key={tm.id}
+            onClick={() => { setActiveTeamId(tm.id); setCreating(false); }}
+            className={[
+              "rounded-[var(--radius-sm)] px-3 py-1.5 text-sm transition-colors cursor-pointer",
+              !creating && tm.id === team?.id
+                ? "bg-[var(--color-accent-800)] text-[var(--color-accent-200)]"
+                : "text-[var(--color-neutral-400)] hover:text-[var(--color-neutral-200)]",
+            ].join(" ")}
+          >
+            {tm.name}
+          </button>
+        ))}
+        <button
+          onClick={() => setCreating(true)}
+          className="ml-1 text-lg leading-none text-[var(--color-neutral-500)] hover:text-[var(--color-neutral-100)] transition-colors cursor-pointer"
+          title={t("teamsV2.newTeamTitle")}
+          aria-label={t("teamsV2.newTeamTitle")}
+        >
+          +
+        </button>
+      </div>
 
-      {team ? (
+      {creating ? (
+        <NewTeamPanel
+          onCreated={handleTeamCreated}
+          onCancel={() => setCreating(false)}
+        />
+      ) : team ? (
         <>
           <Tabs tabs={tabs} active={activeTab} onChange={setActiveTab} className="mt-6" />
           {activeTab === "members" && <MembersTab team={team} />}
           {activeTab === "agents" && <AgentsTab team={team} />}
         </>
       ) : (
-        <EmptyState icon="🏢" title="No teams yet" subtitle="Create a team to get started." />
+        <div className="mt-8">
+          <EmptyState
+            icon="🏢"
+            title={t("teamsV2.noTeams")}
+            subtitle={t("teamsV2.noTeamsSub")}
+          />
+          <div className="mt-4 flex justify-center">
+            <Button onClick={() => setCreating(true)}>
+              {t("teamsV2.createFirstTeam")}
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );
