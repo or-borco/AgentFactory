@@ -240,6 +240,7 @@ const en = {
     confirmDeleteTitle: "Delete '{title}'?",
     confirmDeleteMessage: "This will permanently remove the task and tear down its sandbox. This can't be undone.",
     confirmDeleteButton: "Delete",
+    thinking: "Thinking",
   },
   teamsV2: {
     title: "Teams",

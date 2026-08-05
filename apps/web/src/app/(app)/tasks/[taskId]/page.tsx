@@ -11,6 +11,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CheckIcon, TrashIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
 import type { Run } from "@agentfactory/core";
+import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
 
 type WorkspaceSnapshot = Record<string, string>;
 
@@ -51,9 +52,10 @@ export default function TaskDetailPage() {
   const [panelOpen, setPanelOpen] = useState(true);
   const [rawEvents, setRawEvents] = useState<RawEvent[]>([]);
   const [showToolCalls] = useState(false);
-  const [showThinking] = useState(false);
+  const [showThinking] = useState(true);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const userScrolledRef = useRef(false);
 
   const task = getTask(Number(taskId));
   const assignee = task?.assigneeAgentId
@@ -68,10 +70,23 @@ export default function TaskDetailPage() {
     [session?.id, messagesForSession],
   );
 
-  // Auto-scroll to bottom on new messages.
+  const handleTranscriptScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    userScrolledRef.current = el.scrollHeight - el.scrollTop - el.clientHeight > 60;
+  }, []);
+
+  // Auto-scroll to bottom on new content only while a run is actively streaming —
+  // that's when following the latest output is what the user wants. For a completed
+  // run opened for review we leave the scroll at the top so the transcript reads in
+  // order (prompt → thinking → answer); otherwise the jump-to-bottom hides the
+  // thinking block that sits above a long answer.
   useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages, runStatus]);
+    const active = runStatus != null && !["done", "failed", "cancelled"].includes(runStatus);
+    if (active && !userScrolledRef.current && scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages, runStatus, rawEvents]);
 
   // Load existing messages, workspace, and events when a session is linked.
   useEffect(() => {
@@ -97,8 +112,12 @@ export default function TaskDetailPage() {
     (id: number, sessionId: number) => {
       const tick = () => {
         setTimeout(async () => {
-          const run = await apiFetch<Run>(`/api/runs/${id}`);
+          const [run, events] = await Promise.all([
+            apiFetch<Run>(`/api/runs/${id}`),
+            apiFetch<RawEvent[]>(`/api/sessions/${sessionId}/events`).catch(() => [] as RawEvent[]),
+          ]);
           setRunStatus(run.status);
+          setRawEvents(events);
           if (run.status === "done") {
             await loadMessages(sessionId);
             if (run.workspaceSnapshot && Object.keys(run.workspaceSnapshot).length > 0) {
@@ -116,11 +135,15 @@ export default function TaskDetailPage() {
     [loadMessages],
   );
 
-  const pollRunStatus = useCallback((id: number) => {
+  const pollRunStatus = useCallback((id: number, sessionId: number) => {
     const tick = () => {
       setTimeout(async () => {
-        const run = await apiFetch<Run>(`/api/runs/${id}`);
+        const [run, events] = await Promise.all([
+          apiFetch<Run>(`/api/runs/${id}`),
+          apiFetch<RawEvent[]>(`/api/sessions/${sessionId}/events`).catch(() => [] as RawEvent[]),
+        ]);
         setRunStatus(run.status);
+        setRawEvents(events);
         if (run.status !== "done" && run.status !== "failed" && run.status !== "cancelled") {
           tick();
         }
@@ -138,7 +161,7 @@ export default function TaskDetailPage() {
     setRunStartedAt(Date.now());
     try {
       const { runId } = await sendMessage(session.id, text);
-      pollRunStatus(runId);
+      pollRunStatus(runId, session.id);
     } finally {
       setReplying(false);
     }
@@ -156,6 +179,29 @@ export default function TaskDetailPage() {
       setStarting(false);
     }
   };
+
+  // Group thinking_delta events into a list of friendly steps per run, keyed by runId.
+  // Events arrive ordered by runId then seq, so order is preserved. Each tool call is
+  // humanized ("Installing dependencies", "Writing strings.ts") and consecutive
+  // duplicates are collapsed so a burst of `find`/`ls`/`cat` reads as one
+  // "Exploring the codebase" line rather than a wall of shell. Thinking is rendered
+  // inline with the run's assistant message (see below) so it sits next to the
+  // response — not pinned above the whole transcript where auto-scroll would hide it.
+  const thinkingByRun = useMemo(() => {
+    const byRun = new Map<number, ThinkStep[]>();
+    for (const event of rawEvents) {
+      if (event.type !== "thinking_delta") continue;
+      const label = humanizeStep(event.data);
+      const detail =
+        typeof event.data.text === "string" ? (event.data.text as string).trim().replace(/^\[\w+\]\s*/, "") : label;
+      const steps = byRun.get(event.runId) ?? [];
+      if (steps.length === 0 || steps[steps.length - 1].label !== label) {
+        steps.push({ label, detail });
+      }
+      byRun.set(event.runId, steps);
+    }
+    return byRun;
+  }, [rawEvents]);
 
   // Marking a task done tears down its sandbox server-side (see PATCH /api/tasks/[taskId]) —
   // the running container is no longer needed once the work is closed out.
@@ -192,12 +238,6 @@ export default function TaskDetailPage() {
     return () => clearInterval(id);
   }, [isRunning]);
 
-  // Keep the transcript scrolled to the newest content (including the loading indicator,
-  // which now lives at the bottom of the thread rather than the top).
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, isRunning, runStatus]);
-
   if (!task) {
     return (
       <div style={{ padding: "40px", color: "var(--color-neutral-500)" }}>Task not found.</div>
@@ -215,11 +255,6 @@ export default function TaskDetailPage() {
       callEvent,
       resultEvent: rawEvents.find((e) => e.type === "tool_result" && (e.data as { tool: string }).tool === (callEvent.data as { tool: string }).tool && e.seq > callEvent.seq) ?? null,
     }));
-
-  const thinkingText = rawEvents
-    .filter((e) => e.type === "thinking_delta")
-    .map((e) => (e.data as { text: string }).text)
-    .join("");
 
   const panelWidth = panelOpen ? 360 : 16;
   const elapsedSec = runStartedAt ? Math.max(0, Math.floor((nowTick - runStartedAt) / 1000)) : 0;
@@ -547,41 +582,9 @@ export default function TaskDetailPage() {
         {activeTab === "transcript" && (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
             {/* Messages scroll area */}
-            <div ref={scrollRef} style={{ flex: 1, overflowY: "auto", padding: "22px 28px 20px" }}>
+            <div ref={scrollRef} onScroll={handleTranscriptScroll} style={{ flex: 1, overflowY: "auto", padding: "22px 28px 20px" }}>
               {runStatus === "failed" && (
                 <div style={{ fontSize: 13, color: "#e8a44a", marginBottom: 14 }}>Run failed — check worker logs.</div>
-              )}
-
-              {/* Thinking block (hidden by default) */}
-              {showThinking && thinkingText && (
-                <div
-                  style={{
-                    marginLeft: 2,
-                    marginBottom: 14,
-                    borderLeft: "2px solid var(--color-neutral-800)",
-                    borderRadius: "0 var(--radius-sm) var(--radius-sm) 0",
-                    background: "rgba(0,0,0,0.15)",
-                    padding: "6px 12px 6px 14px",
-                  }}
-                >
-                  <span
-                    style={{
-                      display: "block",
-                      fontSize: 10,
-                      fontWeight: 600,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.06em",
-                      color: "var(--color-neutral-700)",
-                      marginBottom: 2,
-                      fontStyle: "normal",
-                    }}
-                  >
-                    THINKING
-                  </span>
-                  <span style={{ fontSize: 12, fontStyle: "italic", color: "var(--color-neutral-600)", lineHeight: 1.6 }}>
-                    {thinkingText}
-                  </span>
-                </div>
               )}
 
               {/* Tool call rows (hidden by default) */}
@@ -667,6 +670,10 @@ export default function TaskDetailPage() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   {messages.map((msg) => (
                     <div key={msg.id} style={{ animation: "fadein 0.18s ease" }}>
+                      {/* Thinking for this turn, shown right above the agent's reply. */}
+                      {showThinking && msg.role === "assistant" && msg.runId != null && thinkingByRun.has(msg.runId) && (
+                        <ThinkingBlock steps={thinkingByRun.get(msg.runId)!} />
+                      )}
                       <div
                         style={{
                           fontSize: 11,
@@ -694,6 +701,20 @@ export default function TaskDetailPage() {
                       </div>
                     </div>
                   ))}
+
+                  {/* Live thinking for the in-progress turn — its assistant message
+                      doesn't exist yet, so it renders here at the bottom where the
+                      auto-scroll keeps it in view as it streams. */}
+                  {showThinking && (() => {
+                    const answeredRunIds = new Set(
+                      messages.filter((m) => m.role === "assistant" && m.runId != null).map((m) => m.runId),
+                    );
+                    return [...thinkingByRun.entries()]
+                      .filter(([runId]) => !answeredRunIds.has(runId))
+                      .map(([runId, steps]) => <ThinkingBlock key={`live-${runId}`} steps={steps} />);
+                  })()}
+
+                  {/* Agent working indicator — last item in the list */}
                   {isRunning && (
                     <div style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--color-neutral-400)", fontSize: 13 }}>
                       <span style={{ width: 8, height: 8, borderRadius: "50%", background: "var(--color-accent)", animation: "pulse 1.2s ease-in-out infinite" }} />
@@ -834,6 +855,85 @@ export default function TaskDetailPage() {
           to   { opacity: 1; transform: none; }
         }
       `}</style>
+    </div>
+  );
+}
+
+function ThinkingBlock({ steps }: { steps: ThinkStep[] }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const { t } = useTranslation();
+  return (
+    <div
+      style={{
+        marginLeft: 2,
+        marginBottom: 14,
+        borderLeft: "2px solid var(--color-neutral-800)",
+        borderRadius: "0 var(--radius-sm) var(--radius-sm) 0",
+        background: "rgba(0,0,0,0.15)",
+        overflow: "hidden",
+      }}
+    >
+      <button
+        onClick={() => setCollapsed((v) => !v)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          width: "100%",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "6px 12px 6px 14px",
+          textAlign: "left",
+        }}
+      >
+        <svg
+          width={8}
+          height={8}
+          viewBox="0 0 8 8"
+          fill="none"
+          style={{
+            flexShrink: 0,
+            transform: collapsed ? "rotate(-90deg)" : "none",
+            transition: "transform 0.15s",
+          }}
+        >
+          <path d="M1 2.5L4 5.5L7 2.5" stroke="var(--color-neutral-700)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span
+          style={{
+            fontSize: 10,
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: "var(--color-neutral-700)",
+            fontStyle: "normal",
+          }}
+        >
+          {t("taskDetail.thinking")}
+        </span>
+      </button>
+      {!collapsed && (
+        <div style={{ padding: "0 12px 10px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
+          {steps.map((step, i) => (
+            <div key={i} title={step.detail} style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+              <span
+                style={{
+                  flexShrink: 0,
+                  width: 5,
+                  height: 5,
+                  marginTop: 1,
+                  borderRadius: "50%",
+                  background: "var(--color-neutral-700)",
+                }}
+              />
+              <span style={{ fontSize: 12.5, color: "var(--color-neutral-500)", lineHeight: 1.5 }}>
+                {step.label}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
