@@ -321,6 +321,12 @@ const en = {
     body: "Agent management has moved to the Teams page. You can create, configure, and delete agents directly from the Agents tab inside each team. This page will be removed in a future update.",
     cta: "Go to Teams",
   },
+  legacyTeams: {
+    heading: "Teams have moved",
+    body: "Team management has moved to the new Teams page. You can manage members, context documents, and agents directly from there. This page will be removed in a future update.",
+    cta: "Go to Teams",
+    navBadge: "Legacy",
+  },
   relativeTime: {
     justNow: "just now",
     minuteOne: "about {count} minute ago",
