@@ -12,7 +12,7 @@ const en = {
     teams: "Teams",
     skills: "Skills",
     connections: "Connections",
-    tasks: "Tasks",
+    tasks: "taskzzz",
     activity: "Activity",
     settings: "Settings",
     workspaceFooter: "Team workspace",
