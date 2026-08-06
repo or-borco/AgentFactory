@@ -8,7 +8,7 @@ import {
   HardDrives,
   PencilSimple,
 } from "@phosphor-icons/react";
-import { Button, Badge, Textarea } from "@agentfactory/shared";
+import { Button, Badge, Textarea, TextInput } from "@agentfactory/shared";
 import { ChevronDownIcon, XIcon } from "@/lib/icons";
 import { useTranslation } from "@/lib/i18n/context";
 import type {
@@ -29,6 +29,7 @@ interface PanelState {
   dirty: boolean;
   saving: boolean;
   draft: ContextCategory;
+  /** sentinel: for newly-added categories this id is "" so isDirty always returns true */
   original: ContextCategory;
   labelEditing: boolean;
   labelDraft: string;
@@ -92,22 +93,19 @@ interface SharedContextPanelsProps {
 
 // ---------------------------------------------------------------------------
 // Sub-components for panel bodies
+// Each calls useTranslation() directly for type-safe t() access.
 // ---------------------------------------------------------------------------
 
 function TermsBody({
   entries,
   onChange,
-  t,
 }: {
   entries: TermEntry[];
   onChange: (entries: TermEntry[]) => void;
-  t: (key: string, vars?: Record<string, string | number>) => string;
 }) {
+  const { t } = useTranslation();
   const update = (i: number, field: keyof TermEntry, value: string) => {
-    const next = entries.map((e, idx) =>
-      idx === i ? { ...e, [field]: value } : e,
-    );
-    onChange(next);
+    onChange(entries.map((e, idx) => (idx === i ? { ...e, [field]: value } : e)));
   };
   const remove = (i: number) => onChange(entries.filter((_, idx) => idx !== i));
   const add = () => onChange([...entries, { key: "", value: "" }]);
@@ -116,18 +114,22 @@ function TermsBody({
     <div className="flex flex-col gap-1.5">
       {entries.map((entry, i) => (
         <div key={i} className="flex gap-2 items-center">
-          <input
-            value={entry.key}
-            onChange={(e) => update(i, "key", e.target.value)}
-            placeholder={t("teamsV2.termKeyPlaceholder")}
-            className="w-32 shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-2 py-1.5 font-mono text-xs text-[var(--color-text)] placeholder:text-[var(--color-neutral-600)] focus:border-[var(--color-accent)] focus:outline-none"
-          />
-          <input
-            value={entry.value}
-            onChange={(e) => update(i, "value", e.target.value)}
-            placeholder={t("teamsV2.termValuePlaceholder")}
-            className="min-w-0 flex-1 rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-text)] placeholder:text-[var(--color-neutral-600)] focus:border-[var(--color-accent)] focus:outline-none"
-          />
+          <div className="w-32 shrink-0">
+            <TextInput
+              value={entry.key}
+              onChange={(e) => update(i, "key", e.target.value)}
+              placeholder={t("teamsV2.termKeyPlaceholder")}
+              className="font-mono text-xs py-1.5"
+            />
+          </div>
+          <div className="min-w-0 flex-1">
+            <TextInput
+              value={entry.value}
+              onChange={(e) => update(i, "value", e.target.value)}
+              placeholder={t("teamsV2.termValuePlaceholder")}
+              className="text-xs py-1.5"
+            />
+          </div>
           <button
             onClick={() => remove(i)}
             className="shrink-0 text-[var(--color-neutral-500)] hover:text-[var(--color-neutral-200)] transition-colors"
@@ -150,12 +152,11 @@ function TermsBody({
 function TextBody({
   text,
   onChange,
-  t,
 }: {
   text: string;
   onChange: (text: string) => void;
-  t: (key: string, vars?: Record<string, string | number>) => string;
 }) {
+  const { t } = useTranslation();
   return (
     <Textarea
       value={text}
@@ -170,17 +171,13 @@ function TextBody({
 function EntriesBody({
   entries,
   onChange,
-  t,
 }: {
   entries: ArchEntry[];
   onChange: (entries: ArchEntry[]) => void;
-  t: (key: string, vars?: Record<string, string | number>) => string;
 }) {
+  const { t } = useTranslation();
   const update = (i: number, field: keyof ArchEntry, value: string) => {
-    const next = entries.map((e, idx) =>
-      idx === i ? { ...e, [field]: value } : e,
-    );
-    onChange(next);
+    onChange(entries.map((e, idx) => (idx === i ? { ...e, [field]: value } : e)));
   };
   const remove = (i: number) => onChange(entries.filter((_, idx) => idx !== i));
   const add = () => onChange([...entries, { title: "", desc: "" }]);
@@ -193,17 +190,17 @@ function EntriesBody({
           className="flex gap-2 items-start rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface-alt,var(--color-surface))] p-2"
         >
           <div className="min-w-0 flex-1 flex flex-col gap-1.5">
-            <input
+            <TextInput
               value={entry.title}
               onChange={(e) => update(i, "title", e.target.value)}
               placeholder={t("teamsV2.entryTitlePlaceholder")}
-              className="w-full rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-2 py-1.5 text-xs font-semibold text-[var(--color-text)] placeholder:text-[var(--color-neutral-600)] placeholder:font-normal focus:border-[var(--color-accent)] focus:outline-none"
+              className="text-xs font-semibold py-1.5"
             />
-            <input
+            <TextInput
               value={entry.desc}
               onChange={(e) => update(i, "desc", e.target.value)}
               placeholder={t("teamsV2.entryDescPlaceholder")}
-              className="w-full rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-neutral-400)] placeholder:text-[var(--color-neutral-600)] focus:border-[var(--color-accent)] focus:outline-none"
+              className="text-xs text-[var(--color-neutral-400)] py-1.5"
             />
           </div>
           <button
@@ -228,17 +225,13 @@ function EntriesBody({
 function SystemsBody({
   entries,
   onChange,
-  t,
 }: {
   entries: SystemEntry[];
   onChange: (entries: SystemEntry[]) => void;
-  t: (key: string, vars?: Record<string, string | number>) => string;
 }) {
+  const { t } = useTranslation();
   const update = (i: number, field: keyof SystemEntry, value: string) => {
-    const next = entries.map((e, idx) =>
-      idx === i ? { ...e, [field]: value } : e,
-    );
-    onChange(next);
+    onChange(entries.map((e, idx) => (idx === i ? { ...e, [field]: value } : e)));
   };
   const remove = (i: number) => onChange(entries.filter((_, idx) => idx !== i));
   const add = () => onChange([...entries, { name: "", type: "", notes: "" }]);
@@ -251,24 +244,26 @@ function SystemsBody({
           className="flex gap-2 items-start rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface-alt,var(--color-surface))] p-2"
         >
           <div className="min-w-0 flex-1 grid grid-cols-2 gap-1.5">
-            <input
+            <TextInput
               value={entry.name}
               onChange={(e) => update(i, "name", e.target.value)}
               placeholder={t("teamsV2.systemNamePlaceholder")}
-              className="w-full rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-text)] placeholder:text-[var(--color-neutral-600)] focus:border-[var(--color-accent)] focus:outline-none"
+              className="text-xs py-1.5"
             />
-            <input
+            <TextInput
               value={entry.type}
               onChange={(e) => update(i, "type", e.target.value)}
               placeholder={t("teamsV2.systemTypePlaceholder")}
-              className="w-full rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-neutral-400)] placeholder:text-[var(--color-neutral-600)] focus:border-[var(--color-accent)] focus:outline-none"
+              className="text-xs text-[var(--color-neutral-400)] py-1.5"
             />
-            <input
-              value={entry.notes}
-              onChange={(e) => update(i, "notes", e.target.value)}
-              placeholder={t("teamsV2.systemNotesPlaceholder")}
-              className="col-span-2 w-full rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-2 py-1.5 text-xs text-[var(--color-neutral-400)] placeholder:text-[var(--color-neutral-600)] focus:border-[var(--color-accent)] focus:outline-none"
-            />
+            <div className="col-span-2">
+              <TextInput
+                value={entry.notes}
+                onChange={(e) => update(i, "notes", e.target.value)}
+                placeholder={t("teamsV2.systemNotesPlaceholder")}
+                className="text-xs text-[var(--color-neutral-400)] py-1.5"
+              />
+            </div>
           </div>
           <button
             onClick={() => remove(i)}
@@ -301,7 +296,6 @@ export function SharedContextPanels({
 }: SharedContextPanelsProps) {
   const { t } = useTranslation();
 
-  // panels is a Map keyed by category id; order is preserved via categoryOrder
   const [panels, setPanels] = useState<Map<string, PanelState>>(() =>
     initPanels(data),
   );
@@ -315,9 +309,11 @@ export function SharedContextPanels({
   const usedKB = (usedBytes / 1024).toFixed(1);
   const maxKB = Math.round(maxBytes / 1024);
 
-  // Helpers to update panel state immutably
   const updatePanel = useCallback(
-    (id: string, update: Partial<PanelState> | ((prev: PanelState) => Partial<PanelState>)) => {
+    (
+      id: string,
+      update: Partial<PanelState> | ((prev: PanelState) => Partial<PanelState>),
+    ) => {
       setPanels((prev) => {
         const existing = prev.get(id);
         if (!existing) return prev;
@@ -332,9 +328,7 @@ export function SharedContextPanels({
   );
 
   const toggleOpen = useCallback(
-    (id: string) => {
-      updatePanel(id, (p) => ({ open: !p.open }));
-    },
+    (id: string) => updatePanel(id, (p) => ({ open: !p.open })),
     [updatePanel],
   );
 
@@ -348,23 +342,20 @@ export function SharedContextPanels({
     [updatePanel],
   );
 
-  // Save handler for a single panel
   const handleSave = useCallback(
     async (id: string) => {
       const panel = panels.get(id);
       if (!panel) return;
       updatePanel(id, { saving: true });
 
-      // Build updated SharedContextData
       const updatedCategories = categoryOrder.map((cid) => {
         const p = panels.get(cid);
-        if (!p) return panel.draft; // fallback (shouldn't happen)
+        if (!p) return panel.draft;
         return cid === id ? panel.draft : p.draft;
       });
 
       try {
         await onSave({ categories: updatedCategories });
-        // Mark as clean
         updatePanel(id, (p) => ({
           saving: false,
           dirty: false,
@@ -377,7 +368,6 @@ export function SharedContextPanels({
     [panels, categoryOrder, onSave, updatePanel],
   );
 
-  // Add category
   const handleAddCategory = useCallback(() => {
     const id = generateId();
     const newCat: ContextCategory = {
@@ -386,12 +376,15 @@ export function SharedContextPanels({
       type: "text",
       entries: [],
     };
+    // Sentinel: original has id="" so isDirty always returns true for this panel
+    // until a successful save resets original to the real draft.
+    const sentinel: ContextCategory = { ...newCat, id: "" };
     const newPanel: PanelState = {
       open: true,
       dirty: true,
       saving: false,
       draft: newCat,
-      original: newCat,
+      original: sentinel,
       labelEditing: false,
       labelDraft: newCat.label,
     };
@@ -403,7 +396,6 @@ export function SharedContextPanels({
     setCategoryOrder((prev) => [...prev, id]);
   }, [t]);
 
-  // Label editing
   const startLabelEdit = useCallback(
     (id: string, e: React.MouseEvent) => {
       e.stopPropagation();
@@ -429,7 +421,6 @@ export function SharedContextPanels({
     [panels, updatePanel],
   );
 
-  // Body change handlers per category type
   const handleTermsChange = useCallback(
     (id: string, entries: TermEntry[]) => {
       const panel = panels.get(id);
@@ -443,7 +434,8 @@ export function SharedContextPanels({
     (id: string, text: string) => {
       const panel = panels.get(id);
       if (!panel || panel.draft.type !== "text") return;
-      const entries = text.length > 0 ? ([{ text }] as [{ text: string }]) : ([] as []);
+      const entries =
+        text.length > 0 ? ([{ text }] as [{ text: string }]) : ([] as []);
       updateDraftCategory(id, { ...panel.draft, entries });
     },
     [panels, updateDraftCategory],
@@ -506,24 +498,25 @@ export function SharedContextPanels({
                 {categoryIcon(draft.type)}
               </span>
 
-              {/* Label (or editing input) */}
+              {/* Label or inline edit */}
               {labelEditing ? (
-                <input
-                  autoFocus
-                  value={labelDraft}
-                  onClick={(e) => e.stopPropagation()}
-                  onChange={(e) =>
-                    updatePanel(id, { labelDraft: e.target.value })
-                  }
-                  onBlur={() => commitLabelEdit(id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") commitLabelEdit(id);
-                    if (e.key === "Escape") {
-                      updatePanel(id, { labelEditing: false });
+                <div className="min-w-0 flex-1">
+                  <TextInput
+                    autoFocus
+                    value={labelDraft}
+                    onClick={(e) => e.stopPropagation()}
+                    onChange={(e) =>
+                      updatePanel(id, { labelDraft: e.target.value })
                     }
-                  }}
-                  className="min-w-0 flex-1 rounded-[var(--radius-sm)] border border-[var(--color-accent)] bg-[var(--color-surface)] px-2 py-0.5 text-sm font-medium text-[var(--color-text)] focus:outline-none"
-                />
+                    onBlur={() => commitLabelEdit(id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitLabelEdit(id);
+                      if (e.key === "Escape")
+                        updatePanel(id, { labelEditing: false });
+                    }}
+                    className="text-sm font-medium py-0.5 border-[var(--color-accent)]"
+                  />
+                </div>
               ) : (
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--color-text)]">
                   {draft.label}
@@ -533,7 +526,7 @@ export function SharedContextPanels({
               {/* Entry count badge */}
               <Badge>{countEntries(draft)}</Badge>
 
-              {/* Edit label icon (only when not in label-editing mode) */}
+              {/* Edit label icon */}
               {!labelEditing && (
                 <button
                   onClick={(e) => startLabelEdit(id, e)}
@@ -544,7 +537,7 @@ export function SharedContextPanels({
                 </button>
               )}
 
-              {/* Save button (only when dirty) */}
+              {/* Save button — visible only when dirty */}
               {dirty && !labelEditing && (
                 <Button
                   variant="primary"
@@ -555,7 +548,7 @@ export function SharedContextPanels({
                   }}
                   className="px-2 py-0.5 text-xs"
                 >
-                  {saving ? "Saving…" : t("common.save")}
+                  {saving ? t("common.saving") : t("common.save")}
                 </Button>
               )}
 
@@ -576,28 +569,24 @@ export function SharedContextPanels({
                   <TermsBody
                     entries={draft.entries}
                     onChange={(entries) => handleTermsChange(id, entries)}
-                    t={t}
                   />
                 )}
                 {draft.type === "text" && (
                   <TextBody
                     text={draft.entries[0]?.text ?? ""}
                     onChange={(text) => handleTextChange(id, text)}
-                    t={t}
                   />
                 )}
                 {draft.type === "entries" && (
                   <EntriesBody
                     entries={draft.entries}
                     onChange={(entries) => handleEntriesChange(id, entries)}
-                    t={t}
                   />
                 )}
                 {draft.type === "systems" && (
                   <SystemsBody
                     entries={draft.entries}
                     onChange={(entries) => handleSystemsChange(id, entries)}
-                    t={t}
                   />
                 )}
               </div>

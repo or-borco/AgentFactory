@@ -4,6 +4,7 @@ const en = {
     cancel: "Cancel",
     save: "Save",
     loading: "Loading…",
+    saving: "Saving…",
     loadError: "Couldn't load data from the server. Try refreshing the page.",
     automatic: "Automatic",
   },
