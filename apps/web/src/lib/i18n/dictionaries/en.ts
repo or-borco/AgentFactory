@@ -255,6 +255,9 @@ const en = {
     noContextDocs: "No context documents yet",
     noContextDocsSub: "Add reference docs your agents can use when working on tasks.",
     sharedContextSection: "Shared context",
+    sharedContextPlaceholder:
+      "Describe the team's tech stack, conventions, coding standards, domain knowledge, and any shared skills the agents should know about...",
+    sharedContextOverLimit: "Content exceeds the 64 KB limit. Reduce the text before saving.",
     usageMeterLabel: "Shared context usage",
     agentsSection: "Agents",
     noAgents: "No agents yet",
