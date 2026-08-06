@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import {
   BookOpen,
   Buildings,
@@ -18,7 +18,7 @@ import type {
   ArchEntry,
   SystemEntry,
 } from "@/lib/shared-context";
-import { countEntries } from "@/lib/shared-context";
+import { countEntries, serializeSharedContext } from "@/lib/shared-context";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -303,10 +303,22 @@ export function SharedContextPanels({
     data.categories.map((c) => c.id),
   );
 
-  // Usage bar
-  const ratio = Math.min(usedBytes / maxBytes, 1);
-  const overLimit = usedBytes > maxBytes;
-  const usedKB = (usedBytes / 1024).toFixed(1);
+  // Projected byte size — recomputed on every render to include unsaved drafts
+  const projectedBytes = useMemo(() => {
+    const payload = serializeSharedContext({
+      categories: categoryOrder
+        .map((cid) => panels.get(cid)?.draft)
+        .filter(Boolean) as ContextCategory[],
+    });
+    return new TextEncoder().encode(payload).length;
+  }, [panels, categoryOrder]);
+
+  // Usage bar — show projected size when any panel is dirty
+  const anyDirty = [...panels.values()].some((p) => p.dirty);
+  const displayBytes = anyDirty ? Math.max(usedBytes, projectedBytes) : usedBytes;
+  const ratio = Math.min(displayBytes / maxBytes, 1);
+  const overLimit = displayBytes > maxBytes;
+  const usedKB = (displayBytes / 1024).toFixed(1);
   const maxKB = Math.round(maxBytes / 1024);
 
   const updatePanel = useCallback(
@@ -351,7 +363,7 @@ export function SharedContextPanels({
       const updatedCategories = categoryOrder.map((cid) => {
         const p = panels.get(cid);
         if (!p) return panel.draft;
-        return cid === id ? panel.draft : p.draft;
+        return cid === id ? panel.draft : p.original;
       });
 
       try {
@@ -490,8 +502,17 @@ export function SharedContextPanels({
           >
             {/* Panel header */}
             <div
+              role="button"
+              tabIndex={0}
+              aria-expanded={open}
               className="flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-[var(--color-neutral-900)] transition-colors select-none"
               onClick={() => toggleOpen(id)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  toggleOpen(id);
+                }
+              }}
             >
               {/* Icon */}
               <span className="shrink-0 text-[var(--color-neutral-400)]">
@@ -541,7 +562,7 @@ export function SharedContextPanels({
               {dirty && !labelEditing && (
                 <Button
                   variant="primary"
-                  disabled={saving}
+                  disabled={saving || projectedBytes > maxBytes}
                   onClick={(e) => {
                     e.stopPropagation();
                     void handleSave(id);

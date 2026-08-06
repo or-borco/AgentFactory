@@ -47,11 +47,30 @@ export interface SharedContextData {
 }
 
 /**
+ * Validate that an unknown value is a well-formed ContextCategory.
+ * Categories that fail validation are filtered out rather than crashing render.
+ */
+function isValidCategory(cat: unknown): cat is ContextCategory {
+  if (!cat || typeof cat !== "object") return false;
+  const c = cat as Record<string, unknown>;
+  if (typeof c.id !== "string" || typeof c.label !== "string") return false;
+  if (!Array.isArray(c.entries)) return false;
+  return (
+    c.type === "terms" ||
+    c.type === "text" ||
+    c.type === "entries" ||
+    c.type === "systems"
+  );
+}
+
+/**
  * Parse a raw shared context string into structured data.
  *
- * - If raw is valid JSON with a `categories` array, return it as-is.
+ * - If raw is valid JSON with a `categories` array, validate each category and
+ *   return only those that pass. Unknown category types are silently dropped.
  * - If raw is empty or whitespace-only, return `{ categories: [] }`.
- * - Otherwise (legacy plain text or parse error), wrap it in a "General" text category.
+ * - Otherwise (legacy plain text, parse error, or no valid categories), wrap
+ *   the raw string in a "General" text category.
  */
 export function parseSharedContext(raw: string): SharedContextData {
   if (!raw || raw.trim() === "") {
@@ -65,7 +84,13 @@ export function parseSharedContext(raw: string): SharedContextData {
       typeof parsed === "object" &&
       Array.isArray(parsed.categories)
     ) {
-      return parsed as SharedContextData;
+      const validCategories = (parsed.categories as unknown[]).filter(
+        isValidCategory,
+      );
+      if (validCategories.length > 0) {
+        return { categories: validCategories };
+      }
+      // JSON parsed but contained no valid categories — fall through to legacy wrap
     }
   } catch {
     // Not valid JSON or doesn't have categories array; treat as legacy text

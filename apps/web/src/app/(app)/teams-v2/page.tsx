@@ -696,7 +696,7 @@ export default function TeamsV2Page() {
       ) : team ? (
         <>
           <Tabs tabs={tabs} active={activeTab} onChange={setActiveTab} className="mt-6" />
-          {activeTab === "members" && <MembersTab team={team} />}
+          {activeTab === "members" && <MembersTab key={team.id} team={team} />}
           {activeTab === "agents" && <AgentsTab team={team} />}
         </>
       ) : (
