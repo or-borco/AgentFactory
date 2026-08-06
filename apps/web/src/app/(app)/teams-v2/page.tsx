@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea, Truncate, UsageMeter } from "@agentfactory/shared";
+import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import type { Agent, Team, TeamContextItem } from "@agentfactory/core";
+import { parseSharedContext, serializeSharedContext } from "@/lib/shared-context";
+import { SharedContextPanels } from "@/components/SharedContextPanels";
 
 const SHARED_CONTEXT_MAX = 65536; // 64 KB
 
@@ -12,7 +14,7 @@ const SHARED_CONTEXT_MAX = 65536; // 64 KB
 
 function MembersTab({ team }: { team: Team }) {
   const { t } = useTranslation();
-  const { orgMembers, contextItemsForTeam, createContextItem, deleteContextItem, notify } = useMockBackend();
+  const { orgMembers, contextItemsForTeam, createContextItem, deleteContextItem, updateTeamSharedContext, notify } = useMockBackend();
   const [addingDoc, setAddingDoc] = useState(false);
   const [docTitle, setDocTitle] = useState("");
   const [saving, setSaving] = useState(false);
@@ -77,14 +79,14 @@ function MembersTab({ team }: { team: Team }) {
         <h3 className="mb-3 text-sm font-semibold text-[var(--color-neutral-300)]">
           {t("teamsV2.sharedContextSection")}
         </h3>
-        <UsageMeter
+        <SharedContextPanels
+          data={parseSharedContext(team.sharedContext)}
           usedBytes={usedBytes}
           maxBytes={SHARED_CONTEXT_MAX}
-          label={t("teamsV2.usageMeterLabel")}
+          onSave={async (updated) => {
+            await updateTeamSharedContext(team.id, serializeSharedContext(updated));
+          }}
         />
-        <p className="mt-2 text-xs text-[var(--color-neutral-500)] line-clamp-3">
-          {team.sharedContext || <span className="italic">Empty</span>}
-        </p>
       </section>
 
       {/* Context documents */}
