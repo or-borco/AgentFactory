@@ -12,13 +12,28 @@ const SHARED_CONTEXT_MAX = 65536; // 64 KB
 
 function MembersTab({ team }: { team: Team }) {
   const { t } = useTranslation();
-  const { orgMembers, contextItemsForTeam, createContextItem, deleteContextItem, notify } = useMockBackend();
+  const { orgMembers, contextItemsForTeam, createContextItem, deleteContextItem, notify, updateTeamSharedContext } = useMockBackend();
   const [addingDoc, setAddingDoc] = useState(false);
   const [docTitle, setDocTitle] = useState("");
   const [saving, setSaving] = useState(false);
+  const [contextDraft, setContextDraft] = useState(team.sharedContext);
+  const [contextSaving, setContextSaving] = useState(false);
 
   const items = contextItemsForTeam(team.id);
-  const usedBytes = new TextEncoder().encode(team.sharedContext).length;
+  const usedBytes = new TextEncoder().encode(contextDraft).length;
+  const overLimit = usedBytes > SHARED_CONTEXT_MAX;
+  const contextDirty = contextDraft !== team.sharedContext;
+
+  async function handleSaveContext() {
+    setContextSaving(true);
+    try {
+      await updateTeamSharedContext(team.id, contextDraft);
+    } catch {
+      notify("toast.error");
+    } finally {
+      setContextSaving(false);
+    }
+  }
 
   async function handleAddDoc(e: React.FormEvent) {
     e.preventDefault();
@@ -74,17 +89,29 @@ function MembersTab({ team }: { team: Team }) {
 
       {/* Shared context + usage meter */}
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-[var(--color-neutral-300)]">
-          {t("teamsV2.sharedContextSection")}
-        </h3>
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-[var(--color-neutral-300)]">
+            {t("teamsV2.sharedContextSection")}
+          </h3>
+          <Button onClick={handleSaveContext} disabled={!contextDirty || overLimit || contextSaving}>
+            {t("common.save")}
+          </Button>
+        </div>
         <UsageMeter
           usedBytes={usedBytes}
           maxBytes={SHARED_CONTEXT_MAX}
           label={t("teamsV2.usageMeterLabel")}
         />
-        <p className="mt-2 text-xs text-[var(--color-neutral-500)] line-clamp-3">
-          {team.sharedContext || <span className="italic">Empty</span>}
-        </p>
+        <Textarea
+          className="mt-2"
+          rows={6}
+          value={contextDraft}
+          onChange={(e) => setContextDraft(e.target.value)}
+          placeholder={t("teamsV2.sharedContextPlaceholder")}
+        />
+        {overLimit && (
+          <p className="mt-1 text-xs text-red-400">{t("teamsV2.sharedContextOverLimit")}</p>
+        )}
       </section>
 
       {/* Context documents */}
