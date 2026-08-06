@@ -17,6 +17,70 @@ const ORG_ID = 1;
 
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3600_000);
 
+const platformSharedContext = JSON.stringify({
+  categories: [
+    {
+      id: "domain-terminology",
+      label: "Domain terminology",
+      type: "terms",
+      entries: [
+        { key: "MRR", value: "Monthly Recurring Revenue — total predictable revenue from active subscriptions" },
+        { key: "ARR", value: "Annual Recurring Revenue — MRR × 12" },
+        { key: "Churn Rate", value: "Percentage of customers or revenue lost in a given period" },
+        { key: "Sprint", value: "Two-week development cycle, starting Mondays" },
+      ],
+    },
+    {
+      id: "product-company",
+      label: "Product & company",
+      type: "text",
+      entries: [{ text: "AgentFactory is a platform for running coding agents against your team's repos. Teams share context with their agents via structured categories injected into every agent system prompt." }],
+    },
+    {
+      id: "architecture-decisions",
+      label: "Architecture decisions",
+      type: "entries",
+      entries: [
+        { title: "Monorepo with pnpm", desc: "apps/web (Next.js), apps/worker (Docker sandbox), packages/*" },
+        { title: "Drizzle ORM", desc: "All database access through Drizzle — no raw SQL queries" },
+        { title: "BullMQ for jobs", desc: "Task execution queue backed by Redis, with sandboxed Docker containers" },
+      ],
+    },
+    {
+      id: "external-systems",
+      label: "External systems",
+      type: "systems",
+      entries: [
+        { name: "GitHub API", type: "SCM", notes: "Repo cloning, PR creation, webhooks via GitHub App" },
+        { name: "Stripe", type: "Billing", notes: "Subscription management and usage metering" },
+        { name: "Anthropic API", type: "LLM", notes: "Claude for agent task execution" },
+      ],
+    },
+  ],
+});
+
+const projectsSharedContext = JSON.stringify({
+  categories: [
+    {
+      id: "domain-terminology",
+      label: "Domain terminology",
+      type: "terms",
+      entries: [
+        { key: "CI/CD", value: "Continuous Integration / Continuous Deployment — automated build, test, and release pipeline" },
+        { key: "PR", value: "Pull Request — a proposal to merge a branch; requires at least one review before merging" },
+      ],
+    },
+    {
+      id: "external-systems",
+      label: "External systems",
+      type: "systems",
+      entries: [
+        { name: "GitHub API", type: "SCM", notes: "Repo cloning, PR creation, webhooks via GitHub App" },
+      ],
+    },
+  ],
+});
+
 async function resetIdentitySequence(db: ReturnType<typeof drizzle>, table: string) {
   await db.execute(
     sql`select setval(pg_get_serial_sequence(${table}, 'id'), coalesce((select max(id) from ${sql.raw(table)}), 1))`,
@@ -63,17 +127,14 @@ async function main() {
         orgId: ORG_ID,
         name: "Platform team",
         description: "Core services and internal tooling",
-        sharedContext:
-          "Stack: TypeScript, Next.js, Postgres. All PRs require a passing test suite and at least one review. " +
-          "Follow the repo's ESLint config; do not disable rules inline without a comment explaining why. " +
-          "Prefer small, focused PRs over large ones.",
+        sharedContext: platformSharedContext,
         createdAt: hoursAgo(400),
       },
       {
         id: 2,
         orgId: ORG_ID,
         name: "Projects team",
-        sharedContext: "",
+        sharedContext: projectsSharedContext,
         createdAt: hoursAgo(3),
       },
     ])
