@@ -14,6 +14,7 @@ import { useTranslation } from "@/lib/i18n/context";
 import type {
   SharedContextData,
   ContextCategory,
+  CategoryType,
   TermEntry,
   ArchEntry,
   SystemEntry,
@@ -302,6 +303,7 @@ export function SharedContextPanels({
   const [categoryOrder, setCategoryOrder] = useState<string[]>(() =>
     data.categories.map((c) => c.id),
   );
+  const [showTypePicker, setShowTypePicker] = useState(false);
 
   // Projected byte size — recomputed on every render to include unsaved drafts
   const projectedBytes = useMemo(() => {
@@ -380,14 +382,14 @@ export function SharedContextPanels({
     [panels, categoryOrder, onSave, updatePanel],
   );
 
-  const handleAddCategory = useCallback(() => {
+  const handlePickType = useCallback((type: CategoryType) => {
     const id = generateId();
     const newCat: ContextCategory = {
       id,
       label: t("teamsV2.newCategory"),
-      type: "text",
+      type,
       entries: [],
-    };
+    } as ContextCategory;
     // Sentinel: original has id="" so isDirty always returns true for this panel
     // until a successful save resets original to the real draft.
     const sentinel: ContextCategory = { ...newCat, id: "" };
@@ -397,8 +399,8 @@ export function SharedContextPanels({
       saving: false,
       draft: newCat,
       original: sentinel,
-      labelEditing: false,
-      labelDraft: newCat.label,
+      labelEditing: true,
+      labelDraft: "",
     };
     setPanels((prev) => {
       const next = new Map(prev);
@@ -406,6 +408,7 @@ export function SharedContextPanels({
       return next;
     });
     setCategoryOrder((prev) => [...prev, id]);
+    setShowTypePicker(false);
   }, [t]);
 
   const startLabelEdit = useCallback(
@@ -616,13 +619,54 @@ export function SharedContextPanels({
         );
       })}
 
-      {/* Add category link */}
-      <button
-        onClick={handleAddCategory}
-        className="self-start text-xs text-[var(--color-accent)] hover:opacity-80 transition-opacity"
-      >
-        {t("teamsV2.addCategory")}
-      </button>
+      {/* Add category — type picker */}
+      {showTypePicker ? (
+        <div className="rounded-[var(--radius-md)] border border-[var(--color-divider)] overflow-hidden">
+          <div className="grid grid-cols-2 divide-x divide-y divide-[var(--color-divider)]">
+            {(
+              [
+                { type: "terms", labelKey: "teamsV2.categoryTypeTerms", descKey: "teamsV2.categoryTypeTermsDesc" },
+                { type: "text", labelKey: "teamsV2.categoryTypeText", descKey: "teamsV2.categoryTypeTextDesc" },
+                { type: "entries", labelKey: "teamsV2.categoryTypeEntries", descKey: "teamsV2.categoryTypeEntriesDesc" },
+                { type: "systems", labelKey: "teamsV2.categoryTypeSystems", descKey: "teamsV2.categoryTypeSystemsDesc" },
+              ] as const
+            ).map(({ type, labelKey, descKey }) => (
+              <button
+                key={type}
+                onClick={() => handlePickType(type)}
+                className="flex items-start gap-2.5 px-4 py-3 text-left hover:bg-[var(--color-neutral-900)] transition-colors"
+              >
+                <span className="mt-0.5 shrink-0 text-[var(--color-neutral-400)]">
+                  {categoryIcon(type)}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium text-[var(--color-text)]">
+                    {t(labelKey)}
+                  </span>
+                  <span className="block text-xs text-[var(--color-neutral-500)] mt-0.5">
+                    {t(descKey)}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="border-t border-[var(--color-divider)] px-4 py-2 flex justify-end">
+            <button
+              onClick={() => setShowTypePicker(false)}
+              className="text-xs text-[var(--color-neutral-500)] hover:text-[var(--color-neutral-300)] transition-colors"
+            >
+              {t("teamsV2.cancelAddCategory")}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowTypePicker(true)}
+          className="self-start text-xs text-[var(--color-accent)] hover:opacity-80 transition-opacity"
+        >
+          {t("teamsV2.addCategory")}
+        </button>
+      )}
     </div>
   );
 }
