@@ -96,7 +96,9 @@ test.describe("Teams v2 — Agents tab", () => {
 
     const textarea = page.locator("textarea").first();
     await textarea.fill("Updated prompt.");
+    await expect(textarea).toHaveValue("Updated prompt.");
     await page.getByRole("button", { name: "Save" }).click();
+    await expect(page.getByText("Agent updated")).toBeVisible();
 
     await page.reload();
     await page.getByRole("button", { name: "Agents" }).click();

@@ -34,7 +34,7 @@ const platformSharedContext = JSON.stringify({
       id: "product-company",
       label: "Product & company",
       type: "text",
-      entries: [{ text: "AgentFactory is a platform for running coding agents against your team's repos…" }],
+      entries: [{ text: "AgentFactory is a platform for running coding agents against your team's repos. Teams share context with their agents via structured categories injected into every agent system prompt." }],
     },
     {
       id: "architecture-decisions",
