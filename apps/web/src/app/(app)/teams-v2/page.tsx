@@ -1,10 +1,12 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea, Truncate, UsageMeter } from "@agentfactory/shared";
+import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import type { Agent, Team, TeamContextItem } from "@agentfactory/core";
+import { parseSharedContext, serializeSharedContext } from "@/lib/shared-context";
+import { SharedContextPanels } from "@/components/SharedContextPanels";
 
 const SHARED_CONTEXT_MAX = 65536; // 64 KB
 
@@ -12,28 +14,13 @@ const SHARED_CONTEXT_MAX = 65536; // 64 KB
 
 function MembersTab({ team }: { team: Team }) {
   const { t } = useTranslation();
-  const { orgMembers, contextItemsForTeam, createContextItem, deleteContextItem, notify, updateTeamSharedContext } = useMockBackend();
+  const { orgMembers, contextItemsForTeam, createContextItem, deleteContextItem, updateTeamSharedContext, notify } = useMockBackend();
   const [addingDoc, setAddingDoc] = useState(false);
   const [docTitle, setDocTitle] = useState("");
   const [saving, setSaving] = useState(false);
-  const [contextDraft, setContextDraft] = useState(team.sharedContext);
-  const [contextSaving, setContextSaving] = useState(false);
 
   const items = contextItemsForTeam(team.id);
-  const usedBytes = new TextEncoder().encode(contextDraft).length;
-  const overLimit = usedBytes > SHARED_CONTEXT_MAX;
-  const contextDirty = contextDraft !== team.sharedContext;
-
-  async function handleSaveContext() {
-    setContextSaving(true);
-    try {
-      await updateTeamSharedContext(team.id, contextDraft);
-    } catch {
-      notify("toast.error");
-    } finally {
-      setContextSaving(false);
-    }
-  }
+  const usedBytes = new TextEncoder().encode(team.sharedContext).length;
 
   async function handleAddDoc(e: React.FormEvent) {
     e.preventDefault();
@@ -89,29 +76,17 @@ function MembersTab({ team }: { team: Team }) {
 
       {/* Shared context + usage meter */}
       <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-[var(--color-neutral-300)]">
-            {t("teamsV2.sharedContextSection")}
-          </h3>
-          <Button onClick={handleSaveContext} disabled={!contextDirty || overLimit || contextSaving}>
-            {t("common.save")}
-          </Button>
-        </div>
-        <UsageMeter
+        <h3 className="mb-3 text-sm font-semibold text-[var(--color-neutral-300)]">
+          {t("teamsV2.sharedContextSection")}
+        </h3>
+        <SharedContextPanels
+          data={parseSharedContext(team.sharedContext)}
           usedBytes={usedBytes}
           maxBytes={SHARED_CONTEXT_MAX}
-          label={t("teamsV2.usageMeterLabel")}
+          onSave={async (updated) => {
+            await updateTeamSharedContext(team.id, serializeSharedContext(updated));
+          }}
         />
-        <Textarea
-          className="mt-2"
-          rows={6}
-          value={contextDraft}
-          onChange={(e) => setContextDraft(e.target.value)}
-          placeholder={t("teamsV2.sharedContextPlaceholder")}
-        />
-        {overLimit && (
-          <p className="mt-1 text-xs text-red-400">{t("teamsV2.sharedContextOverLimit")}</p>
-        )}
       </section>
 
       {/* Context documents */}
@@ -721,7 +696,7 @@ export default function TeamsV2Page() {
       ) : team ? (
         <>
           <Tabs tabs={tabs} active={activeTab} onChange={setActiveTab} className="mt-6" />
-          {activeTab === "members" && <MembersTab team={team} />}
+          {activeTab === "members" && <MembersTab key={team.id} team={team} />}
           {activeTab === "agents" && <AgentsTab team={team} />}
         </>
       ) : (
