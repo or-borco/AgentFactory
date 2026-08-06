@@ -59,6 +59,28 @@ const platformSharedContext = JSON.stringify({
   ],
 });
 
+const projectsSharedContext = JSON.stringify({
+  categories: [
+    {
+      id: "domain-terminology",
+      label: "Domain terminology",
+      type: "terms",
+      entries: [
+        { key: "CI/CD", value: "Continuous Integration / Continuous Deployment — automated build, test, and release pipeline" },
+        { key: "PR", value: "Pull Request — a proposal to merge a branch; requires at least one review before merging" },
+      ],
+    },
+    {
+      id: "external-systems",
+      label: "External systems",
+      type: "systems",
+      entries: [
+        { name: "GitHub API", type: "SCM", notes: "Repo cloning, PR creation, webhooks via GitHub App" },
+      ],
+    },
+  ],
+});
+
 async function resetIdentitySequence(db: ReturnType<typeof drizzle>, table: string) {
   await db.execute(
     sql`select setval(pg_get_serial_sequence(${table}, 'id'), coalesce((select max(id) from ${sql.raw(table)}), 1))`,
@@ -112,7 +134,7 @@ async function main() {
         id: 2,
         orgId: ORG_ID,
         name: "Projects team",
-        sharedContext: "",
+        sharedContext: projectsSharedContext,
         createdAt: hoursAgo(3),
       },
     ])
