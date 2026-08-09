@@ -16,6 +16,7 @@ function toTask(row: typeof tasks.$inferSelect): Task {
     sessionId: row.sessionId ?? undefined,
     area: row.area ?? undefined,
     codebase: row.codebase ?? undefined,
+    model: row.model ?? undefined,
     prNumber: row.prNumber ?? undefined,
     prUrl: row.prUrl ?? undefined,
     createdBy: row.createdBy,
@@ -52,6 +53,8 @@ export interface NewTaskInput {
   assigneeAgentId?: number;
   area?: string;
   codebase?: string;
+  /** Overrides the assignee agent's default model for this task. */
+  model?: Task["model"];
 }
 
 export async function createTask(
@@ -72,6 +75,7 @@ export async function createTask(
       assigneeAgentId: input.assigneeAgentId,
       area: input.area,
       codebase: input.codebase,
+      model: input.model,
     })
     .returning();
 
@@ -94,6 +98,7 @@ export interface UpdateTaskInput {
   sessionId?: number | null;
   area?: string;
   codebase?: string;
+  model?: Task["model"] | null;
   prNumber?: number;
   prUrl?: string;
 }

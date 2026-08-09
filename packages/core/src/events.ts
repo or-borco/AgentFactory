@@ -1,4 +1,4 @@
-import type { ID, ISODateTime } from "./domain.js";
+import type { ID, ISODateTime } from "./domain";
 
 interface RunEventBase {
   id: ID;

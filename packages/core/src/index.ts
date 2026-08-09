@@ -1,2 +1,3 @@
-export * from "./domain.js";
-export * from "./events.js";
+export * from "./domain";
+export * from "./events";
+export * from "./models";

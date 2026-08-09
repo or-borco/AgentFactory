@@ -174,6 +174,8 @@ export interface Task {
   assigneeAgentId?: ID;
   /** The owned session (0..1) — null until a session is started. */
   sessionId?: ID;
+  /** Per-task override of the assignee agent's default model. Unset means "use the agent's model". */
+  model?: ModelSpec;
   area?: string;
   codebase?: string;
   prNumber?: number;

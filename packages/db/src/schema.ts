@@ -254,6 +254,8 @@ export const tasks = pgTable(
     }),
     area: text("area"),
     codebase: text("codebase"),
+    // Per-task override of the assignee agent's default model. Null means "use the agent's model".
+    model: jsonb("model").$type<ModelSpec>(),
     prNumber: integer("pr_number"),
     prUrl: text("pr_url"),
     createdBy: integer("created_by")

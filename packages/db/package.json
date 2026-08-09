@@ -12,11 +12,11 @@
     "db:seed": "tsx src/seed.ts"
   },
   "dependencies": {
+    "@agentfactory/core": "workspace:*",
     "drizzle-orm": "0.45.2",
     "postgres": "3.4.9"
   },
   "devDependencies": {
-    "@agentfactory/core": "workspace:*",
     "@types/node": "^22",
     "dotenv": "17.4.2",
     "drizzle-kit": "0.31.10",

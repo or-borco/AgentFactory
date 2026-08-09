@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAgent, listAgents } from "@agentfactory/db";
+import { isValidModelId } from "@agentfactory/core";
 import { requireAuthContext } from "@/server/auth";
 
 export async function GET() {
@@ -12,6 +13,9 @@ export async function POST(request: Request) {
   const ctx = await requireAuthContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const body = await request.json();
+  if (body.model !== undefined && !isValidModelId(body.model)) {
+    return NextResponse.json({ error: "Invalid model id" }, { status: 400 });
+  }
   const agent = await createAgent(ctx.orgId, body);
   return NextResponse.json(agent, { status: 201 });
 }

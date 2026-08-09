@@ -7,6 +7,7 @@ import { Button, Breadcrumb, PageHeader, TextInput, Textarea } from "@agentfacto
 import { apiFetch } from "@/lib/api-client";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
+import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
 
 interface RepoOption {
   id: number;
@@ -22,6 +23,8 @@ export default function NewTaskPage() {
   const [description, setDescription] = useState("");
   const [criteriaRaw, setCriteriaRaw] = useState("");
   const [assigneeAgentId, setAssigneeAgentId] = useState<number | undefined>(undefined);
+  const [modelId, setModelId] = useState(DEFAULT_MODEL_ID);
+  const [modelTouched, setModelTouched] = useState(false);
   const [area, setArea] = useState("");
   const [codebase, setCodebase] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -42,6 +45,19 @@ export default function NewTaskPage() {
     };
   }, []);
 
+  const selectedAgent = agents.find((a) => a.id === assigneeAgentId);
+
+  function handleAssigneeChange(nextId: number | undefined) {
+    setAssigneeAgentId(nextId);
+    const nextAgent = agents.find((a) => a.id === nextId);
+    if (!modelTouched && nextAgent) setModelId(nextAgent.model.id);
+  }
+
+  function handleModelChange(nextModelId: string) {
+    setModelId(nextModelId);
+    setModelTouched(selectedAgent ? nextModelId !== selectedAgent.model.id : true);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
@@ -53,6 +69,12 @@ export default function NewTaskPage() {
         .filter(Boolean)
         .map((text) => ({ text, done: false }));
 
+      // Only send an explicit model when it overrides the assignee's default (or there's no
+      // assignee to default to) — otherwise leave it unset so the task keeps following the
+      // agent's configured model even if that changes later.
+      const model =
+        selectedAgent && !modelTouched ? undefined : { family: "anthropic" as const, id: modelId, maxTokens: 8192 };
+
       const task = await createTask({
         title: title.trim(),
         description: description.trim(),
@@ -60,6 +82,7 @@ export default function NewTaskPage() {
         assigneeAgentId,
         area: area.trim() || undefined,
         codebase: codebase.trim() || undefined,
+        model,
       });
       router.push(`/tasks/${task.id}`);
     } finally {
@@ -113,7 +136,7 @@ export default function NewTaskPage() {
         <Field label={t("tasks.create.assigneeLabel")}>
           <select
             value={assigneeAgentId ?? ""}
-            onChange={(e) => setAssigneeAgentId(e.target.value ? Number(e.target.value) : undefined)}
+            onChange={(e) => handleAssigneeChange(e.target.value ? Number(e.target.value) : undefined)}
             style={selectStyle(assigneeAgentId !== undefined)}
           >
             <option value="">{t("tasks.create.assigneePlaceholder")}</option>
@@ -123,6 +146,24 @@ export default function NewTaskPage() {
               </option>
             ))}
           </select>
+        </Field>
+
+        {/* Model */}
+        <Field label={t("tasks.create.modelLabel")}>
+          <select value={modelId} onChange={(e) => handleModelChange(e.target.value)} style={selectStyle(true)}>
+            {MODEL_CATALOG.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
+          <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>
+            {!selectedAgent
+              ? t("tasks.create.modelHelperNoAgent")
+              : modelTouched
+                ? t("tasks.create.modelHelperOverride", { agent: selectedAgent.name })
+                : t("tasks.create.modelHelperDefault", { agent: selectedAgent.name })}
+          </p>
         </Field>
 
         {/* Area + codebase — side by side */}

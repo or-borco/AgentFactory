@@ -5,6 +5,10 @@ import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea, Trunc
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import type { Agent, Team, TeamContextItem } from "@agentfactory/core";
+import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
+
+const selectClassName =
+  "w-full appearance-none rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none";
 
 const SHARED_CONTEXT_MAX = 65536; // 64 KB
 
@@ -327,6 +331,7 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [mode, setMode] = useState<"manual" | "automatic">("manual");
+  const [model, setModel] = useState(DEFAULT_MODEL_ID);
   const [saving, setSaving] = useState(false);
 
   async function handleCreate(e: React.FormEvent) {
@@ -334,7 +339,7 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      const agent = await createAgent({ name: name.trim(), description: description.trim(), systemPrompt: systemPrompt.trim(), mode, teamId });
+      const agent = await createAgent({ name: name.trim(), description: description.trim(), systemPrompt: systemPrompt.trim(), mode, teamId, model });
       onCreated(agent.id);
     } finally {
       setSaving(false);
@@ -409,6 +414,19 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
             ))}
           </div>
         </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.modelLabel")}
+          </label>
+          <select value={model} onChange={(e) => setModel(e.target.value)} className={selectClassName}>
+            {MODEL_CATALOG.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--color-divider)]">
@@ -432,6 +450,7 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
   const [systemPrompt, setSystemPrompt] = useState(agent.systemPrompt);
   const [defaultCodebase, setDefaultCodebase] = useState(agent.defaultCodebase ?? "");
   const [areaMap, setAreaMap] = useState<Record<string, string>>(agent.areaMap ?? {});
+  const [model, setModel] = useState(agent.model.id);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -443,12 +462,13 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
   const dirty =
     systemPrompt !== agent.systemPrompt ||
     defaultCodebase !== (agent.defaultCodebase ?? "") ||
+    model !== agent.model.id ||
     sortedJson(areaMap) !== sortedJson(agent.areaMap ?? {});
 
   async function handleSave() {
     setSaving(true);
     try {
-      await updateAgent(agent.id, { systemPrompt, defaultCodebase, areaMap });
+      await updateAgent(agent.id, { systemPrompt, defaultCodebase, areaMap, model });
     } finally {
       setSaving(false);
     }
@@ -502,6 +522,19 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
             value={systemPrompt}
             onChange={(e) => setSystemPrompt(e.target.value)}
           />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.modelLabel")}
+          </label>
+          <select value={model} onChange={(e) => setModel(e.target.value)} className={selectClassName}>
+            {MODEL_CATALOG.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>
