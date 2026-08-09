@@ -1,11 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea, Truncate, UsageMeter } from "@agentfactory/shared";
+import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import type { Agent, Team, TeamContextItem } from "@agentfactory/core";
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
+import { parseSharedContext, serializeSharedContext } from "@/lib/shared-context";
+import { SharedContextPanels } from "@/components/SharedContextPanels";
 
 const selectClassName =
   "w-full appearance-none rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none";
@@ -16,7 +18,7 @@ const SHARED_CONTEXT_MAX = 65536; // 64 KB
 
 function MembersTab({ team }: { team: Team }) {
   const { t } = useTranslation();
-  const { orgMembers, contextItemsForTeam, createContextItem, deleteContextItem, notify } = useMockBackend();
+  const { orgMembers, contextItemsForTeam, createContextItem, deleteContextItem, updateTeamSharedContext, notify } = useMockBackend();
   const [addingDoc, setAddingDoc] = useState(false);
   const [docTitle, setDocTitle] = useState("");
   const [saving, setSaving] = useState(false);
@@ -81,14 +83,14 @@ function MembersTab({ team }: { team: Team }) {
         <h3 className="mb-3 text-sm font-semibold text-[var(--color-neutral-300)]">
           {t("teamsV2.sharedContextSection")}
         </h3>
-        <UsageMeter
+        <SharedContextPanels
+          data={parseSharedContext(team.sharedContext)}
           usedBytes={usedBytes}
           maxBytes={SHARED_CONTEXT_MAX}
-          label={t("teamsV2.usageMeterLabel")}
+          onSave={async (updated) => {
+            await updateTeamSharedContext(team.id, serializeSharedContext(updated));
+          }}
         />
-        <p className="mt-2 text-xs text-[var(--color-neutral-500)] line-clamp-3">
-          {team.sharedContext || <span className="italic">Empty</span>}
-        </p>
       </section>
 
       {/* Context documents */}
@@ -727,7 +729,7 @@ export default function TeamsV2Page() {
       ) : team ? (
         <>
           <Tabs tabs={tabs} active={activeTab} onChange={setActiveTab} className="mt-6" />
-          {activeTab === "members" && <MembersTab team={team} />}
+          {activeTab === "members" && <MembersTab key={team.id} team={team} />}
           {activeTab === "agents" && <AgentsTab team={team} />}
         </>
       ) : (

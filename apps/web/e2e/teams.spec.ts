@@ -1,37 +1,12 @@
 import { expect, test } from "./fixtures";
 
-test("creates a team and assigns an existing agent to it", async ({ page, registeredUser }) => {
-  // The agent under assignment isn't the flow under test here, so create it via the API
-  // directly rather than through the New Agent modal (already covered by agents.spec.ts).
-  const agentRes = await page.request.post("/api/agents", {
-    data: {
-      name: "Support Bot",
-      description: "Handles support tickets",
-      systemPrompt: "Help users with their questions.",
-      mode: "manual",
-    },
-  });
-  const agent = await agentRes.json();
-
+test("legacy /teams page shows migration notice and CTA navigates to /teams-v2", async ({ page, registeredUser }) => {
   await page.goto("/teams");
-  // A brand-new org has zero teams, so the empty-state view renders its own "New team" button
-  // in addition to the page header's — both visible, hence `.first()`.
-  await page.getByRole("button", { name: "New team" }).first().click();
-  await page.getByPlaceholder("e.g. Platform team").fill("QA Team");
-  await page.getByPlaceholder("Optional").fill("Owns test coverage");
-  await page.getByRole("button", { name: "Create team" }).click();
 
-  await expect(page).toHaveURL(/\/teams\/\d+$/);
-  await expect(page.getByRole("heading", { name: "QA Team" })).toBeVisible();
-  await expect(page.getByText("No agents assigned to this team yet.")).toBeVisible();
+  await expect(page.getByText("Teams have moved")).toBeVisible();
+  await expect(page.getByText("Team management has moved to the new Teams page.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Go to Teams" })).toBeVisible();
 
-  await page.getByRole("combobox").selectOption({ label: agent.name });
-  await page.getByRole("button", { name: "Assign" }).click();
-
-  await expect(page.getByText(agent.name)).toBeVisible();
-  await expect(page.getByText("No agents assigned to this team yet.")).not.toBeVisible();
-
-  // Persists: reloading the team page still shows the assignment.
-  await page.reload();
-  await expect(page.getByText(agent.name)).toBeVisible();
+  await page.getByRole("button", { name: "Go to Teams" }).click();
+  await expect(page).toHaveURL(/\/teams-v2$/);
 });

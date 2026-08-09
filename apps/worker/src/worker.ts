@@ -7,7 +7,7 @@ import {
   type RunJobData,
   type SandboxTeardownJobData,
 } from "@agentfactory/queue";
-import type { Session } from "@agentfactory/core";
+import { type Session, formatSharedContextForPrompt } from "@agentfactory/core";
 import {
   clearSessionSandboxId,
   createEvent,
@@ -18,6 +18,7 @@ import {
   getRun,
   getSession,
   getTaskBySessionId,
+  getTeam,
   setSessionSandboxId,
   touchSessionActivity,
   updateRunStatus,
@@ -102,19 +103,26 @@ new Worker<RunJobData>(
         }
       }
 
+      const team = agent.teamId ? await getTeam(agent.teamId) : undefined;
+      const teamContextPrefix = team ? formatSharedContextForPrompt(team.sharedContext) : "";
+
+      let seq = 1;
       const { text, providerSessionRef } = await runAgentTurn({
         sandboxProvider,
         sandboxId,
-        systemPrompt: agent.systemPrompt,
+        systemPrompt: teamContextPrefix + agent.systemPrompt,
         model: task?.model ?? agent.model,
         userText: (triggeringMessage?.content ?? "") + issueContext,
         resumeSessionRef,
         workspace,
+        onEvent: async (type, data) => {
+          await createEvent(runId, seq++, type, data);
+        },
       });
 
       await createMessage(run.sessionId, "assistant", text, runId);
-      await createEvent(runId, 1, "text_delta", { text });
-      await createEvent(runId, 2, "done", { reason: "completed" });
+      await createEvent(runId, seq++, "text_delta", { text });
+      await createEvent(runId, seq++, "done", { reason: "completed" });
 
       await updateRunStatus(runId, "finalizing");
 

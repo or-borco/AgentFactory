@@ -6,9 +6,9 @@ import { requireAuthContext } from "@/server/auth";
 // Requires a logged-in user but doesn't yet verify agentId belongs to their org — same
 // documented tenant-isolation gap as messages/RLS in packages/db/src/schema.ts, not new here.
 export async function PATCH(request: Request, { params }: { params: Promise<{ agentId: string }> }) {
-  if (!(await requireAuthContext())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { agentId } = await params;
-  const body = await request.json();
+  // Read body before next/headers calls — Next.js dev mode can drop the body stream otherwise.
+  const [body, ctx, { agentId }] = await Promise.all([request.json(), requireAuthContext(), params]);
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (body.model !== undefined && !isValidModelId(body.model)) {
     return NextResponse.json({ error: "Invalid model id" }, { status: 400 });
   }
