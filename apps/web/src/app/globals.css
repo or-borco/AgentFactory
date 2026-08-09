@@ -7,63 +7,63 @@
 @source "../../../../packages/shared/src";
 
 :root {
-  /* Core */
-  --color-bg: #161826;
-  --color-surface: #232532;
-  --color-text: #e9e9ed;
-  --color-accent: #9184d9;
-  --color-accent-2: #a7a1db;
-  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+  /* Core - Light Mode (default) */
+  --color-bg: #ffffff;
+  --color-surface: #f5f5f7;
+  --color-text: #161826;
+  --color-accent: #6366f1;
+  --color-accent-2: #7c3aed;
+  --color-divider: color-mix(in srgb, #161826 8%, transparent);
 
-  /* Neutral scale */
-  --color-neutral-100: #f3f5fe;
-  --color-neutral-200: #e4e7f5;
-  --color-neutral-300: #cfd3e5;
-  --color-neutral-400: #b2b6ca;
-  --color-neutral-500: #9397ab;
-  --color-neutral-600: #75798c;
-  --color-neutral-700: #595d6c;
-  --color-neutral-800: #3f424d;
-  --color-neutral-900: #292b31;
+  /* Neutral scale - Light Mode */
+  --color-neutral-100: #ffffff;
+  --color-neutral-200: #f3f4f6;
+  --color-neutral-300: #e5e7eb;
+  --color-neutral-400: #d1d5db;
+  --color-neutral-500: #9ca3af;
+  --color-neutral-600: #6b7280;
+  --color-neutral-700: #4b5563;
+  --color-neutral-800: #2d3748;
+  --color-neutral-900: #1a202c;
 
-  /* Accent scale */
-  --color-accent-100: #f5f4ff;
-  --color-accent-200: #e7e5fe;
-  --color-accent-300: #d2cefd;
-  --color-accent-400: #b5abfc;
-  --color-accent-500: #968ae0;
-  --color-accent-600: #796cbf;
-  --color-accent-700: #5d5294;
-  --color-accent-800: #423a6a;
-  --color-accent-900: #2b2741;
+  /* Accent scale - Light Mode */
+  --color-accent-100: #f0f4ff;
+  --color-accent-200: #e0e7ff;
+  --color-accent-300: #c7d2fe;
+  --color-accent-400: #a5b4fc;
+  --color-accent-500: #818cf8;
+  --color-accent-600: #4f46e5;
+  --color-accent-700: #4338ca;
+  --color-accent-800: #3730a3;
+  --color-accent-900: #312e81;
 
-  /* Accent-2 scale */
-  --color-accent-2-100: #f5f4ff;
-  --color-accent-2-200: #e7e5fe;
-  --color-accent-2-300: #d2cefd;
-  --color-accent-2-400: #b5afe8;
-  --color-accent-2-500: #9690c9;
-  --color-accent-2-600: #7972a9;
-  --color-accent-2-700: #5c5783;
-  --color-accent-2-800: #423e5d;
-  --color-accent-2-900: #2b293a;
+  /* Accent-2 scale - Light Mode */
+  --color-accent-2-100: #faf5ff;
+  --color-accent-2-200: #f3e8ff;
+  --color-accent-2-300: #e9d5ff;
+  --color-accent-2-400: #d8b4fe;
+  --color-accent-2-500: #c084fc;
+  --color-accent-2-600: #a855f7;
+  --color-accent-2-700: #9333ea;
+  --color-accent-2-800: #7e22ce;
+  --color-accent-2-900: #581c87;
 
-  /* Section */
-  --color-section: #262a60;
-  --color-section-glow: #353b80;
-  --color-section-ghost: #4c5397;
+  /* Section - Light Mode */
+  --color-section: #ede9fe;
+  --color-section-glow: #ddd6fe;
+  --color-section-ghost: #c4b5fd;
 
-  /* Semantic status (used directly, not as Tailwind utilities) */
-  --color-status-blue: #5ba3d9;
-  --color-status-green: #4eca8b;
-  --color-status-amber: #e8a44a;
-  --color-status-red: #e06060;
-  --color-status-teal: #4ecab8;
+  /* Semantic status (consistent across themes) */
+  --color-status-blue: #3b82f6;
+  --color-status-green: #10b981;
+  --color-status-amber: #f59e0b;
+  --color-status-red: #ef4444;
+  --color-status-teal: #14b8a6;
 
-  /* Shadows */
-  --shadow-sm: 0 0 0 1px #3f424d;
-  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
-  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
+  /* Shadows - Light Mode */
+  --shadow-sm: 0 0 0 1px #e5e7eb;
+  --shadow-md: 0 0 0 1px #d1d5db, 0 6px 18px rgba(0,0,0,0.08);
+  --shadow-lg: 0 0 0 1px #9ca3af, 0 16px 40px rgba(0,0,0,0.12);
 
   /* Radius */
   --radius-sm: 4px;
@@ -82,6 +82,60 @@
   --font-heading: "Inter", system-ui, sans-serif;
   --font-heading-weight: 500;
   --font-body: "Inter", system-ui, sans-serif;
+}
+
+/* Dark Mode */
+:root.dark {
+  /* Core - Dark Mode */
+  --color-bg: #161826;
+  --color-surface: #232532;
+  --color-text: #e9e9ed;
+  --color-accent: #9184d9;
+  --color-accent-2: #a7a1db;
+  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+
+  /* Neutral scale - Dark Mode */
+  --color-neutral-100: #f3f5fe;
+  --color-neutral-200: #e4e7f5;
+  --color-neutral-300: #cfd3e5;
+  --color-neutral-400: #b2b6ca;
+  --color-neutral-500: #9397ab;
+  --color-neutral-600: #75798c;
+  --color-neutral-700: #595d6c;
+  --color-neutral-800: #3f424d;
+  --color-neutral-900: #292b31;
+
+  /* Accent scale - Dark Mode */
+  --color-accent-100: #f5f4ff;
+  --color-accent-200: #e7e5fe;
+  --color-accent-300: #d2cefd;
+  --color-accent-400: #b5abfc;
+  --color-accent-500: #968ae0;
+  --color-accent-600: #796cbf;
+  --color-accent-700: #5d5294;
+  --color-accent-800: #423a6a;
+  --color-accent-900: #2b2741;
+
+  /* Accent-2 scale - Dark Mode */
+  --color-accent-2-100: #f5f4ff;
+  --color-accent-2-200: #e7e5fe;
+  --color-accent-2-300: #d2cefd;
+  --color-accent-2-400: #b5afe8;
+  --color-accent-2-500: #9690c9;
+  --color-accent-2-600: #7972a9;
+  --color-accent-2-700: #5c5783;
+  --color-accent-2-800: #423e5d;
+  --color-accent-2-900: #2b293a;
+
+  /* Section - Dark Mode */
+  --color-section: #262a60;
+  --color-section-glow: #353b80;
+  --color-section-ghost: #4c5397;
+
+  /* Shadows - Dark Mode */
+  --shadow-sm: 0 0 0 1px #3f424d;
+  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
+  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
 }
 
 @theme inline {
