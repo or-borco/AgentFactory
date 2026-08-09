@@ -1,3 +1,4 @@
+import type { Readable } from "node:stream";
 import { PassThrough } from "node:stream";
 import Docker from "dockerode";
 import { extract, pack } from "tar-stream";
@@ -5,6 +6,72 @@ import type { ExecOptions, OutputChunk, Sandbox, SandboxProvider, SandboxSpec } 
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__"]);
 const MAX_FILE_BYTES = 512 * 1024; // 512 KB per file — skip larger blobs
+
+// Dynamic memory scaling (grow during a run, shrink between runs — see the design note on
+// DockerSandboxProvider.resetMemory and watchMemory below). Base matches the pre-existing
+// default so a task that never bursts behaves exactly as before.
+const MB = 1024 * 1024;
+const MEMORY_BASE_MB = 512;
+const MEMORY_MAX_MB = 4096;
+const MEMORY_GROWTH_FACTOR = 2;
+const MEMORY_GROWTH_THRESHOLD = 0.8; // fraction of the current cap that triggers a grow
+
+function memoryHostConfig(mb: number): { Memory: number; MemorySwap: number } {
+  const bytes = mb * MB;
+  // MemorySwap === Memory: no swap beyond the cap, so growing/shrinking the pair together keeps
+  // the same "hard RAM ceiling" semantics the original single-field config had.
+  return { Memory: bytes, MemorySwap: bytes };
+}
+
+// Polls a running container's live memory usage for the duration of one exec() call and grows
+// its cap (doubling, capped at MEMORY_MAX_MB) before the kernel OOM-kills the process inside it —
+// this is what T-165 hit with the old fixed 512MB cap. Best-effort: a failure here is logged and
+// swallowed, never allowed to interrupt the command actually running in the sandbox. Returns a
+// stop function the caller must invoke once the exec() it was watching has finished.
+function watchMemory(container: Docker.Container, id: string): () => void {
+  let stopped = false;
+  let activeStream: Readable | undefined;
+
+  container
+    .stats({ stream: true })
+    .then((stream) => {
+      if (stopped) {
+        (stream as unknown as Readable).destroy();
+        return;
+      }
+      activeStream = stream as unknown as Readable;
+      activeStream.on("data", (chunk: Buffer) => {
+        let stats: Docker.ContainerStats;
+        try {
+          stats = JSON.parse(chunk.toString("utf8"));
+        } catch {
+          return; // a chunk split across a JSON boundary — the next chunk parses fine
+        }
+        const mem = stats.memory_stats;
+        if (!mem?.usage || !mem?.limit) return;
+        const currentMb = Math.round(mem.limit / MB);
+        if (currentMb >= MEMORY_MAX_MB) return;
+        // Raw `usage` over-counts reclaimable page cache; subtract it the same way `docker
+        // stats` does, or growth would trigger on cache pressure instead of real memory need.
+        const reclaimable = mem.stats?.inactive_file ?? mem.stats?.cache ?? 0;
+        const effectiveUsage = mem.usage - reclaimable;
+        if (effectiveUsage / mem.limit < MEMORY_GROWTH_THRESHOLD) return;
+        const nextMb = Math.min(currentMb * MEMORY_GROWTH_FACTOR, MEMORY_MAX_MB);
+        container.update(memoryHostConfig(nextMb)).catch((err: unknown) => {
+          console.error(`Failed to grow sandbox ${id} memory to ${nextMb}MB:`, err);
+        });
+      });
+      activeStream.on("error", () => undefined);
+    })
+    .catch((err: unknown) => {
+      console.error(`Failed to open stats stream for sandbox ${id}:`, err);
+    });
+
+  return () => {
+    stopped = true;
+    activeStream?.destroy();
+  };
+}
 
 async function extractTar(stream: NodeJS.ReadableStream): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
@@ -95,7 +162,7 @@ export class DockerSandboxProvider implements SandboxProvider {
       HostConfig: {
         CapDrop: ["ALL"],
         SecurityOpt: ["no-new-privileges"],
-        Memory: (spec.memoryLimitMb ?? 512) * 1024 * 1024,
+        ...memoryHostConfig(spec.memoryLimitMb ?? MEMORY_BASE_MB),
         NanoCpus: (spec.cpuLimit ?? 1) * 1e9,
         PidsLimit: spec.pidsLimit ?? 128,
         AutoRemove: false,
@@ -117,7 +184,29 @@ export class DockerSandboxProvider implements SandboxProvider {
     // Tty:false on both create and start — required for demuxStream's multiplexed-frame format
     // below; with Tty:true Docker returns a single raw stream and demuxing hangs.
     const stream = await dockerExec.start({ Tty: false });
-    yield* demux(stream);
+    const stopWatchingMemory = watchMemory(container, id);
+    try {
+      yield* demux(stream);
+    } finally {
+      stopWatchingMemory();
+    }
+  }
+
+  // Shrink half of the grow/shrink pair (see watchMemory above): called once per run, before
+  // that run's exec() calls start, so a sandbox that grew to handle a heavy task doesn't keep
+  // holding that cap for a small follow-up task. Never runs while a command is executing — a
+  // live container's cap can't safely drop below its current usage.
+  async resetMemory(id: string): Promise<void> {
+    const container = docker.getContainer(id);
+    try {
+      const info = await container.inspect();
+      const baseBytes = MEMORY_BASE_MB * MB;
+      if (info.HostConfig.Memory !== baseBytes) {
+        await container.update(memoryHostConfig(MEMORY_BASE_MB));
+      }
+    } catch (err) {
+      console.error(`Failed to reset sandbox ${id} memory to base:`, err);
+    }
   }
 
   async readWorkspace(id: string): Promise<Record<string, string>> {

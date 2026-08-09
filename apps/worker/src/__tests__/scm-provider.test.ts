@@ -42,6 +42,7 @@ function fakeSandbox(chunks: OutputChunk[]): SandboxProvider {
     readWorkspace: vi.fn(),
     destroy: vi.fn(),
     exists: vi.fn(),
+    resetMemory: vi.fn(),
   };
 }
 
@@ -175,6 +176,7 @@ describe("cloneIntoSandbox", () => {
       readWorkspace: vi.fn(),
       destroy: vi.fn(),
       exists: vi.fn(),
+      resetMemory: vi.fn(),
     };
 
     await cloneIntoSandbox(sandbox, "sandbox-1", target);
@@ -278,6 +280,7 @@ describe("pushChangesIfDirty", () => {
       readWorkspace: vi.fn(),
       destroy: vi.fn(),
       exists: vi.fn(),
+      resetMemory: vi.fn(),
     };
 
     await pushChangesIfDirty(sandbox, "sandbox-1", target, "Fix the bug", "Code reviewer");
