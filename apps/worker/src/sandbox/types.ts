@@ -26,6 +26,9 @@ export interface SandboxProvider {
   create(spec: SandboxSpec): Promise<Sandbox>;
   exec(id: string, cmd: string[], opts?: ExecOptions): AsyncIterable<OutputChunk>;
   writeFiles(id: string, files: Record<string, string>): Promise<void>;
+  // Resets a container's memory cap back to the provider's base value (no-op if already there).
+  // Called once per run, before that run's exec() calls — see DockerSandboxProvider for why.
+  resetMemory(id: string): Promise<void>;
   // Returns text files under /workspace, keyed by path relative to /workspace.
   // Skips node_modules, .git, and binary files. Best-effort — never throws.
   readWorkspace(id: string): Promise<Record<string, string>>;

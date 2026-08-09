@@ -69,6 +69,9 @@ new Worker<RunJobData>(
 
       await updateRunStatus(runId, "provisioning");
       const sandboxId = await ensureSandbox(session);
+      // Shrink back to base before this run starts — a sandbox that grew to handle a heavy
+      // task on a prior run shouldn't keep that cap for this one (see docker-sandbox-provider.ts).
+      await sandboxProvider.resetMemory(sandboxId);
 
       await updateRunStatus(runId, "running");
 
