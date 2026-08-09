@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import type { Agent, AgentMode } from "@agentfactory/core";
+import { buildModelSpec } from "@agentfactory/core";
 import { db } from "../client";
 import { agents } from "../schema";
 
@@ -47,6 +48,8 @@ export interface NewAgentInput {
   systemPrompt: string;
   mode: AgentMode;
   teamId?: number;
+  /** Model catalog id (see @agentfactory/core MODEL_CATALOG). Defaults to DEFAULT_MODEL_ID. */
+  model?: string;
 }
 
 export async function createAgent(orgId: number, input: NewAgentInput): Promise<Agent> {
@@ -59,7 +62,7 @@ export async function createAgent(orgId: number, input: NewAgentInput): Promise<
       description: input.description || null,
       avatarEmoji: "🤖",
       systemPrompt: input.systemPrompt,
-      model: { family: "anthropic", id: "claude-sonnet-5", maxTokens: 8192 },
+      model: buildModelSpec(input.model),
       mode: input.mode,
       runtimeKind: "claude-code",
       toolPolicy: { defaultDecision: "deny", rules: [] },
@@ -70,10 +73,13 @@ export async function createAgent(orgId: number, input: NewAgentInput): Promise<
   return toAgent(row);
 }
 
-export async function updateAgent(
-  agentId: number,
-  patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "teamId" | "areaMap" | "defaultCodebase">>,
-): Promise<Agent | undefined> {
+export interface AgentPatch
+  extends Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "teamId" | "areaMap" | "defaultCodebase">> {
+  /** Model catalog id (see @agentfactory/core MODEL_CATALOG). */
+  model?: string;
+}
+
+export async function updateAgent(agentId: number, patch: AgentPatch): Promise<Agent | undefined> {
   const values: Partial<typeof agents.$inferInsert> = { updatedAt: new Date() };
   if (patch.name !== undefined) values.name = capName(patch.name);
   if (patch.description !== undefined) values.description = patch.description || null;
@@ -82,6 +88,7 @@ export async function updateAgent(
   if ("teamId" in patch) values.teamId = patch.teamId ?? null;
   if ("areaMap" in patch) values.areaMap = patch.areaMap ?? null;
   if (patch.defaultCodebase !== undefined) values.defaultCodebase = patch.defaultCodebase || null;
+  if (patch.model !== undefined) values.model = buildModelSpec(patch.model);
 
   const [row] = await db.update(agents).set(values).where(eq(agents.id, agentId)).returning();
   return row ? toAgent(row) : undefined;

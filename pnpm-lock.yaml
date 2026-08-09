@@ -145,6 +145,9 @@ importers:
 
   packages/db:
     dependencies:
+      '@agentfactory/core':
+        specifier: workspace:*
+        version: link:../core
       drizzle-orm:
         specifier: 0.45.2
         version: 0.45.2(postgres@3.4.9)
@@ -152,9 +155,6 @@ importers:
         specifier: 3.4.9
         version: 3.4.9
     devDependencies:
-      '@agentfactory/core':
-        specifier: workspace:*
-        version: link:../core
       '@types/node':
         specifier: ^22
         version: 22.20.1

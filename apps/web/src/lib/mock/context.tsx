@@ -28,6 +28,8 @@ interface NewAgentInput {
   systemPrompt: string;
   mode: "manual" | "automatic";
   teamId?: number;
+  /** Model catalog id (see @agentfactory/core MODEL_CATALOG). Defaults to DEFAULT_MODEL_ID. */
+  model?: string;
 }
 
 interface NewTaskInput {
@@ -37,6 +39,8 @@ interface NewTaskInput {
   assigneeAgentId?: number;
   area?: string;
   codebase?: string;
+  /** Overrides the assignee agent's default model for this task. */
+  model?: Task["model"];
 }
 
 interface MockBackendValue extends MockState {
@@ -58,7 +62,9 @@ interface MockBackendValue extends MockState {
   createAgent: (input: NewAgentInput) => Promise<Agent>;
   updateAgent: (
     agentId: number,
-    patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "areaMap" | "defaultCodebase">>,
+    patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "areaMap" | "defaultCodebase">> & {
+      model?: string;
+    },
   ) => Promise<void>;
   deleteAgent: (agentId: number) => Promise<void>;
   createSession: (agentId: number, title: string) => Promise<Session>;
@@ -191,7 +197,12 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   );
 
   const updateAgent = useCallback(
-    async (agentId: number, patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "areaMap" | "defaultCodebase">>) => {
+    async (
+      agentId: number,
+      patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "areaMap" | "defaultCodebase">> & {
+        model?: string;
+      },
+    ) => {
       const agent = await apiFetch<Agent>(`/api/agents/${agentId}`, { method: "PATCH", body: JSON.stringify(patch) });
       setState((s) => ({ ...s, agents: s.agents.map((a) => (a.id === agentId ? agent : a)) }));
       showToast("toast.agentUpdated");

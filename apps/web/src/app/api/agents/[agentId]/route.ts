@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteAgent, getAgent, updateAgent } from "@agentfactory/db";
+import { isValidModelId } from "@agentfactory/core";
 import { requireAuthContext } from "@/server/auth";
 
 // Requires a logged-in user but doesn't yet verify agentId belongs to their org — same
@@ -8,6 +9,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ag
   // Read body before next/headers calls — Next.js dev mode can drop the body stream otherwise.
   const [body, ctx, { agentId }] = await Promise.all([request.json(), requireAuthContext(), params]);
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (body.model !== undefined && !isValidModelId(body.model)) {
+    return NextResponse.json({ error: "Invalid model id" }, { status: 400 });
+  }
   const agent = await updateAgent(Number(agentId), body);
   if (!agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 });
   return NextResponse.json(agent);

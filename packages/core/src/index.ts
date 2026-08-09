@@ -1,3 +1,4 @@
-export * from "./domain.js";
-export * from "./events.js";
-export * from "./shared-context.js";
+export * from "./domain";
+export * from "./events";
+export * from "./models";
+export * from "./shared-context";

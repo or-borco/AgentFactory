@@ -114,7 +114,7 @@ new Worker<RunJobData>(
         sandboxProvider,
         sandboxId,
         systemPrompt: teamContextPrefix + agent.systemPrompt,
-        model: agent.model,
+        model: task?.model ?? agent.model,
         userText: (triggeringMessage?.content ?? "") + issueContext,
         resumeSessionRef,
         workspace,
