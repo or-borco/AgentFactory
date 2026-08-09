@@ -21,6 +21,9 @@ export {
   ListChecks as TasksIcon,
   Pulse as ActivityIcon,
   Trash as TrashIcon,
+  Sun as SunIcon,
+  Moon as MoonIcon,
+  Monitor as MonitorIcon,
 } from "@phosphor-icons/react";
 
 // Google brand icon kept as custom SVG

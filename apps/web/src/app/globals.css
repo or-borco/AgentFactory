@@ -6,7 +6,20 @@
    never get generated unless this package's source is registered explicitly. */
 @source "../../../../packages/shared/src";
 
-:root {
+/*
+ * Theming: this file defines two sets of *semantic* tokens (bg/surface/text/divider/section/
+ * shadows) — one for dark (the default, matching the original design) and one for light,
+ * selected via a `data-theme` attribute on <html>. Primitive scales (neutral/accent/accent-2/
+ * status) are intentionally theme-invariant, same as Tailwind's own gray-500 not changing
+ * between themes; only the semantic tokens that map onto those scales change per theme.
+ * `apps/web/src/lib/theme/context.tsx` sets `data-theme` based on the user's preference
+ * (light/dark/system), and a `beforeInteractive` script in the root layout sets it before
+ * first paint to avoid a flash of the wrong theme.
+ */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
   /* Core */
   --color-bg: #161826;
   --color-surface: #232532;
@@ -15,7 +28,60 @@
   --color-accent-2: #a7a1db;
   --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
 
-  /* Neutral scale */
+  /* Section */
+  --color-section: #262a60;
+  --color-section-glow: #353b80;
+  --color-section-ghost: #4c5397;
+
+  /* Shadows */
+  --shadow-sm: 0 0 0 1px #3f424d;
+  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0, 0, 0, 0.65);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* Core */
+  --color-bg: #f6f6fb;
+  --color-surface: #ffffff;
+  --color-text: #1c1e2a;
+  --color-accent: #6d5fd4;
+  --color-accent-2: #6a63b8;
+  --color-divider: color-mix(in srgb, #1c1e2a 12%, transparent);
+
+  /* Section */
+  --color-section: #eef0ff;
+  --color-section-glow: #e3e6ff;
+  --color-section-ghost: #c9cdf5;
+
+  /* Shadows */
+  --shadow-sm: 0 0 0 1px #d8dae8;
+  --shadow-md: 0 0 0 1px #cfd3e5, 0 6px 18px rgba(30, 32, 60, 0.12);
+  --shadow-lg: 0 0 0 1px #b2b6ca, 0 16px 40px rgba(30, 32, 60, 0.18);
+}
+
+/* Falls back to the OS preference before any explicit choice has been persisted/applied. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --color-bg: #f6f6fb;
+    --color-surface: #ffffff;
+    --color-text: #1c1e2a;
+    --color-accent: #6d5fd4;
+    --color-accent-2: #6a63b8;
+    --color-divider: color-mix(in srgb, #1c1e2a 12%, transparent);
+    --color-section: #eef0ff;
+    --color-section-glow: #e3e6ff;
+    --color-section-ghost: #c9cdf5;
+    --shadow-sm: 0 0 0 1px #d8dae8;
+    --shadow-md: 0 0 0 1px #cfd3e5, 0 6px 18px rgba(30, 32, 60, 0.12);
+    --shadow-lg: 0 0 0 1px #b2b6ca, 0 16px 40px rgba(30, 32, 60, 0.18);
+  }
+}
+
+:root {
+  /* Neutral scale (theme-invariant) */
   --color-neutral-100: #f3f5fe;
   --color-neutral-200: #e4e7f5;
   --color-neutral-300: #cfd3e5;
@@ -26,7 +92,7 @@
   --color-neutral-800: #3f424d;
   --color-neutral-900: #292b31;
 
-  /* Accent scale */
+  /* Accent scale (theme-invariant) */
   --color-accent-100: #f5f4ff;
   --color-accent-200: #e7e5fe;
   --color-accent-300: #d2cefd;
@@ -37,7 +103,7 @@
   --color-accent-800: #423a6a;
   --color-accent-900: #2b2741;
 
-  /* Accent-2 scale */
+  /* Accent-2 scale (theme-invariant) */
   --color-accent-2-100: #f5f4ff;
   --color-accent-2-200: #e7e5fe;
   --color-accent-2-300: #d2cefd;
@@ -48,22 +114,12 @@
   --color-accent-2-800: #423e5d;
   --color-accent-2-900: #2b293a;
 
-  /* Section */
-  --color-section: #262a60;
-  --color-section-glow: #353b80;
-  --color-section-ghost: #4c5397;
-
-  /* Semantic status (used directly, not as Tailwind utilities) */
+  /* Semantic status (used directly, not as Tailwind utilities; theme-invariant) */
   --color-status-blue: #5ba3d9;
   --color-status-green: #4eca8b;
   --color-status-amber: #e8a44a;
   --color-status-red: #e06060;
   --color-status-teal: #4ecab8;
-
-  /* Shadows */
-  --shadow-sm: 0 0 0 1px #3f424d;
-  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
-  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
 
   /* Radius */
   --radius-sm: 4px;
@@ -96,6 +152,7 @@ body {
   color: var(--color-text);
   font-family: var(--font-body);
   margin: 0;
+  transition: background-color 0.15s ease, color 0.15s ease;
 }
 
 h1, h2, h3, h4, h5, h6 {
