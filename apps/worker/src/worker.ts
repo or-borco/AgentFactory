@@ -7,7 +7,7 @@ import {
   type RunJobData,
   type SandboxTeardownJobData,
 } from "@agentfactory/queue";
-import { type Session, formatSharedContextForPrompt } from "@agentfactory/core";
+import { type Session, buildModelSpec, formatSharedContextForPrompt } from "@agentfactory/core";
 import {
   clearSessionSandboxId,
   createEvent,
@@ -26,7 +26,7 @@ import {
   updateTask,
 } from "@agentfactory/db";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
-import { runAgentTurn } from "./agent-runtime";
+import { type AgentTurnResult, PromptTooLongError, runAgentTurn } from "./agent-runtime";
 import {
   buildPullRequestBody,
   fetchIssue,
@@ -36,6 +36,7 @@ import {
   resolveCloneTarget,
   type CloneTarget,
 } from "./scm-provider";
+import { resolveEscalation } from "./model-escalation";
 
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
@@ -110,18 +111,37 @@ new Worker<RunJobData>(
       const teamContextPrefix = team ? formatSharedContextForPrompt(team.sharedContext) : "";
 
       let seq = 1;
-      const { text, providerSessionRef } = await runAgentTurn({
-        sandboxProvider,
-        sandboxId,
-        systemPrompt: teamContextPrefix + agent.systemPrompt,
-        model: task?.model ?? agent.model,
-        userText: (triggeringMessage?.content ?? "") + issueContext,
-        resumeSessionRef,
-        workspace,
-        onEvent: async (type, data) => {
-          await createEvent(runId, seq++, type, data);
-        },
-      });
+      let attemptModel = task?.model ?? agent.model;
+      let turnResult!: AgentTurnResult;
+      for (;;) {
+        try {
+          turnResult = await runAgentTurn({
+            sandboxProvider,
+            sandboxId,
+            systemPrompt: teamContextPrefix + agent.systemPrompt,
+            model: attemptModel,
+            userText: (triggeringMessage?.content ?? "") + issueContext,
+            resumeSessionRef,
+            workspace,
+            onEvent: async (type, data) => {
+              await createEvent(runId, seq++, type, data);
+            },
+          });
+          break;
+        } catch (err) {
+          if (!(err instanceof PromptTooLongError)) throw err;
+          const nextModelId = resolveEscalation(attemptModel.id, agent.onContextOverflow);
+          if (!nextModelId) throw err;
+          const nextModel = buildModelSpec(nextModelId);
+          await createEvent(runId, seq++, "model_escalated", {
+            fromModel: attemptModel.id,
+            toModel: nextModel.id,
+            reason: "context_overflow",
+          });
+          attemptModel = nextModel;
+        }
+      }
+      const { text, providerSessionRef } = turnResult;
 
       await createMessage(run.sessionId, "assistant", text, runId);
       await createEvent(runId, seq++, "text_delta", { text });
@@ -168,7 +188,7 @@ new Worker<RunJobData>(
         await updateRunWorkspace(runId, workspaceSnapshot);
       }
 
-      await updateRunStatus(runId, "done", { finishedAt: new Date(), providerSessionRef });
+      await updateRunStatus(runId, "done", { finishedAt: new Date(), providerSessionRef, model: attemptModel });
       await touchSessionActivity(session.id);
     } catch (err) {
       console.error(`Run ${runId} failed:`, err);
