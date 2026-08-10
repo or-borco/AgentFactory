@@ -64,6 +64,17 @@ describe("runs repository", () => {
     const run = await createRun(session.id);
     await expect(getLatestProviderSessionRef(session.id, run.id)).resolves.toBeUndefined();
   });
+
+  it("persists the model that actually executed the run", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+    const model = { family: "anthropic" as const, id: "claude-sonnet-5", maxTokens: 8192 };
+
+    const updated = await updateRunStatus(run.id, "done", { finishedAt: new Date(), model });
+
+    expect(updated?.model).toEqual(model);
+    await expect(getRun(run.id)).resolves.toMatchObject({ model });
+  });
 });
 
 describe("events repository", () => {
