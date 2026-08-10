@@ -25,7 +25,7 @@ export default function AgentDetailPage() {
   return (
     <div className="pb-16">
       <div className="px-10 pt-8">
-        <Breadcrumb href="/agents" label={t("agents.title")} icon={<ArrowLeftIcon size={15} />} />
+        <Breadcrumb href="/teams-v2" label={t("nav.teams")} icon={<ArrowLeftIcon size={15} />} />
       </div>
 
       <div className="flex items-start justify-between px-10 pt-4">

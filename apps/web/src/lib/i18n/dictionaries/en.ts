@@ -9,10 +9,7 @@ const en = {
     automatic: "Automatic",
   },
   nav: {
-    agents: "Agents",
     teams: "Teams",
-    skills: "Skills",
-    connections: "Connections",
     tasks: "Tasks",
     activity: "Activity",
     settings: "Settings",
@@ -57,9 +54,6 @@ const en = {
     },
   },
   agents: {
-    title: "Agents",
-    subtitle: "Shared AI agents for your engineering team",
-    newAgent: "New agent",
     systemPrompt: "System prompt",
     sessions: "Sessions",
     newSession: "New session",
@@ -121,14 +115,6 @@ const en = {
     messagePlaceholder: "Send a message... (Enter to send, Shift+Enter for new line)",
     send: "Send",
     replyFailed: "The agent couldn't reply — please try again.",
-  },
-  skills: {
-    title: "Skills",
-    subtitle: "Reusable capabilities agents can load into a run",
-    importFromGit: "Import from git",
-    newSkill: "New skill",
-    sourceGit: "Git",
-    sourceAuthored: "Authored",
   },
   connections: {
     title: "Connections",
@@ -342,22 +328,9 @@ const en = {
     contextItemAdded: "Document added",
     contextItemDeleted: "Document removed",
     error: "Something went wrong",
-    importFromGitComingSoon: "Import from git — coming soon",
-    skillAuthoringComingSoon: "Skill authoring — coming soon",
     connectionDeleted: "Connection removed",
     taskDeleted: "Task deleted",
     taskMarkedDone: "Task marked as done",
-  },
-  legacyAgents: {
-    heading: "Agents have moved",
-    body: "Agent management has moved to the Teams page. You can create, configure, and delete agents directly from the Agents tab inside each team. This page will be removed in a future update.",
-    cta: "Go to Teams",
-  },
-  legacyTeams: {
-    heading: "Teams have moved",
-    body: "Team management has moved to the new Teams page. You can manage members, context documents, and agents directly from there. This page will be removed in a future update.",
-    cta: "Go to Teams",
-    navBadge: "Legacy",
   },
   relativeTime: {
     justNow: "just now",
