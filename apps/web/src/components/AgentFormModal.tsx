@@ -11,6 +11,7 @@ export interface AgentFormValues {
   description: string;
   systemPrompt: string;
   mode: AgentMode;
+  defaultCodebase?: string;
 }
 
 export function AgentFormModal({
@@ -31,6 +32,7 @@ export function AgentFormModal({
   const [description, setDescription] = useState(initial?.description ?? "");
   const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? "");
   const [mode, setMode] = useState<AgentMode>(initial?.mode ?? "manual");
+  const [defaultCodebase, setDefaultCodebase] = useState(initial?.defaultCodebase ?? "");
 
   return (
     <Modal title={title} onClose={onClose}>
@@ -39,7 +41,13 @@ export function AgentFormModal({
         onSubmit={(e) => {
           e.preventDefault();
           if (!name.trim() || !systemPrompt.trim()) return;
-          onSubmit({ name: name.trim(), description: description.trim(), systemPrompt: systemPrompt.trim(), mode });
+          onSubmit({
+            name: name.trim(),
+            description: description.trim(),
+            systemPrompt: systemPrompt.trim(),
+            mode,
+            defaultCodebase: defaultCodebase.trim() || undefined,
+          });
         }}
       >
         <div>
@@ -75,6 +83,17 @@ export function AgentFormModal({
             placeholder={t("agentForm.systemPromptPlaceholder")}
             required
           />
+        </div>
+        <div>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("agentForm.defaultCodebaseLabel")}
+          </label>
+          <TextInput
+            value={defaultCodebase}
+            onChange={(e) => setDefaultCodebase(e.target.value)}
+            placeholder={t("agentForm.defaultCodebasePlaceholder")}
+          />
+          <p className="mt-1.5 text-xs text-[var(--color-neutral-600)]">{t("agentForm.defaultCodebaseHelp")}</p>
         </div>
         <div>
           <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">

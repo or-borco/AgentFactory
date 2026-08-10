@@ -30,6 +30,7 @@ interface NewAgentInput {
   teamId?: number;
   /** Model catalog id (see @agentfactory/core MODEL_CATALOG). Defaults to DEFAULT_MODEL_ID. */
   model?: string;
+  defaultCodebase?: string;
 }
 
 interface NewTaskInput {
