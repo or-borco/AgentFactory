@@ -17,6 +17,18 @@ export const MODEL_CATALOG: ModelCatalogEntry[] = [
 
 export const DEFAULT_MODEL_ID = "claude-sonnet-5";
 
+// Explicit list, not derived from MODEL_CATALOG order — keeps Fable's exclusion a deliberate
+// fact in the data rather than an accident of catalog ordering. Used by the worker's context-
+// overflow escalation (apps/worker/src/model-escalation.ts) to find the next larger-context
+// model in the same family.
+const ESCALATION_LADDER = ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-5"] as const;
+
+export function nextEscalationTier(modelId: string): string | undefined {
+  const index = ESCALATION_LADDER.indexOf(modelId as (typeof ESCALATION_LADDER)[number]);
+  if (index === -1 || index === ESCALATION_LADDER.length - 1) return undefined;
+  return ESCALATION_LADDER[index + 1];
+}
+
 export function isValidModelId(id: string): boolean {
   return MODEL_CATALOG.some((entry) => entry.id === id);
 }
