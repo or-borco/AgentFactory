@@ -334,6 +334,7 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [mode, setMode] = useState<"manual" | "automatic">("manual");
   const [model, setModel] = useState(DEFAULT_MODEL_ID);
+  const [onContextOverflow, setOnContextOverflow] = useState<"fallback" | "fail_fast">("fallback");
   const [saving, setSaving] = useState(false);
 
   async function handleCreate(e: React.FormEvent) {
@@ -341,7 +342,7 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      const agent = await createAgent({ name: name.trim(), description: description.trim(), systemPrompt: systemPrompt.trim(), mode, teamId, model });
+      const agent = await createAgent({ name: name.trim(), description: description.trim(), systemPrompt: systemPrompt.trim(), mode, teamId, model, onContextOverflow });
       onCreated(agent.id);
     } finally {
       setSaving(false);
@@ -429,6 +430,20 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
             ))}
           </select>
         </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.onContextOverflowLabel")}
+          </label>
+          <select
+            value={onContextOverflow}
+            onChange={(e) => setOnContextOverflow(e.target.value as "fallback" | "fail_fast")}
+            className={selectClassName}
+          >
+            <option value="fallback">{t("teamsV2.onContextOverflowFallback")}</option>
+            <option value="fail_fast">{t("teamsV2.onContextOverflowFailFast")}</option>
+          </select>
+        </div>
       </div>
 
       <div className="flex items-center justify-between px-5 py-3 border-t border-[var(--color-divider)]">
@@ -453,6 +468,7 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
   const [defaultCodebase, setDefaultCodebase] = useState(agent.defaultCodebase ?? "");
   const [areaMap, setAreaMap] = useState<Record<string, string>>(agent.areaMap ?? {});
   const [model, setModel] = useState(agent.model.id);
+  const [onContextOverflow, setOnContextOverflow] = useState(agent.onContextOverflow);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -465,12 +481,13 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
     systemPrompt !== agent.systemPrompt ||
     defaultCodebase !== (agent.defaultCodebase ?? "") ||
     model !== agent.model.id ||
+    onContextOverflow !== agent.onContextOverflow ||
     sortedJson(areaMap) !== sortedJson(agent.areaMap ?? {});
 
   async function handleSave() {
     setSaving(true);
     try {
-      await updateAgent(agent.id, { systemPrompt, defaultCodebase, areaMap, model });
+      await updateAgent(agent.id, { systemPrompt, defaultCodebase, areaMap, model, onContextOverflow });
     } finally {
       setSaving(false);
     }
@@ -536,6 +553,20 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
                 {entry.label}
               </option>
             ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.onContextOverflowLabel")}
+          </label>
+          <select
+            value={onContextOverflow}
+            onChange={(e) => setOnContextOverflow(e.target.value as "fallback" | "fail_fast")}
+            className={selectClassName}
+          >
+            <option value="fallback">{t("teamsV2.onContextOverflowFallback")}</option>
+            <option value="fail_fast">{t("teamsV2.onContextOverflowFailFast")}</option>
           </select>
         </div>
 

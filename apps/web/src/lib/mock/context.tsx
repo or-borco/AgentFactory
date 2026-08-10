@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { Agent, ChatMessage, Connection, OrgMember, Run, Session, Skill, Task, Team, TeamContextItem } from "@agentfactory/core";
+import type { Agent, ChatMessage, Connection, OrgMember, OverflowPolicy, Run, Session, Skill, Task, Team, TeamContextItem } from "@agentfactory/core";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
@@ -30,6 +30,7 @@ interface NewAgentInput {
   teamId?: number;
   /** Model catalog id (see @agentfactory/core MODEL_CATALOG). Defaults to DEFAULT_MODEL_ID. */
   model?: string;
+  onContextOverflow?: OverflowPolicy;
 }
 
 interface NewTaskInput {
@@ -64,6 +65,7 @@ interface MockBackendValue extends MockState {
     agentId: number,
     patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "areaMap" | "defaultCodebase">> & {
       model?: string;
+      onContextOverflow?: OverflowPolicy;
     },
   ) => Promise<void>;
   deleteAgent: (agentId: number) => Promise<void>;
@@ -201,6 +203,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
       agentId: number,
       patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "areaMap" | "defaultCodebase">> & {
         model?: string;
+        onContextOverflow?: OverflowPolicy;
       },
     ) => {
       const agent = await apiFetch<Agent>(`/api/agents/${agentId}`, { method: "PATCH", body: JSON.stringify(patch) });
