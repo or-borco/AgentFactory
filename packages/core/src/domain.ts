@@ -81,6 +81,7 @@ export interface Agent {
   toolPolicy: ToolPolicy;
   skillIds: ID[];
   connectionIds: ID[];
+  // Intentionally unwired for alpha (issue #65): no editing UI and nothing reads this yet.
   areaMap?: Record<string, string>;
   defaultCodebase?: string;
   createdAt: ISODateTime;

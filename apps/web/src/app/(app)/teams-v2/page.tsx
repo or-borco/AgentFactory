@@ -167,79 +167,6 @@ function MembersTab({ team }: { team: Team }) {
   );
 }
 
-// ── Area map editor ────────────────────────────────────────────────────────────
-
-type AreaMapRow = { id: number; path: string; desc: string };
-
-let nextRowId = 0;
-
-function mapToRows(areaMap: Record<string, string>): AreaMapRow[] {
-  return Object.entries(areaMap).map(([path, desc]) => ({ id: nextRowId++, path, desc }));
-}
-
-function rowsToMap(rows: AreaMapRow[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const row of rows) out[row.path] = row.desc;
-  return out;
-}
-
-function AreaMapEditor({
-  areaMap,
-  onChange,
-}: {
-  areaMap: Record<string, string>;
-  onChange: (map: Record<string, string>) => void;
-}) {
-  const { t } = useTranslation();
-  const [rows, setRows] = useState<AreaMapRow[]>(() => mapToRows(areaMap));
-
-  function updateRow(id: number, field: "path" | "desc", value: string) {
-    const next = rows.map((r) => (r.id === id ? { ...r, [field]: value } : r));
-    setRows(next);
-    onChange(rowsToMap(next));
-  }
-
-  function removeRow(id: number) {
-    const next = rows.filter((r) => r.id !== id);
-    setRows(next);
-    onChange(rowsToMap(next));
-  }
-
-  function addRow() {
-    setRows((prev) => [...prev, { id: nextRowId++, path: "", desc: "" }]);
-  }
-
-  return (
-    <div className="space-y-2">
-      {rows.map((row) => (
-        <div key={row.id} className="flex gap-2">
-          <TextInput
-            placeholder={t("teamsV2.areaMapPathPlaceholder")}
-            value={row.path}
-            onChange={(e) => updateRow(row.id, "path", e.target.value)}
-            className="w-48 shrink-0 font-mono text-xs"
-          />
-          <TextInput
-            placeholder={t("teamsV2.areaMapDescPlaceholder")}
-            value={row.desc}
-            onChange={(e) => updateRow(row.id, "desc", e.target.value)}
-            className="flex-1"
-          />
-          <button
-            onClick={() => removeRow(row.id)}
-            className="px-2 text-[var(--color-neutral-500)] hover:text-red-400 transition-colors cursor-pointer"
-          >
-            ×
-          </button>
-        </div>
-      ))}
-      <Button variant="secondary" onClick={addRow} className="text-xs">
-        + {t("teamsV2.addArea")}
-      </Button>
-    </div>
-  );
-}
-
 // ── New team panel ─────────────────────────────────────────────────────────────
 
 function NewTeamPanel({ onCreated, onCancel }: {
@@ -451,26 +378,20 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
 
   const [systemPrompt, setSystemPrompt] = useState(agent.systemPrompt);
   const [defaultCodebase, setDefaultCodebase] = useState(agent.defaultCodebase ?? "");
-  const [areaMap, setAreaMap] = useState<Record<string, string>>(agent.areaMap ?? {});
   const [model, setModel] = useState(agent.model.id);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  function sortedJson(map: Record<string, string>) {
-    return JSON.stringify(Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b))));
-  }
-
   const dirty =
     systemPrompt !== agent.systemPrompt ||
     defaultCodebase !== (agent.defaultCodebase ?? "") ||
-    model !== agent.model.id ||
-    sortedJson(areaMap) !== sortedJson(agent.areaMap ?? {});
+    model !== agent.model.id;
 
   async function handleSave() {
     setSaving(true);
     try {
-      await updateAgent(agent.id, { systemPrompt, defaultCodebase, areaMap, model });
+      await updateAgent(agent.id, { systemPrompt, defaultCodebase, model });
     } finally {
       setSaving(false);
     }
@@ -537,14 +458,6 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
               </option>
             ))}
           </select>
-        </div>
-
-        <div>
-          <div className="mb-2">
-            <div className="text-xs font-medium text-[var(--color-neutral-400)]">{t("teamsV2.areaMapSection")}</div>
-            <div className="text-xs text-[var(--color-neutral-500)]">{t("teamsV2.areaMapDescription")}</div>
-          </div>
-          <AreaMapEditor areaMap={areaMap} onChange={setAreaMap} />
         </div>
       </div>
 
