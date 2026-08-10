@@ -71,6 +71,13 @@
       "when": 1786256776793,
       "tag": "0009_nappy_swarm",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786360856266,
+      "tag": "0010_nice_green_goblin",
+      "breakpoints": true
     }
   ]
 }

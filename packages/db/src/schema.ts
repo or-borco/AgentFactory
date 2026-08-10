@@ -111,6 +111,12 @@ export const agents = pgTable(
     // and Connections have no real backend of their own. Revisit when they get one.
     skillIds: jsonb("skill_ids").$type<number[]>().notNull().default([]),
     connectionIds: jsonb("connection_ids").$type<number[]>().notNull().default([]),
+    // What to do when a run's resumed session history overflows this agent's assigned model's
+    // context window. "fallback" (default) escalates up the ladder in packages/core/src/models.ts;
+    // "fail_fast" keeps the assigned model fixed and lets the run fail for real.
+    onContextOverflow: text("on_context_overflow", { enum: ["fallback", "fail_fast"] })
+      .notNull()
+      .default("fallback"),
     areaMap: jsonb("area_map").$type<Record<string, string>>(),
     defaultCodebase: text("default_codebase"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -211,6 +217,10 @@ export const runs = pgTable("runs", {
   // Snapshot of /workspace at run completion: path → utf-8 content. Excludes node_modules and
   // binary files. Null until the run finishes or if the sandbox was unreachable at teardown.
   workspaceSnapshot: jsonb("workspace_snapshot").$type<Record<string, string>>(),
+  // The ModelSpec that actually executed this run's turn — may differ from the agent/task's
+  // assigned model if context-overflow escalation (worker.ts) bumped it to a larger tier.
+  // Null until the run resolves a model (never set for runs that fail before that point).
+  model: jsonb("model").$type<ModelSpec>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
 });
