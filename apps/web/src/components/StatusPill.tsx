@@ -8,6 +8,8 @@ const STATUS_STYLES: Record<TaskStatus, { bg: string; color: string; border: str
   pr_open:      { bg: "rgba(78,202,139,0.1)",   color: "#4eca8b",                  border: "rgba(78,202,139,0.28)",   label: "PR open" },
   review_cycle: { bg: "rgba(145,132,217,0.1)",  color: "var(--color-accent)",       border: "rgba(145,132,217,0.28)", label: "Review cycle" },
   done:         { bg: "rgba(78,202,139,0.1)",   color: "#4eca8b",                  border: "rgba(78,202,139,0.28)",   label: "Done" },
+  failed:       { bg: "rgba(224,90,90,0.1)",    color: "#e05a5a",                  border: "rgba(224,90,90,0.28)",    label: "Failed" },
+  cancelled:    { bg: "rgba(147,151,171,0.1)",  color: "var(--color-neutral-500)", border: "rgba(147,151,171,0.2)",   label: "Cancelled" },
 };
 
 interface StatusPillProps {

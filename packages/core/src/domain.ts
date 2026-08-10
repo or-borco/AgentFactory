@@ -155,7 +155,9 @@ export type TaskStatus =
   | "needs_input"
   | "pr_open"
   | "review_cycle"
-  | "done";
+  | "done"
+  | "failed"
+  | "cancelled";
 
 export interface AcceptanceCriterion {
   text: string;

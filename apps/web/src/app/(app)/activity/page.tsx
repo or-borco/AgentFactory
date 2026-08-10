@@ -15,6 +15,7 @@ export default function ActivityPage() {
   const inProgressCount = tasks.filter((tk) => tk.status === "in_progress").length;
   const needsInputCount = tasks.filter((tk) => tk.status === "needs_input").length;
   const prOpenCount = tasks.filter((tk) => tk.status === "pr_open").length;
+  const failedCount = tasks.filter((tk) => tk.status === "failed").length;
 
   // "Done this week" = done tasks updated within the last 7 days
   const [oneWeekAgo] = useState(() => Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -38,7 +39,7 @@ export default function ActivityPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
+          gridTemplateColumns: "repeat(5, 1fr)",
           gap: 16,
           marginTop: 28,
         }}
@@ -47,6 +48,7 @@ export default function ActivityPage() {
         <StatTile label={t("activity.needsInput")} value={needsInputCount} color="#e8a44a" />
         <StatTile label={t("activity.prsOpen")} value={prOpenCount} color="#4eca8b" />
         <StatTile label={t("activity.doneThisWeek")} value={doneThisWeek} color="var(--color-accent)" />
+        <StatTile label={t("activity.failed")} value={failedCount} color="#e05a5a" />
       </div>
 
       {/* ── Feed ────────────────────────────────────────────────────────────── */}
