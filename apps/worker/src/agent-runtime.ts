@@ -11,6 +11,15 @@ export interface AgentTurnResult {
 const RESULT_MARKER = "__RESULT__";
 // Must match EVENT_MARKER in apps/worker/sandbox-image/run-turn.ts.
 const EVENT_MARKER = "__EVENT__";
+// Must match ERROR_MARKER in apps/worker/sandbox-image/run-turn.ts.
+const ERROR_MARKER = "__ERROR__";
+
+export class PromptTooLongError extends Error {
+  constructor() {
+    super("Prompt is too long for the assigned model's context window");
+    this.name = "PromptTooLongError";
+  }
+}
 
 // The Claude Agent SDK call now runs *inside* the sandbox (apps/worker/sandbox-image/run-turn.ts),
 // not on the worker's own host process — this function just execs into it and parses the one
@@ -83,6 +92,13 @@ export async function runAgentTurn(params: {
       }
       if (payload) await onEvent(payload.type, payload);
     }
+  }
+
+  const errorIndex = stdout.lastIndexOf(ERROR_MARKER);
+  if (errorIndex !== -1) {
+    const errorLine = stdout.slice(errorIndex + ERROR_MARKER.length).split("\n")[0];
+    const errorPayload = JSON.parse(errorLine) as { code: string };
+    if (errorPayload.code === "prompt_too_long") throw new PromptTooLongError();
   }
 
   const markerIndex = stdout.lastIndexOf(RESULT_MARKER);
