@@ -171,6 +171,7 @@ new Worker<RunJobData>(
       await updateRunStatus(runId, "done", { finishedAt: new Date(), providerSessionRef });
       await touchSessionActivity(session.id);
     } catch (err) {
+      console.error(`Run ${runId} failed:`, err);
       await updateRunStatus(runId, "failed");
       throw err; // still let BullMQ mark the job failed
     }
