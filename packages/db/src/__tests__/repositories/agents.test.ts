@@ -115,4 +115,36 @@ describe("agents repository", () => {
   it("deleteAgent is a no-op for a non-existent id", async () => {
     await expect(deleteAgent(999_999)).resolves.toBeUndefined();
   });
+
+  it("defaults onContextOverflow to fallback", async () => {
+    const org = await insertOrg();
+    const agent = await createAgent(org.id, {
+      name: "Reviewer",
+      description: "",
+      systemPrompt: "Be helpful.",
+      mode: "manual",
+    });
+    expect(agent.onContextOverflow).toBe("fallback");
+  });
+
+  it("accepts an explicit onContextOverflow on create", async () => {
+    const org = await insertOrg();
+    const agent = await createAgent(org.id, {
+      name: "Strict reviewer",
+      description: "",
+      systemPrompt: "Be helpful.",
+      mode: "manual",
+      onContextOverflow: "fail_fast",
+    });
+    expect(agent.onContextOverflow).toBe("fail_fast");
+  });
+
+  it("updates onContextOverflow", async () => {
+    const org = await insertOrg();
+    const agent = await insertAgent(org.id);
+
+    const updated = await updateAgent(agent.id, { onContextOverflow: "fail_fast" });
+
+    expect(updated?.onContextOverflow).toBe("fail_fast");
+  });
 });

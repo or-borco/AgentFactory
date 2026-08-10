@@ -60,6 +60,8 @@ export interface ModelSpec {
   thinking?: boolean;
 }
 
+export type OverflowPolicy = "fallback" | "fail_fast";
+
 export type ToolDecision = "allow" | "deny";
 
 export interface ToolPolicy {
@@ -81,6 +83,7 @@ export interface Agent {
   toolPolicy: ToolPolicy;
   skillIds: ID[];
   connectionIds: ID[];
+  onContextOverflow: OverflowPolicy;
   areaMap?: Record<string, string>;
   defaultCodebase?: string;
   createdAt: ISODateTime;
@@ -222,6 +225,7 @@ export interface Run {
   tokensUsed: number;
   budgetExceeded?: boolean;
   workspaceSnapshot?: Record<string, string>;
+  model?: ModelSpec;
   createdAt: ISODateTime;
   finishedAt?: ISODateTime;
 }

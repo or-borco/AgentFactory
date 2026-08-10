@@ -1,4 +1,4 @@
-import type { ModelSpec } from "./domain";
+import type { ModelSpec, OverflowPolicy } from "./domain";
 
 export interface ModelCatalogEntry {
   id: string;
@@ -31,6 +31,10 @@ export function nextEscalationTier(modelId: string): string | undefined {
 
 export function isValidModelId(id: string): boolean {
   return MODEL_CATALOG.some((entry) => entry.id === id);
+}
+
+export function isValidOverflowPolicy(value: string): value is OverflowPolicy {
+  return value === "fallback" || value === "fail_fast";
 }
 
 export function buildModelSpec(id: string = DEFAULT_MODEL_ID): ModelSpec {

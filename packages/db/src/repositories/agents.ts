@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import type { Agent, AgentMode } from "@agentfactory/core";
+import type { Agent, AgentMode, OverflowPolicy } from "@agentfactory/core";
 import { buildModelSpec } from "@agentfactory/core";
 import { db } from "../client";
 import { agents } from "../schema";
@@ -25,6 +25,7 @@ function toAgent(row: typeof agents.$inferSelect): Agent {
     toolPolicy: row.toolPolicy,
     skillIds: row.skillIds,
     connectionIds: row.connectionIds,
+    onContextOverflow: row.onContextOverflow,
     areaMap: row.areaMap ?? undefined,
     defaultCodebase: row.defaultCodebase ?? undefined,
     createdAt: row.createdAt.toISOString(),
@@ -50,6 +51,7 @@ export interface NewAgentInput {
   teamId?: number;
   /** Model catalog id (see @agentfactory/core MODEL_CATALOG). Defaults to DEFAULT_MODEL_ID. */
   model?: string;
+  onContextOverflow?: OverflowPolicy;
 }
 
 export async function createAgent(orgId: number, input: NewAgentInput): Promise<Agent> {
@@ -68,13 +70,16 @@ export async function createAgent(orgId: number, input: NewAgentInput): Promise<
       toolPolicy: { defaultDecision: "deny", rules: [] },
       skillIds: [],
       connectionIds: [],
+      onContextOverflow: input.onContextOverflow ?? "fallback",
     })
     .returning();
   return toAgent(row);
 }
 
 export interface AgentPatch
-  extends Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "teamId" | "areaMap" | "defaultCodebase">> {
+  extends Partial<
+    Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "teamId" | "areaMap" | "defaultCodebase" | "onContextOverflow">
+  > {
   /** Model catalog id (see @agentfactory/core MODEL_CATALOG). */
   model?: string;
 }
@@ -89,6 +94,7 @@ export async function updateAgent(agentId: number, patch: AgentPatch): Promise<A
   if ("areaMap" in patch) values.areaMap = patch.areaMap ?? null;
   if (patch.defaultCodebase !== undefined) values.defaultCodebase = patch.defaultCodebase || null;
   if (patch.model !== undefined) values.model = buildModelSpec(patch.model);
+  if (patch.onContextOverflow !== undefined) values.onContextOverflow = patch.onContextOverflow;
 
   const [row] = await db.update(agents).set(values).where(eq(agents.id, agentId)).returning();
   return row ? toAgent(row) : undefined;
