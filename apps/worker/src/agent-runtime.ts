@@ -94,18 +94,25 @@ export async function runAgentTurn(params: {
     }
   }
 
-  const errorIndex = stdout.lastIndexOf(ERROR_MARKER);
-  if (errorIndex !== -1) {
-    const errorLine = stdout.slice(errorIndex + ERROR_MARKER.length).split("\n")[0];
-    const errorPayload = JSON.parse(errorLine) as { code: string };
-    if (errorPayload.code === "prompt_too_long") throw new PromptTooLongError();
-  }
-
-  const markerIndex = stdout.lastIndexOf(RESULT_MARKER);
-  if (markerIndex === -1) {
+  // A successful run always wins: only treat __ERROR__ as authoritative when no valid
+  // __RESULT__ line is present. Otherwise a result whose text merely quotes/discusses the
+  // literal marker string (e.g. an agent asked to explain run-turn.ts, which contains it)
+  // could be misread as a real failure even though the turn actually succeeded.
+  const resultLine = stdout.split("\n").find((line) => line.startsWith(RESULT_MARKER));
+  if (!resultLine) {
+    const errorLine = stdout.split("\n").find((line) => line.startsWith(ERROR_MARKER));
+    if (errorLine) {
+      let errorPayload: { code: string } | undefined;
+      try {
+        errorPayload = JSON.parse(errorLine.slice(ERROR_MARKER.length)) as { code: string };
+      } catch {
+        // malformed error line — fall through to the generic failure below
+      }
+      if (errorPayload?.code === "prompt_too_long") throw new PromptTooLongError();
+    }
     throw new Error(`Sandbox run produced no result line. stdout: ${stdout}\nstderr: ${stderr}`);
   }
-  const jsonLine = stdout.slice(markerIndex + RESULT_MARKER.length).split("\n")[0];
+  const jsonLine = resultLine.slice(RESULT_MARKER.length);
   const parsed = JSON.parse(jsonLine) as AgentTurnResult;
   return parsed;
 }

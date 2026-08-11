@@ -7,7 +7,7 @@ import {
   type RunJobData,
   type SandboxTeardownJobData,
 } from "@agentfactory/queue";
-import { type Session, buildModelSpec, formatSharedContextForPrompt } from "@agentfactory/core";
+import { type ModelSpec, type Session, buildModelSpec, formatSharedContextForPrompt } from "@agentfactory/core";
 import {
   clearSessionSandboxId,
   createEvent,
@@ -63,6 +63,10 @@ new Worker<RunJobData>(
     const run = await getRun(runId);
     if (!run) return;
 
+    // Hoisted above the try block so the catch below can persist whichever model actually ran,
+    // even when the failure happens after one or more escalation attempts (runs.model must record
+    // the true final model, not go silent, on both the "done" and "failed" paths).
+    let attemptModel: ModelSpec | undefined;
     try {
       const session = await getSession(run.sessionId);
       const agent = session ? await getAgent(session.agentId) : undefined;
@@ -111,7 +115,7 @@ new Worker<RunJobData>(
       const teamContextPrefix = team ? formatSharedContextForPrompt(team.sharedContext) : "";
 
       let seq = 1;
-      let attemptModel = task?.model ?? agent.model;
+      attemptModel = task?.model ?? agent.model;
       let turnResult!: AgentTurnResult;
       for (;;) {
         try {
@@ -192,7 +196,7 @@ new Worker<RunJobData>(
       await touchSessionActivity(session.id);
     } catch (err) {
       console.error(`Run ${runId} failed:`, err);
-      await updateRunStatus(runId, "failed");
+      await updateRunStatus(runId, "failed", { model: attemptModel });
       throw err; // still let BullMQ mark the job failed
     }
   },

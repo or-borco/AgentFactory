@@ -52,4 +52,31 @@ describe("runAgentTurn", () => {
 
     await expect(runAgentTurn(baseParams(sandbox))).rejects.toThrow(/produced no result line/);
   });
+
+  it("falls through to the generic failure when the error code isn't prompt_too_long", async () => {
+    const sandbox = fakeSandbox([
+      { stream: "stdout", data: `__ERROR__${JSON.stringify({ code: "some_other_failure" })}\n` },
+    ]);
+
+    const result = runAgentTurn(baseParams(sandbox));
+    await expect(result).rejects.not.toBeInstanceOf(PromptTooLongError);
+    await expect(result).rejects.toThrow(/produced no result line/);
+  });
+
+  it("returns successfully when the result text itself contains the __ERROR__ marker substring", async () => {
+    const text = "Here's what run-turn.ts does: it emits a line like __ERROR__{\"code\":\"prompt_too_long\"}";
+    const sandbox = fakeSandbox([
+      { stream: "stdout", data: `__RESULT__${JSON.stringify({ text, providerSessionRef: "ref-2" })}\n` },
+    ]);
+
+    await expect(runAgentTurn(baseParams(sandbox))).resolves.toEqual({ text, providerSessionRef: "ref-2" });
+  });
+
+  it("falls through to the generic failure when the __ERROR__ payload isn't valid JSON", async () => {
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "__ERROR__not-json\n" }]);
+
+    const result = runAgentTurn(baseParams(sandbox));
+    await expect(result).rejects.not.toBeInstanceOf(PromptTooLongError);
+    await expect(result).rejects.toThrow(/produced no result line/);
+  });
 });

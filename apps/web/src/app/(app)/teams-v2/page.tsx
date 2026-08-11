@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
-import type { Agent, Team, TeamContextItem } from "@agentfactory/core";
+import type { Agent, OverflowPolicy, Team, TeamContextItem } from "@agentfactory/core";
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
 import { parseSharedContext, serializeSharedContext } from "@/lib/shared-context";
 import { SharedContextPanels } from "@/components/SharedContextPanels";
@@ -334,7 +334,7 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
   const [systemPrompt, setSystemPrompt] = useState("");
   const [mode, setMode] = useState<"manual" | "automatic">("manual");
   const [model, setModel] = useState(DEFAULT_MODEL_ID);
-  const [onContextOverflow, setOnContextOverflow] = useState<"fallback" | "fail_fast">("fallback");
+  const [onContextOverflow, setOnContextOverflow] = useState<OverflowPolicy>("fallback");
   const [saving, setSaving] = useState(false);
 
   async function handleCreate(e: React.FormEvent) {
@@ -437,7 +437,7 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
           </label>
           <select
             value={onContextOverflow}
-            onChange={(e) => setOnContextOverflow(e.target.value as "fallback" | "fail_fast")}
+            onChange={(e) => setOnContextOverflow(e.target.value as OverflowPolicy)}
             className={selectClassName}
           >
             <option value="fallback">{t("teamsV2.onContextOverflowFallback")}</option>
@@ -562,7 +562,7 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
           </label>
           <select
             value={onContextOverflow}
-            onChange={(e) => setOnContextOverflow(e.target.value as "fallback" | "fail_fast")}
+            onChange={(e) => setOnContextOverflow(e.target.value as OverflowPolicy)}
             className={selectClassName}
           >
             <option value="fallback">{t("teamsV2.onContextOverflowFallback")}</option>
