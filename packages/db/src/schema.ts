@@ -111,6 +111,8 @@ export const agents = pgTable(
     // and Connections have no real backend of their own. Revisit when they get one.
     skillIds: jsonb("skill_ids").$type<number[]>().notNull().default([]),
     connectionIds: jsonb("connection_ids").$type<number[]>().notNull().default([]),
+    // Intentionally unwired for alpha (issue #65): editing UI removed, nothing reads this.
+    // Column kept to avoid a migration for no gain; do not build UI on top of it without a plan.
     areaMap: jsonb("area_map").$type<Record<string, string>>(),
     defaultCodebase: text("default_codebase"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
