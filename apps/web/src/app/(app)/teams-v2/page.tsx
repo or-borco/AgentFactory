@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
-import type { Agent, Team, TeamContextItem } from "@agentfactory/core";
+import type { Agent, Team } from "@agentfactory/core";
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
 import { parseSharedContext, serializeSharedContext } from "@/lib/shared-context";
 import { SharedContextPanels } from "@/components/SharedContextPanels";
@@ -18,36 +18,9 @@ const SHARED_CONTEXT_MAX = 65536; // 64 KB
 
 function MembersTab({ team }: { team: Team }) {
   const { t } = useTranslation();
-  const { orgMembers, contextItemsForTeam, createContextItem, deleteContextItem, updateTeamSharedContext, notify } = useMockBackend();
-  const [addingDoc, setAddingDoc] = useState(false);
-  const [docTitle, setDocTitle] = useState("");
-  const [saving, setSaving] = useState(false);
+  const { orgMembers, updateTeamSharedContext } = useMockBackend();
 
-  const items = contextItemsForTeam(team.id);
   const usedBytes = new TextEncoder().encode(team.sharedContext).length;
-
-  async function handleAddDoc(e: React.FormEvent) {
-    e.preventDefault();
-    if (!docTitle.trim()) return;
-    setSaving(true);
-    try {
-      await createContextItem(team.id, docTitle.trim());
-      notify("toast.contextItemAdded");
-      setDocTitle("");
-      setAddingDoc(false);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDeleteItem(item: TeamContextItem) {
-    try {
-      await deleteContextItem(team.id, item.id);
-      notify("toast.contextItemDeleted");
-    } catch {
-      notify("toast.error");
-    }
-  }
 
   return (
     <div className="space-y-8 py-6">
@@ -91,77 +64,6 @@ function MembersTab({ team }: { team: Team }) {
             await updateTeamSharedContext(team.id, serializeSharedContext(updated));
           }}
         />
-      </section>
-
-      {/* Context documents */}
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-[var(--color-neutral-300)]">
-              {t("teamsV2.contextDocsSection")}
-            </h3>
-            <p className="text-xs text-[var(--color-neutral-500)]">{t("teamsV2.contextDocsDescription")}</p>
-          </div>
-          {!addingDoc && (
-            <Button variant="secondary" onClick={() => setAddingDoc(true)}>
-              {t("teamsV2.addDocument")}
-            </Button>
-          )}
-        </div>
-
-        {addingDoc && (
-          <form onSubmit={handleAddDoc} className="mb-4 flex gap-2">
-            <TextInput
-              autoFocus
-              placeholder={t("teamsV2.addDocumentPlaceholder")}
-              value={docTitle}
-              onChange={(e) => setDocTitle(e.target.value)}
-              className="flex-1"
-            />
-            <Button type="submit" disabled={saving || !docTitle.trim()}>
-              {t("common.save")}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => { setAddingDoc(false); setDocTitle(""); }}
-            >
-              {t("common.cancel")}
-            </Button>
-          </form>
-        )}
-
-        {items.length === 0 && !addingDoc ? (
-          <EmptyState
-            icon="📄"
-            title={t("teamsV2.noContextDocs")}
-            subtitle={t("teamsV2.noContextDocsSub")}
-          />
-        ) : (
-          <div className="space-y-2">
-            {items.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between rounded-[var(--radius-sm)] border border-[var(--color-divider)] px-4 py-2.5"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-[var(--color-neutral-200)]">{item.title}</span>
-                  {item.sizeBytes > 0 && (
-                    <span className="text-xs text-[var(--color-neutral-500)]">
-                      {(item.sizeBytes / 1024).toFixed(1)} KB
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={() => handleDeleteItem(item)}
-                  className="text-xs text-[var(--color-neutral-500)] hover:text-red-400 transition-colors cursor-pointer"
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
       </section>
     </div>
   );
