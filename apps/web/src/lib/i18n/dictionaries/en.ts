@@ -116,6 +116,17 @@ const en = {
     send: "Send",
     replyFailed: "The agent couldn't reply — please try again.",
   },
+  settings: {
+    title: "Settings",
+    organizationHeading: "Organization",
+    orgFallback: "—",
+    githubAppHeading: "GitHub App",
+    githubNotConfigured: "Not configured",
+    githubConfiguredHelp: "The platform GitHub App is registered and ready for connections below.",
+    githubNotConfiguredHelp: "Register the platform GitHub App before connecting repositories.",
+    githubConfiguredBadge: "Configured",
+    githubNotConfiguredBadge: "Not configured",
+  },
   connections: {
     title: "Connections",
     subtitle: "Source control, channels, and task systems agents can use",
