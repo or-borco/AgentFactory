@@ -172,6 +172,10 @@ new Worker<RunJobData>(
       await touchSessionActivity(session.id);
     } catch (err) {
       await updateRunStatus(runId, "failed");
+      // Surface the failure on the owning task too — otherwise it's stuck at whatever status
+      // it had when the run started, and the "failed" StatusPill can never actually show up.
+      const task = await getTaskBySessionId(run.sessionId);
+      if (task) await updateTask(task.id, { status: "failed" });
       throw err; // still let BullMQ mark the job failed
     }
   },

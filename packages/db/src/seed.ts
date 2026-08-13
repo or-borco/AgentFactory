@@ -303,7 +303,8 @@ async function main() {
     .onConflictDoNothing();
 
   // ── Tasks ──────────────────────────────────────────────────────────────────────
-  // Mirrors the prototype's T-035…T-042 rows, covering every TaskStatus.
+  // T-035…T-042 mirror the prototype's rows; T-043/T-044 were added alongside the failed/
+  // cancelled statuses so every TaskStatus has a seeded row to exercise in local dev.
   await db
     .insert(tasks)
     .overridingSystemValue()
@@ -463,6 +464,37 @@ async function main() {
         createdBy: 1,
         createdAt: hoursAgo(60),
         updatedAt: hoursAgo(12),
+      },
+      {
+        id: 43,
+        orgId: ORG_ID,
+        ref: "T-043",
+        title: "Backfill legacy user avatars from Gravatar",
+        description: "One-off script to populate avatar_url for accounts created before the upload flow existed.",
+        acceptanceCriteria: [
+          { text: "Script fetches Gravatar for accounts missing avatar_url", done: false },
+          { text: "Falls back to initials avatar on 404", done: false },
+        ],
+        status: "failed",
+        assigneeAgentId: 3,
+        area: "scripts/",
+        codebase: "acme-corp/backend",
+        createdBy: 1,
+        createdAt: hoursAgo(90),
+        updatedAt: hoursAgo(70),
+      },
+      {
+        id: 44,
+        orgId: ORG_ID,
+        ref: "T-044",
+        title: "Evaluate GraphQL gateway for public API",
+        description: "Spike to compare a GraphQL gateway against the current REST surface before committing to a rewrite.",
+        acceptanceCriteria: [{ text: "Write up findings comparing latency and DX", done: false }],
+        status: "cancelled",
+        area: "docs/",
+        createdBy: 1,
+        createdAt: hoursAgo(150),
+        updatedAt: hoursAgo(140),
       },
     ])
     .onConflictDoNothing();
