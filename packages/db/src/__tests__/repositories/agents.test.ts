@@ -18,6 +18,20 @@ describe("agents repository", () => {
     await expect(getAgent(agent.id)).resolves.toEqual(agent);
   });
 
+  it("creates an agent with a default codebase", async () => {
+    const org = await insertOrg();
+    const agent = await createAgent(org.id, {
+      name: "Backend agent",
+      description: "",
+      systemPrompt: "Ship it.",
+      mode: "manual",
+      defaultCodebase: "acme-corp/backend",
+    });
+
+    expect(agent.defaultCodebase).toBe("acme-corp/backend");
+    await expect(getAgent(agent.id)).resolves.toEqual(agent);
+  });
+
   it("lists only agents belonging to the given org", async () => {
     const org1 = await insertOrg();
     const org2 = await insertOrg();

@@ -50,6 +50,7 @@ export interface NewAgentInput {
   teamId?: number;
   /** Model catalog id (see @agentfactory/core MODEL_CATALOG). Defaults to DEFAULT_MODEL_ID. */
   model?: string;
+  defaultCodebase?: string;
 }
 
 export async function createAgent(orgId: number, input: NewAgentInput): Promise<Agent> {
@@ -68,6 +69,7 @@ export async function createAgent(orgId: number, input: NewAgentInput): Promise<
       toolPolicy: { defaultDecision: "deny", rules: [] },
       skillIds: [],
       connectionIds: [],
+      defaultCodebase: input.defaultCodebase || null,
     })
     .returning();
   return toAgent(row);

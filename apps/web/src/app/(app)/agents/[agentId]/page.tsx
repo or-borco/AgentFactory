@@ -103,6 +103,7 @@ export default function AgentDetailPage() {
             description: agent.description ?? "",
             systemPrompt: agent.systemPrompt,
             mode: agent.mode,
+            defaultCodebase: agent.defaultCodebase ?? "",
           }}
           onClose={() => setShowEdit(false)}
           onSubmit={async (values: AgentFormValues) => {
