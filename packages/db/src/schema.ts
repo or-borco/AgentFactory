@@ -229,6 +229,8 @@ export const taskStatusEnum = pgEnum("task_status", [
   "pr_open",
   "review_cycle",
   "done",
+  "failed",
+  "cancelled",
 ]);
 
 export const tasks = pgTable(
