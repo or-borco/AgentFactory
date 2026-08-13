@@ -3,7 +3,7 @@ import { getCurrentUser } from "@/server/auth";
 
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
-  if (user) redirect("/agents");
+  if (user) redirect("/tasks");
 
   return <>{children}</>;
 }

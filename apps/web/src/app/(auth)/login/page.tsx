@@ -23,7 +23,7 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       await apiFetch("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
-      router.push("/agents");
+      router.push("/tasks");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("auth.genericError"));

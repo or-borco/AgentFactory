@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "@/lib/i18n/context";
-import { ActivityIcon, BotIcon, LinkIcon, LogOutIcon, SettingsIcon, SparklesIcon, TasksIcon, UsersIcon } from "@/lib/icons";
+import { ActivityIcon, BotIcon, LogOutIcon, SettingsIcon, TasksIcon, UsersIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import { useAuth } from "@/lib/auth/context";
 
@@ -18,13 +18,6 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
     { href: "/activity", label: t("nav.activity"), icon: ActivityIcon },
     { href: "/teams-v2", label: t("nav.teams"), icon: UsersIcon },
     { href: "/settings", label: t("nav.settings"), icon: SettingsIcon },
-  ];
-
-  const legacyNavItems = [
-    { href: "/agents", label: t("nav.agents"), icon: BotIcon },
-    { href: "/teams", label: t("nav.teams"), icon: UsersIcon },
-    { href: "/skills", label: t("nav.skills"), icon: SparklesIcon },
-    { href: "/connections", label: t("nav.connections"), icon: LinkIcon },
   ];
 
   const initials = user.email.slice(0, 2).toUpperCase();
@@ -72,46 +65,6 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
                 }}
                 onMouseEnter={(e) => {
                   if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(145,132,217,0.1)";
-                }}
-                onMouseLeave={(e) => {
-                  if (!active) (e.currentTarget as HTMLElement).style.background = "transparent";
-                }}
-              >
-                <Icon size={15} style={{ flexShrink: 0 }} />
-                {label}
-              </Link>
-            );
-          })}
-
-          {/* Legacy nav — removed during Step 7 cutover */}
-          <div
-            style={{
-              margin: "8px 9px 4px",
-              borderTop: "1px solid var(--color-divider)",
-            }}
-          />
-          <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", color: "var(--color-neutral-600)", padding: "0 9px 4px", textTransform: "uppercase" }}>
-            Legacy
-          </div>
-          {legacyNavItems.map(({ href, label, icon: Icon }) => {
-            const active = pathname === href || pathname.startsWith(`${href}/`);
-            return (
-              <Link
-                key={href}
-                href={href}
-                className="flex items-center transition-colors"
-                style={{
-                  gap: 8,
-                  padding: "7px 9px",
-                  borderRadius: "var(--radius-sm)",
-                  marginBottom: 2,
-                  fontSize: 13,
-                  fontWeight: 500,
-                  background: active ? "var(--color-accent-900)" : "transparent",
-                  color: active ? "var(--color-neutral-500)" : "var(--color-neutral-600)",
-                }}
-                onMouseEnter={(e) => {
-                  if (!active) (e.currentTarget as HTMLElement).style.background = "rgba(145,132,217,0.07)";
                 }}
                 onMouseLeave={(e) => {
                   if (!active) (e.currentTarget as HTMLElement).style.background = "transparent";
