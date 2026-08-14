@@ -41,7 +41,7 @@ export default function RegisterPage() {
     setSubmitting(true);
     try {
       await apiFetch("/api/auth/register", { method: "POST", body: JSON.stringify({ name, email, password }) });
-      router.push("/agents");
+      router.push("/tasks");
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("auth.genericError"));

@@ -52,6 +52,7 @@ export interface NewAgentInput {
   /** Model catalog id (see @agentfactory/core MODEL_CATALOG). Defaults to DEFAULT_MODEL_ID. */
   model?: string;
   onContextOverflow?: OverflowPolicy;
+  defaultCodebase?: string;
 }
 
 export async function createAgent(orgId: number, input: NewAgentInput): Promise<Agent> {
@@ -71,6 +72,7 @@ export async function createAgent(orgId: number, input: NewAgentInput): Promise<
       skillIds: [],
       connectionIds: [],
       onContextOverflow: input.onContextOverflow ?? "fallback",
+      defaultCodebase: input.defaultCodebase || null,
     })
     .returning();
   return toAgent(row);

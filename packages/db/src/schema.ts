@@ -117,6 +117,8 @@ export const agents = pgTable(
     onContextOverflow: text("on_context_overflow", { enum: ["fallback", "fail_fast"] })
       .notNull()
       .default("fallback"),
+    // Intentionally unwired for alpha (issue #65): editing UI removed, nothing reads this.
+    // Column kept to avoid a migration for no gain; do not build UI on top of it without a plan.
     areaMap: jsonb("area_map").$type<Record<string, string>>(),
     defaultCodebase: text("default_codebase"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -237,6 +239,8 @@ export const taskStatusEnum = pgEnum("task_status", [
   "pr_open",
   "review_cycle",
   "done",
+  "failed",
+  "cancelled",
 ]);
 
 export const tasks = pgTable(

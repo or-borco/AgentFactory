@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
-import type { Agent, OverflowPolicy, Team, TeamContextItem } from "@agentfactory/core";
+import type { Agent, OverflowPolicy, Team } from "@agentfactory/core";
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
 import { parseSharedContext, serializeSharedContext } from "@/lib/shared-context";
 import { SharedContextPanels } from "@/components/SharedContextPanels";
@@ -18,36 +18,9 @@ const SHARED_CONTEXT_MAX = 65536; // 64 KB
 
 function MembersTab({ team }: { team: Team }) {
   const { t } = useTranslation();
-  const { orgMembers, contextItemsForTeam, createContextItem, deleteContextItem, updateTeamSharedContext, notify } = useMockBackend();
-  const [addingDoc, setAddingDoc] = useState(false);
-  const [docTitle, setDocTitle] = useState("");
-  const [saving, setSaving] = useState(false);
+  const { orgMembers, updateTeamSharedContext } = useMockBackend();
 
-  const items = contextItemsForTeam(team.id);
   const usedBytes = new TextEncoder().encode(team.sharedContext).length;
-
-  async function handleAddDoc(e: React.FormEvent) {
-    e.preventDefault();
-    if (!docTitle.trim()) return;
-    setSaving(true);
-    try {
-      await createContextItem(team.id, docTitle.trim());
-      notify("toast.contextItemAdded");
-      setDocTitle("");
-      setAddingDoc(false);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleDeleteItem(item: TeamContextItem) {
-    try {
-      await deleteContextItem(team.id, item.id);
-      notify("toast.contextItemDeleted");
-    } catch {
-      notify("toast.error");
-    }
-  }
 
   return (
     <div className="space-y-8 py-6">
@@ -92,150 +65,6 @@ function MembersTab({ team }: { team: Team }) {
           }}
         />
       </section>
-
-      {/* Context documents */}
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-[var(--color-neutral-300)]">
-              {t("teamsV2.contextDocsSection")}
-            </h3>
-            <p className="text-xs text-[var(--color-neutral-500)]">{t("teamsV2.contextDocsDescription")}</p>
-          </div>
-          {!addingDoc && (
-            <Button variant="secondary" onClick={() => setAddingDoc(true)}>
-              {t("teamsV2.addDocument")}
-            </Button>
-          )}
-        </div>
-
-        {addingDoc && (
-          <form onSubmit={handleAddDoc} className="mb-4 flex gap-2">
-            <TextInput
-              autoFocus
-              placeholder={t("teamsV2.addDocumentPlaceholder")}
-              value={docTitle}
-              onChange={(e) => setDocTitle(e.target.value)}
-              className="flex-1"
-            />
-            <Button type="submit" disabled={saving || !docTitle.trim()}>
-              {t("common.save")}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => { setAddingDoc(false); setDocTitle(""); }}
-            >
-              {t("common.cancel")}
-            </Button>
-          </form>
-        )}
-
-        {items.length === 0 && !addingDoc ? (
-          <EmptyState
-            icon="📄"
-            title={t("teamsV2.noContextDocs")}
-            subtitle={t("teamsV2.noContextDocsSub")}
-          />
-        ) : (
-          <div className="space-y-2">
-            {items.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between rounded-[var(--radius-sm)] border border-[var(--color-divider)] px-4 py-2.5"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="text-sm text-[var(--color-neutral-200)]">{item.title}</span>
-                  {item.sizeBytes > 0 && (
-                    <span className="text-xs text-[var(--color-neutral-500)]">
-                      {(item.sizeBytes / 1024).toFixed(1)} KB
-                    </span>
-                  )}
-                </div>
-                <button
-                  onClick={() => handleDeleteItem(item)}
-                  className="text-xs text-[var(--color-neutral-500)] hover:text-red-400 transition-colors cursor-pointer"
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
-// ── Area map editor ────────────────────────────────────────────────────────────
-
-type AreaMapRow = { id: number; path: string; desc: string };
-
-let nextRowId = 0;
-
-function mapToRows(areaMap: Record<string, string>): AreaMapRow[] {
-  return Object.entries(areaMap).map(([path, desc]) => ({ id: nextRowId++, path, desc }));
-}
-
-function rowsToMap(rows: AreaMapRow[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const row of rows) out[row.path] = row.desc;
-  return out;
-}
-
-function AreaMapEditor({
-  areaMap,
-  onChange,
-}: {
-  areaMap: Record<string, string>;
-  onChange: (map: Record<string, string>) => void;
-}) {
-  const { t } = useTranslation();
-  const [rows, setRows] = useState<AreaMapRow[]>(() => mapToRows(areaMap));
-
-  function updateRow(id: number, field: "path" | "desc", value: string) {
-    const next = rows.map((r) => (r.id === id ? { ...r, [field]: value } : r));
-    setRows(next);
-    onChange(rowsToMap(next));
-  }
-
-  function removeRow(id: number) {
-    const next = rows.filter((r) => r.id !== id);
-    setRows(next);
-    onChange(rowsToMap(next));
-  }
-
-  function addRow() {
-    setRows((prev) => [...prev, { id: nextRowId++, path: "", desc: "" }]);
-  }
-
-  return (
-    <div className="space-y-2">
-      {rows.map((row) => (
-        <div key={row.id} className="flex gap-2">
-          <TextInput
-            placeholder={t("teamsV2.areaMapPathPlaceholder")}
-            value={row.path}
-            onChange={(e) => updateRow(row.id, "path", e.target.value)}
-            className="w-48 shrink-0 font-mono text-xs"
-          />
-          <TextInput
-            placeholder={t("teamsV2.areaMapDescPlaceholder")}
-            value={row.desc}
-            onChange={(e) => updateRow(row.id, "desc", e.target.value)}
-            className="flex-1"
-          />
-          <button
-            onClick={() => removeRow(row.id)}
-            className="px-2 text-[var(--color-neutral-500)] hover:text-red-400 transition-colors cursor-pointer"
-          >
-            ×
-          </button>
-        </div>
-      ))}
-      <Button variant="secondary" onClick={addRow} className="text-xs">
-        + {t("teamsV2.addArea")}
-      </Button>
     </div>
   );
 }
@@ -466,28 +295,22 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
 
   const [systemPrompt, setSystemPrompt] = useState(agent.systemPrompt);
   const [defaultCodebase, setDefaultCodebase] = useState(agent.defaultCodebase ?? "");
-  const [areaMap, setAreaMap] = useState<Record<string, string>>(agent.areaMap ?? {});
   const [model, setModel] = useState(agent.model.id);
   const [onContextOverflow, setOnContextOverflow] = useState(agent.onContextOverflow);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
-  function sortedJson(map: Record<string, string>) {
-    return JSON.stringify(Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b))));
-  }
-
   const dirty =
     systemPrompt !== agent.systemPrompt ||
     defaultCodebase !== (agent.defaultCodebase ?? "") ||
     model !== agent.model.id ||
-    onContextOverflow !== agent.onContextOverflow ||
-    sortedJson(areaMap) !== sortedJson(agent.areaMap ?? {});
+    onContextOverflow !== agent.onContextOverflow;
 
   async function handleSave() {
     setSaving(true);
     try {
-      await updateAgent(agent.id, { systemPrompt, defaultCodebase, areaMap, model, onContextOverflow });
+      await updateAgent(agent.id, { systemPrompt, defaultCodebase, model, onContextOverflow });
     } finally {
       setSaving(false);
     }
@@ -568,14 +391,6 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
             <option value="fallback">{t("teamsV2.onContextOverflowFallback")}</option>
             <option value="fail_fast">{t("teamsV2.onContextOverflowFailFast")}</option>
           </select>
-        </div>
-
-        <div>
-          <div className="mb-2">
-            <div className="text-xs font-medium text-[var(--color-neutral-400)]">{t("teamsV2.areaMapSection")}</div>
-            <div className="text-xs text-[var(--color-neutral-500)]">{t("teamsV2.areaMapDescription")}</div>
-          </div>
-          <AreaMapEditor areaMap={areaMap} onChange={setAreaMap} />
         </div>
       </div>
 

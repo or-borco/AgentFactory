@@ -25,7 +25,7 @@ export default function AgentDetailPage() {
   return (
     <div className="pb-16">
       <div className="px-10 pt-8">
-        <Breadcrumb href="/agents" label={t("agents.title")} icon={<ArrowLeftIcon size={15} />} />
+        <Breadcrumb href="/teams-v2" label={t("nav.teams")} icon={<ArrowLeftIcon size={15} />} />
       </div>
 
       <div className="flex items-start justify-between px-10 pt-4">
@@ -103,6 +103,7 @@ export default function AgentDetailPage() {
             description: agent.description ?? "",
             systemPrompt: agent.systemPrompt,
             mode: agent.mode,
+            defaultCodebase: agent.defaultCodebase ?? "",
           }}
           onClose={() => setShowEdit(false)}
           onSubmit={async (values: AgentFormValues) => {

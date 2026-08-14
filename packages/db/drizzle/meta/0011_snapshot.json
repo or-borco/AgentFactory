@@ -1,6 +1,6 @@
 {
-  "id": "c7c49c0e-c0c9-43a2-983f-6da5922b0c18",
-  "prevId": "ee5d614f-4c08-4e62-acdd-fccad36ec464",
+  "id": "1e814f4b-57c5-46c9-8d9e-1ef070216e0c",
+  "prevId": "c7c49c0e-c0c9-43a2-983f-6da5922b0c18",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -101,6 +101,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'[]'::jsonb"
+        },
+        "on_context_overflow": {
+          "name": "on_context_overflow",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'fallback'"
         },
         "area_map": {
           "name": "area_map",
@@ -683,6 +690,12 @@
         },
         "workspace_snapshot": {
           "name": "workspace_snapshot",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "model": {
+          "name": "model",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false

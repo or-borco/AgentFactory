@@ -2,11 +2,11 @@ import { expect, test, uniqueSuffix } from "./fixtures";
 
 test.describe("authentication", () => {
   test("visiting a protected route while logged out redirects to /login", async ({ page }) => {
-    await page.goto("/agents");
+    await page.goto("/tasks");
     await expect(page).toHaveURL(/\/login$/);
   });
 
-  test("signing up creates an account and lands on the Agents page", async ({ page }) => {
+  test("signing up creates an account and lands on the Tasks page", async ({ page }) => {
     const suffix = uniqueSuffix();
     await page.goto("/register");
 
@@ -16,23 +16,22 @@ test.describe("authentication", () => {
     await page.getByPlaceholder("••••••••").last().fill("password123");
     await page.getByRole("button", { name: "Create account" }).click();
 
-    await expect(page).toHaveURL(/\/agents$/);
-    await expect(page.getByText("Agents have moved")).toBeVisible();
+    await expect(page).toHaveURL(/\/tasks$/);
   });
 
   test("logging out redirects to /login and clears the session", async ({ page, registeredUser }) => {
-    await page.goto("/agents");
-    await expect(page.getByText("Agents have moved")).toBeVisible();
+    await page.goto("/tasks");
+    await expect(page).toHaveURL(/\/tasks$/);
 
     await page.locator('[title="Log out"]').click();
 
     await expect(page).toHaveURL(/\/login$/);
     // The session cookie is gone, so a fresh visit to a protected route redirects again.
-    await page.goto("/agents");
+    await page.goto("/tasks");
     await expect(page).toHaveURL(/\/login$/);
   });
 
-  test("logging in with valid credentials redirects to Agents", async ({ page, registeredUser }) => {
+  test("logging in with valid credentials redirects to Tasks", async ({ page, registeredUser }) => {
     await page.context().clearCookies();
     await page.goto("/login");
 
@@ -40,7 +39,7 @@ test.describe("authentication", () => {
     await page.getByPlaceholder("••••••••").fill(registeredUser.password);
     await page.getByRole("button", { name: "Log in" }).click();
 
-    await expect(page).toHaveURL(/\/agents$/);
+    await expect(page).toHaveURL(/\/tasks$/);
   });
 
   test("logging in with the wrong password shows an error and stays on /login", async ({ page, registeredUser }) => {

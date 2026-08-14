@@ -26,7 +26,7 @@ export default function NewTaskPage() {
   const [modelId, setModelId] = useState(DEFAULT_MODEL_ID);
   const [modelTouched, setModelTouched] = useState(false);
   const [area, setArea] = useState("");
-  const [codebase, setCodebase] = useState("");
+  const [codebaseOverride, setCodebaseOverride] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
   const [repos, setRepos] = useState<RepoOption[]>([]);
   const [reposLoading, setReposLoading] = useState(true);
@@ -47,6 +47,14 @@ export default function NewTaskPage() {
 
   const selectedAgent = agents.find((a) => a.id === assigneeAgentId);
 
+  // Pre-select the assignee's default codebase once the connected-repo list is known, but only
+  // if the assigner hasn't already picked a repo themselves. If the agent's default isn't among
+  // the connected repos, fall back to no selection rather than showing an unusable value.
+  const defaultCodebase = selectedAgent?.defaultCodebase;
+  const preselectedCodebase =
+    defaultCodebase && repos.some((repo) => repo.fullName === defaultCodebase) ? defaultCodebase : "";
+  const codebase = codebaseOverride ?? preselectedCodebase;
+
   function handleAssigneeChange(nextId: number | undefined) {
     setAssigneeAgentId(nextId);
     const nextAgent = agents.find((a) => a.id === nextId);
@@ -56,6 +64,10 @@ export default function NewTaskPage() {
   function handleModelChange(nextModelId: string) {
     setModelId(nextModelId);
     setModelTouched(selectedAgent ? nextModelId !== selectedAgent.model.id : true);
+  }
+
+  function handleCodebaseChange(nextCodebase: string) {
+    setCodebaseOverride(nextCodebase);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -176,7 +188,11 @@ export default function NewTaskPage() {
             />
           </Field>
           <Field label={t("tasks.create.codebaseLabel")}>
-            <select value={codebase} onChange={(e) => setCodebase(e.target.value)} style={selectStyle(!!codebase)}>
+            <select
+              value={codebase}
+              onChange={(e) => handleCodebaseChange(e.target.value)}
+              style={selectStyle(!!codebase)}
+            >
               <option value="">
                 {reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
               </option>

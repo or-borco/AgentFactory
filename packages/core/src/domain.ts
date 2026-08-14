@@ -84,6 +84,7 @@ export interface Agent {
   skillIds: ID[];
   connectionIds: ID[];
   onContextOverflow: OverflowPolicy;
+  // Intentionally unwired for alpha (issue #65): no editing UI and nothing reads this yet.
   areaMap?: Record<string, string>;
   defaultCodebase?: string;
   createdAt: ISODateTime;
@@ -158,7 +159,9 @@ export type TaskStatus =
   | "needs_input"
   | "pr_open"
   | "review_cycle"
-  | "done";
+  | "done"
+  | "failed"
+  | "cancelled";
 
 export interface AcceptanceCriterion {
   text: string;
