@@ -3,6 +3,9 @@ import { NextResponse } from "next/server";
 import { deleteTask, getTask, updateTask } from "@agentfactory/db";
 import { enqueueSandboxTeardownJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
+import type { TaskStatus } from "@agentfactory/core";
+
+const TERMINAL_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set(["done", "failed", "cancelled"]);
 
 export async function GET(_req: Request, { params }: { params: Promise<{ taskId: string }> }) {
   const ctx = await requireAuthContext();
@@ -20,9 +23,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ taskId
   const body = await req.json();
   const task = await updateTask(Number(taskId), body);
 
-  // A task marked done no longer needs its warm sandbox — tear it down. The worker owns the
-  // docker socket, so this only enqueues the job (see /api/tasks/[taskId]/route.ts DELETE below).
-  if (body.status === "done" && task.sessionId) {
+  // A task that's reached a terminal status no longer needs its warm sandbox — tear it down.
+  // The worker owns the docker socket, so this only enqueues the job (see the DELETE handler below).
+  if (body.status && TERMINAL_TASK_STATUSES.has(task.status) && task.sessionId) {
     await enqueueSandboxTeardownJob(task.sessionId);
   }
 
