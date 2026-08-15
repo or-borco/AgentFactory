@@ -1,5 +1,5 @@
 import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
-import type { Run, RunStatus } from "@agentfactory/core";
+import type { ModelSpec, Run, RunStatus } from "@agentfactory/core";
 import { db } from "../client";
 import { runs } from "../schema";
 
@@ -15,6 +15,7 @@ function toRun(row: typeof runs.$inferSelect): Run {
     tokensUsed: row.tokensUsed,
     budgetExceeded: row.budgetExceeded ?? undefined,
     workspaceSnapshot: (row.workspaceSnapshot as Record<string, string>) ?? undefined,
+    model: row.model ?? undefined,
     createdAt: row.createdAt.toISOString(),
     finishedAt: row.finishedAt ? row.finishedAt.toISOString() : undefined,
   };
@@ -49,11 +50,12 @@ export async function getRun(id: number): Promise<Run | undefined> {
 export async function updateRunStatus(
   id: number,
   status: RunStatus,
-  patch?: { finishedAt?: Date; providerSessionRef?: string },
+  patch?: { finishedAt?: Date; providerSessionRef?: string; model?: ModelSpec },
 ): Promise<Run | undefined> {
   const values: Partial<typeof runs.$inferInsert> = { status };
   if (patch?.finishedAt !== undefined) values.finishedAt = patch.finishedAt;
   if (patch?.providerSessionRef !== undefined) values.providerSessionRef = patch.providerSessionRef;
+  if (patch?.model !== undefined) values.model = patch.model;
 
   const [row] = await db.update(runs).set(values).where(eq(runs.id, id)).returning();
   return row ? toRun(row) : undefined;

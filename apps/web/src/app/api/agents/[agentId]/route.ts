@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteAgent, getAgent, updateAgent } from "@agentfactory/db";
-import { isValidModelId } from "@agentfactory/core";
+import { isValidModelId, isValidOverflowPolicy } from "@agentfactory/core";
 import { requireAuthContext } from "@/server/auth";
 
 // Requires a logged-in user but doesn't yet verify agentId belongs to their org — same
@@ -11,6 +11,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ag
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (body.model !== undefined && !isValidModelId(body.model)) {
     return NextResponse.json({ error: "Invalid model id" }, { status: 400 });
+  }
+  if (body.onContextOverflow !== undefined && !isValidOverflowPolicy(body.onContextOverflow)) {
+    return NextResponse.json({ error: "Invalid onContextOverflow value" }, { status: 400 });
   }
   const agent = await updateAgent(Number(agentId), body);
   if (!agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 });

@@ -11,6 +11,15 @@ export interface AgentTurnResult {
 const RESULT_MARKER = "__RESULT__";
 // Must match EVENT_MARKER in apps/worker/sandbox-image/run-turn.ts.
 const EVENT_MARKER = "__EVENT__";
+// Must match ERROR_MARKER in apps/worker/sandbox-image/run-turn.ts.
+const ERROR_MARKER = "__ERROR__";
+
+export class PromptTooLongError extends Error {
+  constructor() {
+    super("Prompt is too long for the assigned model's context window");
+    this.name = "PromptTooLongError";
+  }
+}
 
 // The Claude Agent SDK call now runs *inside* the sandbox (apps/worker/sandbox-image/run-turn.ts),
 // not on the worker's own host process — this function just execs into it and parses the one
@@ -85,11 +94,25 @@ export async function runAgentTurn(params: {
     }
   }
 
-  const markerIndex = stdout.lastIndexOf(RESULT_MARKER);
-  if (markerIndex === -1) {
+  // A successful run always wins: only treat __ERROR__ as authoritative when no valid
+  // __RESULT__ line is present. Otherwise a result whose text merely quotes/discusses the
+  // literal marker string (e.g. an agent asked to explain run-turn.ts, which contains it)
+  // could be misread as a real failure even though the turn actually succeeded.
+  const resultLine = stdout.split("\n").find((line) => line.startsWith(RESULT_MARKER));
+  if (!resultLine) {
+    const errorLine = stdout.split("\n").find((line) => line.startsWith(ERROR_MARKER));
+    if (errorLine) {
+      let errorPayload: { code: string } | undefined;
+      try {
+        errorPayload = JSON.parse(errorLine.slice(ERROR_MARKER.length)) as { code: string };
+      } catch {
+        // malformed error line — fall through to the generic failure below
+      }
+      if (errorPayload?.code === "prompt_too_long") throw new PromptTooLongError();
+    }
     throw new Error(`Sandbox run produced no result line. stdout: ${stdout}\nstderr: ${stderr}`);
   }
-  const jsonLine = stdout.slice(markerIndex + RESULT_MARKER.length).split("\n")[0];
+  const jsonLine = resultLine.slice(RESULT_MARKER.length);
   const parsed = JSON.parse(jsonLine) as AgentTurnResult;
   return parsed;
 }

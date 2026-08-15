@@ -37,6 +37,13 @@ export interface PolicyDecisionEvent extends RunEventBase {
   ruleMatched: string;
 }
 
+export interface ModelEscalatedEvent extends RunEventBase {
+  type: "model_escalated";
+  fromModel: string;
+  toModel: string;
+  reason: "context_overflow";
+}
+
 export interface ArtifactEvent extends RunEventBase {
   type: "artifact";
   artifactType: "pr" | "diff" | "file" | "report";
@@ -67,6 +74,7 @@ export type RunEvent =
   | ToolCallEvent
   | ToolResultEvent
   | PolicyDecisionEvent
+  | ModelEscalatedEvent
   | ArtifactEvent
   | UsageEvent
   | ErrorEvent

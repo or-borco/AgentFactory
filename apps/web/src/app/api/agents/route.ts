@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAgent, listAgents } from "@agentfactory/db";
-import { isValidModelId } from "@agentfactory/core";
+import { isValidModelId, isValidOverflowPolicy } from "@agentfactory/core";
 import { requireAuthContext } from "@/server/auth";
 
 export async function GET() {
@@ -15,6 +15,9 @@ export async function POST(request: Request) {
   const body = await request.json();
   if (body.model !== undefined && !isValidModelId(body.model)) {
     return NextResponse.json({ error: "Invalid model id" }, { status: 400 });
+  }
+  if (body.onContextOverflow !== undefined && !isValidOverflowPolicy(body.onContextOverflow)) {
+    return NextResponse.json({ error: "Invalid onContextOverflow value" }, { status: 400 });
   }
   const agent = await createAgent(ctx.orgId, body);
   return NextResponse.json(agent, { status: 201 });
