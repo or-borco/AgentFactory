@@ -75,6 +75,17 @@ describe("runs repository", () => {
     expect(updated?.model).toEqual(model);
     await expect(getRun(run.id)).resolves.toMatchObject({ model });
   });
+
+  it("persists the composed prompt's hash", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+    const promptHash = "a".repeat(64);
+
+    const updated = await updateRunStatus(run.id, "running", { promptHash });
+
+    expect(updated?.promptHash).toBe(promptHash);
+    await expect(getRun(run.id)).resolves.toMatchObject({ promptHash });
+  });
 });
 
 describe("events repository", () => {
