@@ -212,6 +212,14 @@ export interface PushResult {
   // tree, so callers (the workspace-snapshot UI, the PR body) can show just what changed instead
   // of every file the clone happened to bring in.
   changedFiles: string[];
+  // Set whenever the agent ended its turn checked out on a branch other than target.branch (it
+  // has full unrestricted bash access — nothing stops it running `git checkout -b`). When set,
+  // `agentBranch` is whatever branch it was actually on. If that branch was a descendant of
+  // target.branch, the script fast-forwards target.branch onto it before continuing (see the
+  // BRANCH_MISMATCH marker below) and `pushed` reflects the recovered push; otherwise nothing is
+  // touched and `pushed` stays false — the caller (worker.ts) surfaces either outcome as an event
+  // so it's never silently lost like it was for T-047.
+  branchMismatch?: { agentBranch: string };
 }
 
 export async function pushChangesIfDirty(
@@ -225,12 +233,38 @@ export async function pushChangesIfDirty(
 
   const script = `
 cd /workspace || { echo PUSH_FAILED; exit 0; }
-if [ -z "$(git status --porcelain)" ]; then
+
+CURRENT_BRANCH=$(git branch --show-current)
+if [ "$CURRENT_BRANCH" != "$BRANCH_NAME" ]; then
+  echo "BRANCH_MISMATCH:$CURRENT_BRANCH"
+  # Only ever fast-forward — never rewrite history. If $BRANCH_NAME isn't an ancestor of what's
+  # checked out now (agent ended up somewhere unrelated/behind), leave it alone and just check it
+  # back out, so the next turn in this session still starts from the canonical branch.
+  if git merge-base --is-ancestor "$BRANCH_NAME" HEAD 2>/dev/null; then
+    git branch -f "$BRANCH_NAME" HEAD
+  fi
+  git checkout "$BRANCH_NAME"
+fi
+
+# "Anything to push" means uncommitted edits, or commits already made that the remote doesn't
+# have yet (the agent may have committed its own work, on this branch or the one folded in
+# above) — not just a dirty working tree, which is all the old check looked at.
+UPSTREAM_BASE=$(git rev-parse --verify "origin/$BRANCH_NAME" 2>/dev/null || git rev-parse --verify origin/HEAD 2>/dev/null)
+AHEAD=""
+if [ -n "$UPSTREAM_BASE" ]; then
+  AHEAD=$(git rev-list "$UPSTREAM_BASE..HEAD" 2>/dev/null)
+fi
+
+if [ -z "$(git status --porcelain)" ] && [ -z "$AHEAD" ]; then
   echo NO_CHANGES
 else
-  git add -A
-  git -c user.email="agent@agentfactory.local" -c user.name="$AUTHOR_NAME" commit -m "$COMMIT_MESSAGE"
-  COMMIT_STATUS=$?
+  if [ -n "$(git status --porcelain)" ]; then
+    git add -A
+    git -c user.email="agent@agentfactory.local" -c user.name="$AUTHOR_NAME" commit -m "$COMMIT_MESSAGE"
+    COMMIT_STATUS=$?
+  else
+    COMMIT_STATUS=0
+  fi
   git diff-tree --no-commit-id --name-only -r HEAD | sed 's/^/CHANGED_FILE:/'
   git remote set-url origin "https://x-access-token:$PUSH_TOKEN@github.com/$REPO_FULL_NAME.git"
   git push -u origin "$BRANCH_NAME"
@@ -252,14 +286,17 @@ fi`;
     if (chunk.stream === "stdout") stdout += chunk.data;
   }
 
-  if (stdout.includes("NO_CHANGES")) return { pushed: false, changedFiles: [] };
+  const mismatchMatch = /^BRANCH_MISMATCH:(.*)$/m.exec(stdout);
+  const branchMismatch = mismatchMatch ? { agentBranch: mismatchMatch[1] } : undefined;
+
+  if (stdout.includes("NO_CHANGES")) return { pushed: false, changedFiles: [], branchMismatch };
   if (stdout.includes("PUSH_OK")) {
     const changedFiles = stdout
       .split("\n")
       .filter((line) => line.startsWith("CHANGED_FILE:"))
       .map((line) => line.slice("CHANGED_FILE:".length).trim())
       .filter(Boolean);
-    return { pushed: true, changedFiles };
+    return { pushed: true, changedFiles, branchMismatch };
   }
   throw new Error("Failed to push agent changes to the remote");
 }

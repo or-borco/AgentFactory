@@ -113,7 +113,15 @@ const runWorker = new Worker<RunJobData>(
             issueContext = `\n\nGitHub issue ${issueRef.repoFullName}#${issueRef.issueNumber}: ${issue.title}\n\n${issue.body}`;
           }
         } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
           console.error(`Failed to fetch GitHub issue for task ${task?.ref}:`, err);
+          // Recorded as a run event (not just console.error) so this is visible in the
+          // transcript — this failure previously vanished silently, leaving the agent to
+          // fall back to an unauthenticated, always-doomed fetch attempt from inside its own
+          // sandbox with no way for anyone to tell why it didn't have the issue content.
+          await createEvent(runId, seq++, "error", {
+            message: `Couldn't fetch GitHub issue ${issueRef.repoFullName}#${issueRef.issueNumber}: ${message}`,
+          });
         }
       }
 
@@ -178,7 +186,21 @@ const runWorker = new Worker<RunJobData>(
           agent.name,
         );
         changedFiles = result.changedFiles;
-        if (result.pushed) {
+        if (result.branchMismatch) {
+          // The agent has full unrestricted bash access and occasionally switches off the
+          // session's assigned branch mid-turn (see T-047) — surfaced as a run event rather than
+          // left to vanish the way it did there, whether or not pushChangesIfDirty could recover
+          // the work automatically.
+          await createEvent(runId, seq++, "error", {
+            message: result.pushed
+              ? `Agent committed to branch "${result.branchMismatch.agentBranch}" instead of the assigned "${workspace.branch}" — recovered automatically and pushed from there.`
+              : `Agent committed to branch "${result.branchMismatch.agentBranch}" instead of the assigned "${workspace.branch}" — left uncommitted; nothing was pushed this turn.`,
+          });
+        }
+        // A push after the first one just updates the existing PR on GitHub's side automatically
+        // (same head branch) — opening another PR for a branch that already has one 422s. Only
+        // ever open once per task; task.prNumber is the record of whether that's already happened.
+        if (result.pushed && !task.prNumber) {
           const pr = await openDraftPullRequest(
             workspace.installationId,
             workspace.repoFullName,
