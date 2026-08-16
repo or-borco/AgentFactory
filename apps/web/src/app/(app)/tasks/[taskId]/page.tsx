@@ -205,6 +205,21 @@ export default function TaskDetailPage() {
     return byRun;
   }, [rawEvents]);
 
+  // Errors recorded on a run — including a top-level failure that never reached
+  // createMessage, so this is the only record of it. Keyed by runId, same shape as
+  // thinkingByRun, so both can drive rendering next to (or in place of) that run's reply.
+  const errorsByRun = useMemo(() => {
+    const byRun = new Map<number, string[]>();
+    for (const event of rawEvents) {
+      if (event.type !== "error") continue;
+      const message = typeof event.data.message === "string" ? event.data.message : "Something went wrong.";
+      const messages = byRun.get(event.runId) ?? [];
+      messages.push(message);
+      byRun.set(event.runId, messages);
+    }
+    return byRun;
+  }, [rawEvents]);
+
   // Only editable before a session exists — once a run has started, the assignee is committed
   // to that session and reassigning here wouldn't move or restart anything.
   const handleAssigneeChange = async (assigneeAgentId: number | undefined) => {
@@ -696,6 +711,10 @@ export default function TaskDetailPage() {
                 <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                   {messages.map((msg) => (
                     <div key={msg.id} style={{ animation: "fadein 0.18s ease" }}>
+                      {/* Non-fatal issues from this turn, shown above the agent's reply. */}
+                      {msg.role === "assistant" && msg.runId != null && errorsByRun.has(msg.runId) && (
+                        <ErrorNotice messages={errorsByRun.get(msg.runId)!} />
+                      )}
                       {/* Thinking for this turn, shown right above the agent's reply. */}
                       {showThinking && msg.role === "assistant" && msg.runId != null && thinkingByRun.has(msg.runId) && (
                         <ThinkingBlock steps={thinkingByRun.get(msg.runId)!} />
@@ -738,6 +757,18 @@ export default function TaskDetailPage() {
                     return [...thinkingByRun.entries()]
                       .filter(([runId]) => !answeredRunIds.has(runId))
                       .map(([runId, steps]) => <ThinkingBlock key={`live-${runId}`} steps={steps} />);
+                  })()}
+
+                  {/* A run that failed via the top-level catch never reaches createMessage, so
+                      it has no assistant message to attach its error to — render it here instead,
+                      in the spot where the "agent working" indicator would have been. */}
+                  {(() => {
+                    const answeredRunIds = new Set(
+                      messages.filter((m) => m.role === "assistant" && m.runId != null).map((m) => m.runId),
+                    );
+                    return [...errorsByRun.entries()]
+                      .filter(([runId]) => !answeredRunIds.has(runId))
+                      .map(([runId, errMessages]) => <ErrorNotice key={`live-${runId}`} messages={errMessages} />);
                   })()}
 
                   {/* Agent working indicator — last item in the list */}
@@ -881,6 +912,28 @@ export default function TaskDetailPage() {
           to   { opacity: 1; transform: none; }
         }
       `}</style>
+    </div>
+  );
+}
+
+function ErrorNotice({ messages }: { messages: string[] }) {
+  return (
+    <div
+      style={{
+        marginLeft: 2,
+        marginBottom: 14,
+        padding: "8px 12px",
+        borderRadius: "var(--radius-sm)",
+        border: "1px solid rgba(232,164,74,0.28)",
+        background: "rgba(232,164,74,0.08)",
+        color: "#e8a44a",
+        fontSize: 12,
+        lineHeight: 1.5,
+      }}
+    >
+      {messages.map((message, i) => (
+        <div key={i}>{message}</div>
+      ))}
     </div>
   );
 }

@@ -56,7 +56,7 @@ async function ensureSandbox(session: Session): Promise<string> {
   return sandbox.id;
 }
 
-new Worker<RunJobData>(
+const runWorker = new Worker<RunJobData>(
   RUN_QUEUE_NAME,
   async (job) => {
     const { runId } = job.data;
@@ -67,6 +67,11 @@ new Worker<RunJobData>(
     // even when the failure happens after one or more escalation attempts (runs.model must record
     // the true final model, not go silent, on both the "done" and "failed" paths).
     let attemptModel: ModelSpec | undefined;
+    // Hoisted for the same reason as attemptModel — a failure can happen before this run's own
+    // `seq` would otherwise be declared (even before session/agent resolve), and the catch block
+    // still needs a valid seq to append an "error" event without colliding with whatever events
+    // were already written for this run.
+    let seq = 1;
     try {
       const session = await getSession(run.sessionId);
       const agent = session ? await getAgent(session.agentId) : undefined;
@@ -114,7 +119,6 @@ new Worker<RunJobData>(
       const team = agent.teamId ? await getTeam(agent.teamId) : undefined;
       const teamContextPrefix = team ? formatSharedContextForPrompt(team.sharedContext) : "";
 
-      let seq = 1;
       attemptModel = task?.model ?? agent.model;
       let turnResult!: AgentTurnResult;
       for (;;) {
@@ -196,7 +200,12 @@ new Worker<RunJobData>(
       await touchSessionActivity(session.id);
     } catch (err) {
       console.error(`Run ${runId} failed:`, err);
-      await updateRunStatus(runId, "failed", { model: attemptModel });
+      // Persist the failure to the event log (the source of truth for what happened during a
+      // run, per this repo's domain model) — without this, the only record of why a run died
+      // was this stdout line, gone the moment the worker's logs rotate or the process restarts.
+      const message = err instanceof Error ? err.message : String(err);
+      await createEvent(runId, seq++, "error", { message });
+      await updateRunStatus(runId, "failed", { finishedAt: new Date(), model: attemptModel });
       // Surface the failure on the owning task too — otherwise it's stuck at whatever status
       // it had when the run started, and the "failed" StatusPill can never actually show up.
       const task = await getTaskBySessionId(run.sessionId);
@@ -207,9 +216,16 @@ new Worker<RunJobData>(
   { connection: queueConnection },
 );
 
+// Belt-and-suspenders logging straight to stdout, independent of the DB/event-log path above —
+// catches cases where the job handler's own catch block never got to run at all (e.g. it crashed
+// before reaching its try, or BullMQ itself judged the job failed).
+runWorker.on("failed", (job, err) => {
+  console.error(`Run job ${job?.id} failed:`, err);
+});
+
 // Triggered when a task is marked done or deleted (apps/web's task routes) — tears down the
 // session's warm sandbox since it's no longer needed, without touching the run/message history.
-new Worker<SandboxTeardownJobData>(
+const sandboxTeardownWorker = new Worker<SandboxTeardownJobData>(
   SANDBOX_TEARDOWN_QUEUE_NAME,
   async (job) => {
     const { sessionId } = job.data;
@@ -220,5 +236,9 @@ new Worker<SandboxTeardownJobData>(
   },
   { connection: queueConnection },
 );
+
+sandboxTeardownWorker.on("failed", (job, err) => {
+  console.error(`Sandbox teardown job ${job?.id} failed:`, err);
+});
 
 console.log(`apps/worker listening on queues "${RUN_QUEUE_NAME}", "${SANDBOX_TEARDOWN_QUEUE_NAME}"`);
