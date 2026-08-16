@@ -81,3 +81,53 @@ test("shows no PR link for a task that hasn't opened one", async ({ page, regist
 
   await expect(page.getByRole("link", { name: /↗/ })).not.toBeVisible();
 });
+
+// ── Assigning an agent after task creation ───────────────────────────────────
+
+test("assigning an agent to an unassigned task flips it to Assigned and reveals Run agent", async ({
+  page,
+  registeredUser,
+}) => {
+  const agentRes = await page.request.post("/api/agents", {
+    data: { name: "QA bot", description: "", systemPrompt: "Do QA work.", mode: "manual" },
+  });
+  const agent = await agentRes.json();
+
+  const taskRes = await page.request.post("/api/tasks", { data: { title: "Unassigned task" } });
+  const task = await taskRes.json();
+
+  await page.goto(`/tasks/${task.id}`);
+
+  await expect(page.getByText("Open", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Run agent" })).not.toBeVisible();
+
+  await page.getByRole("combobox", { name: "Assignee" }).selectOption(String(agent.id));
+
+  await expect(page.getByText("Assigned", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Run agent" })).toBeVisible();
+
+  // Persists across reload, not just local component state.
+  await page.reload();
+  await expect(page.getByRole("combobox", { name: "Assignee" })).toHaveValue(String(agent.id));
+  await expect(page.getByText("Assigned", { exact: true })).toBeVisible();
+});
+
+test("the assignee field is read-only once a task has an active session", async ({ page, registeredUser }) => {
+  const agentRes = await page.request.post("/api/agents", {
+    data: { name: "QA bot", description: "", systemPrompt: "Do QA work.", mode: "manual" },
+  });
+  const agent = await agentRes.json();
+
+  const taskRes = await page.request.post("/api/tasks", {
+    data: { title: "Already running task", assigneeAgentId: agent.id },
+  });
+  const task = await taskRes.json();
+
+  const runRes = await page.request.post(`/api/tasks/${task.id}/run`);
+  expect(runRes.ok()).toBeTruthy();
+
+  await page.goto(`/tasks/${task.id}`);
+
+  await expect(page.getByRole("combobox", { name: "Assignee" })).not.toBeVisible();
+  await expect(page.getByText("QA bot", { exact: true })).toBeVisible();
+});
