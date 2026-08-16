@@ -13,6 +13,7 @@ import { CheckIcon, TrashIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
 import type { Run } from "@agentfactory/core";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
+import { groupErrorsByRun, unattachedRunErrors } from "@/lib/run-errors";
 
 type WorkspaceSnapshot = Record<string, string>;
 
@@ -208,17 +209,7 @@ export default function TaskDetailPage() {
   // Errors recorded on a run — including a top-level failure that never reached
   // createMessage, so this is the only record of it. Keyed by runId, same shape as
   // thinkingByRun, so both can drive rendering next to (or in place of) that run's reply.
-  const errorsByRun = useMemo(() => {
-    const byRun = new Map<number, string[]>();
-    for (const event of rawEvents) {
-      if (event.type !== "error") continue;
-      const message = typeof event.data.message === "string" ? event.data.message : "Something went wrong.";
-      const messages = byRun.get(event.runId) ?? [];
-      messages.push(message);
-      byRun.set(event.runId, messages);
-    }
-    return byRun;
-  }, [rawEvents]);
+  const errorsByRun = useMemo(() => groupErrorsByRun(rawEvents), [rawEvents]);
 
   // Only editable before a session exists — once a run has started, the assignee is committed
   // to that session and reassigning here wouldn't move or restart anything.
@@ -766,9 +757,9 @@ export default function TaskDetailPage() {
                     const answeredRunIds = new Set(
                       messages.filter((m) => m.role === "assistant" && m.runId != null).map((m) => m.runId),
                     );
-                    return [...errorsByRun.entries()]
-                      .filter(([runId]) => !answeredRunIds.has(runId))
-                      .map(([runId, errMessages]) => <ErrorNotice key={`live-${runId}`} messages={errMessages} />);
+                    return unattachedRunErrors(errorsByRun, answeredRunIds).map(([runId, errMessages]) => (
+                      <ErrorNotice key={`live-${runId}`} messages={errMessages} />
+                    ));
                   })()}
 
                   {/* Agent working indicator — last item in the list */}
