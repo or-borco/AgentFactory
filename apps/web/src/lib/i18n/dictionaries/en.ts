@@ -341,6 +341,7 @@ const en = {
     connectionDeleted: "Connection removed",
     taskDeleted: "Task deleted",
     taskMarkedDone: "Task marked as done",
+    taskAssigneeUpdated: "Assignee updated",
   },
   relativeTime: {
     justNow: "just now",

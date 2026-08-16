@@ -7,6 +7,7 @@ import { Button } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { StatusPill } from "@/components/StatusPill";
+import { AssigneeSelect } from "@/components/AssigneeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CheckIcon, TrashIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
@@ -39,6 +40,7 @@ export default function TaskDetailPage() {
 
   const [starting, setStarting] = useState(false);
   const [markingDone, setMarkingDone] = useState(false);
+  const [savingAssignee, setSavingAssignee] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [runStatus, setRunStatus] = useState<string | null>(null);
@@ -202,6 +204,19 @@ export default function TaskDetailPage() {
     }
     return byRun;
   }, [rawEvents]);
+
+  // Only editable before a session exists — once a run has started, the assignee is committed
+  // to that session and reassigning here wouldn't move or restart anything.
+  const handleAssigneeChange = async (assigneeAgentId: number | undefined) => {
+    if (!task) return;
+    setSavingAssignee(true);
+    try {
+      await updateTask(task.id, { assigneeAgentId, status: assigneeAgentId ? "assigned" : "open" });
+      notify("toast.taskAssigneeUpdated");
+    } finally {
+      setSavingAssignee(false);
+    }
+  };
 
   // Marking a task done tears down its sandbox server-side (see PATCH /api/tasks/[taskId]) —
   // the running container is no longer needed once the work is closed out.
@@ -421,7 +436,18 @@ export default function TaskDetailPage() {
                 }}
               >
                 <MetaRow label={t("taskDetail.assignee")}>
-                  {assignee ? assignee.name : <Dim>{t("taskDetail.unassigned")}</Dim>}
+                  {!task.sessionId ? (
+                    <AssigneeSelect
+                      agents={agents}
+                      value={task.assigneeAgentId}
+                      disabled={savingAssignee}
+                      onChange={handleAssigneeChange}
+                    />
+                  ) : assignee ? (
+                    assignee.name
+                  ) : (
+                    <Dim>{t("taskDetail.unassigned")}</Dim>
+                  )}
                 </MetaRow>
                 {task.area && (
                   <MetaRow label={t("taskDetail.area")}>

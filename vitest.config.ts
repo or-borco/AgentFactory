@@ -1,9 +1,17 @@
+import path from "node:path";
 import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
     projects: [
       {
+        resolve: {
+          // Mirrors apps/web/tsconfig.json's "@/*" path so component tests can import
+          // apps/web modules the same way the app itself does, instead of relative paths.
+          alias: {
+            "@": path.resolve(__dirname, "apps/web/src"),
+          },
+        },
         test: {
           name: "unit",
           environment: "node",
