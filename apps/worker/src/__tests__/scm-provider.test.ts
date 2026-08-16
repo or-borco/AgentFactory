@@ -265,6 +265,26 @@ describe("pushChangesIfDirty", () => {
     );
   });
 
+  it("reports a recovered branch mismatch when the agent committed on a descendant branch that got fast-forwarded", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "BRANCH_MISMATCH:fix/53-surface-real-run-error\nPUSH_OK\n" }]);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toEqual({
+      pushed: true,
+      changedFiles: [],
+      branchMismatch: { agentBranch: "fix/53-surface-real-run-error" },
+    });
+  });
+
+  it("reports an unrecovered branch mismatch when the agent's branch wasn't a descendant of the session branch", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "BRANCH_MISMATCH:main\nNO_CHANGES\n" }]);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toEqual({
+      pushed: false,
+      changedFiles: [],
+      branchMismatch: { agentBranch: "main" },
+    });
+  });
+
   it("passes the token, repo, branch, commit message, and author as env vars, not argv — the token never appears in the command itself", async () => {
     vi.stubGlobal("fetch", mockTokenMint());
     let capturedEnv: Record<string, string> | undefined;
