@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button } from "@agentfactory/shared";
+import { Badge, Button } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { StatusPill } from "@/components/StatusPill";
@@ -202,6 +202,21 @@ export default function TaskDetailPage() {
         steps.push({ label, detail });
       }
       byRun.set(event.runId, steps);
+    }
+    return byRun;
+  }, [rawEvents]);
+
+  // Surfaces whether the team's shared_context was actually composed into this run's prompt
+  // (worker.ts emits one context_included event per run right after teamContextPrefix is
+  // computed) — lets a skeptical tech-lead verify standardization is real, not just claimed.
+  const contextByRun = useMemo(() => {
+    const byRun = new Map<number, { included: boolean; preview: string }>();
+    for (const event of rawEvents) {
+      if (event.type !== "context_included") continue;
+      byRun.set(event.runId, {
+        included: Boolean(event.data.included),
+        preview: typeof event.data.preview === "string" ? event.data.preview : "",
+      });
     }
     return byRun;
   }, [rawEvents]);
@@ -710,17 +725,25 @@ export default function TaskDetailPage() {
                       {showThinking && msg.role === "assistant" && msg.runId != null && thinkingByRun.has(msg.runId) && (
                         <ThinkingBlock steps={thinkingByRun.get(msg.runId)!} />
                       )}
-                      <div
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 600,
-                          letterSpacing: "0.05em",
-                          textTransform: "uppercase",
-                          color: msg.role === "assistant" ? "var(--color-accent)" : "var(--color-neutral-500)",
-                          marginBottom: 5,
-                        }}
-                      >
-                        {msg.role === "assistant" ? (assignee?.name ?? "Agent") : "YOU"}
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+                        <div
+                          style={{
+                            fontSize: 11,
+                            fontWeight: 600,
+                            letterSpacing: "0.05em",
+                            textTransform: "uppercase",
+                            color: msg.role === "assistant" ? "var(--color-accent)" : "var(--color-neutral-500)",
+                          }}
+                        >
+                          {msg.role === "assistant" ? (assignee?.name ?? "Agent") : "YOU"}
+                        </div>
+                        {msg.role === "assistant" &&
+                          msg.runId != null &&
+                          contextByRun.get(msg.runId)?.included && (
+                            <span title={contextByRun.get(msg.runId)?.preview}>
+                              <Badge tone="neutral">{t("taskDetail.contextIncluded")}</Badge>
+                            </span>
+                          )}
                       </div>
                       <div
                         style={{

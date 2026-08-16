@@ -50,12 +50,13 @@ export async function getRun(id: number): Promise<Run | undefined> {
 export async function updateRunStatus(
   id: number,
   status: RunStatus,
-  patch?: { finishedAt?: Date; providerSessionRef?: string; model?: ModelSpec },
+  patch?: { finishedAt?: Date; providerSessionRef?: string; model?: ModelSpec; promptHash?: string },
 ): Promise<Run | undefined> {
   const values: Partial<typeof runs.$inferInsert> = { status };
   if (patch?.finishedAt !== undefined) values.finishedAt = patch.finishedAt;
   if (patch?.providerSessionRef !== undefined) values.providerSessionRef = patch.providerSessionRef;
   if (patch?.model !== undefined) values.model = patch.model;
+  if (patch?.promptHash !== undefined) values.promptHash = patch.promptHash;
 
   const [row] = await db.update(runs).set(values).where(eq(runs.id, id)).returning();
   return row ? toRun(row) : undefined;

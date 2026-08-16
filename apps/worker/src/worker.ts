@@ -27,6 +27,7 @@ import {
 } from "@agentfactory/db";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { type AgentTurnResult, PromptTooLongError, runAgentTurn } from "./agent-runtime";
+import { composeSystemPrompt, hashPrompt } from "./prompt-composition";
 import {
   buildPullRequestBody,
   fetchIssue,
@@ -119,6 +120,16 @@ const runWorker = new Worker<RunJobData>(
       const team = agent.teamId ? await getTeam(agent.teamId) : undefined;
       const teamContextPrefix = team ? formatSharedContextForPrompt(team.sharedContext) : "";
 
+      if (teamContextPrefix) {
+        await createEvent(runId, seq++, "context_included", {
+          included: true,
+          preview: teamContextPrefix.slice(0, 150).trim(),
+        });
+      }
+
+      const systemPrompt = composeSystemPrompt(teamContextPrefix, agent.systemPrompt);
+      await updateRunStatus(runId, "running", { promptHash: hashPrompt(systemPrompt) });
+
       attemptModel = task?.model ?? agent.model;
       let turnResult!: AgentTurnResult;
       for (;;) {
@@ -126,7 +137,7 @@ const runWorker = new Worker<RunJobData>(
           turnResult = await runAgentTurn({
             sandboxProvider,
             sandboxId,
-            systemPrompt: teamContextPrefix + agent.systemPrompt,
+            systemPrompt,
             model: attemptModel,
             userText: (triggeringMessage?.content ?? "") + issueContext,
             resumeSessionRef,

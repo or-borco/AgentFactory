@@ -63,6 +63,12 @@ export interface ErrorEvent extends RunEventBase {
   message: string;
 }
 
+export interface ContextIncludedEvent extends RunEventBase {
+  type: "context_included";
+  included: boolean;
+  preview: string;
+}
+
 export interface DoneEvent extends RunEventBase {
   type: "done";
   reason: "completed" | "cancelled" | "budget_exceeded" | "error";
@@ -78,4 +84,5 @@ export type RunEvent =
   | ArtifactEvent
   | UsageEvent
   | ErrorEvent
+  | ContextIncludedEvent
   | DoneEvent;
