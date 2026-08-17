@@ -6,12 +6,12 @@ import Link from "next/link";
 import { Badge, Button } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
-import { StatusPill } from "@/components/StatusPill";
+import { StatusMenu } from "@/components/StatusMenu";
 import { AssigneeSelect } from "@/components/AssigneeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CheckIcon, TrashIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
-import type { Run } from "@agentfactory/core";
+import type { Run, TaskStatus } from "@agentfactory/core";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
 import { groupErrorsByRun, unattachedRunErrors } from "@/lib/run-errors";
 
@@ -42,6 +42,7 @@ export default function TaskDetailPage() {
   const [starting, setStarting] = useState(false);
   const [markingDone, setMarkingDone] = useState(false);
   const [savingAssignee, setSavingAssignee] = useState(false);
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [runStatus, setRunStatus] = useState<string | null>(null);
@@ -226,6 +227,12 @@ export default function TaskDetailPage() {
   // thinkingByRun, so both can drive rendering next to (or in place of) that run's reply.
   const errorsByRun = useMemo(() => groupErrorsByRun(rawEvents), [rawEvents]);
 
+  const handleStatusChange = async (status: TaskStatus) => {
+    if (!task) return;
+    setStatusMenuOpen(false);
+    await updateTask(task.id, { status });
+  };
+
   // Only editable before a session exists — once a run has started, the assignee is committed
   // to that session and reassigning here wouldn't move or restart anything.
   const handleAssigneeChange = async (assigneeAgentId: number | undefined) => {
@@ -368,9 +375,11 @@ export default function TaskDetailPage() {
               >
                 {task.ref}
               </span>
-              <StatusPill
+              <StatusMenu
                 status={task.status}
-                label={t(`tasks.status.${task.status}` as `tasks.status.${typeof task.status}`)}
+                open={statusMenuOpen}
+                onToggle={() => setStatusMenuOpen((v) => !v)}
+                onSelect={handleStatusChange}
               />
             </div>
 
