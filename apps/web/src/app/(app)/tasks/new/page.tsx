@@ -140,7 +140,7 @@ export default function NewTaskPage() {
             rows={4}
           />
           <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>
-            One criterion per line.
+            {t("tasks.create.criteriaHint")}
           </p>
         </Field>
 

@@ -14,8 +14,8 @@ function toTask(row: typeof tasks.$inferSelect): Task {
     status: row.status as TaskStatus,
     assigneeAgentId: row.assigneeAgentId ?? undefined,
     sessionId: row.sessionId ?? undefined,
-    area: row.area ?? undefined,
-    codebase: row.codebase ?? undefined,
+    area: row.area,
+    codebase: row.codebase,
     model: row.model ?? undefined,
     prNumber: row.prNumber ?? undefined,
     prUrl: row.prUrl ?? undefined,
@@ -96,8 +96,8 @@ export interface UpdateTaskInput {
   status?: TaskStatus;
   assigneeAgentId?: number | null;
   sessionId?: number | null;
-  area?: string;
-  codebase?: string;
+  area?: string | null;
+  codebase?: string | null;
   model?: Task["model"] | null;
   prNumber?: number;
   prUrl?: string;

@@ -25,8 +25,8 @@ interface StatusMenuProps {
   onSelect: (status: TaskStatus) => void;
 }
 
-// Clickable status pill that opens a dropdown of every status, used in the tasks table
-// to change a task's status inline without navigating to the detail page.
+// Clickable status pill that opens a dropdown of every status, used on the task detail
+// page to change a task's status inline.
 export function StatusMenu({ status, open, onToggle, onSelect }: StatusMenuProps) {
   const { t } = useTranslation();
   const style = STATUS_STYLES[status];

@@ -182,8 +182,8 @@ export interface Task {
   sessionId?: ID;
   /** Per-task override of the assignee agent's default model. Unset means "use the agent's model". */
   model?: ModelSpec;
-  area?: string;
-  codebase?: string;
+  area?: string | null;
+  codebase?: string | null;
   prNumber?: number;
   prUrl?: string;
   createdBy: ID;

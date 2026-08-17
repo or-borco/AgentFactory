@@ -199,6 +199,7 @@ const en = {
       descriptionPlaceholder: "Describe the work in plain language…",
       criteriaLabel: "Acceptance criteria",
       criteriaPlaceholder: "One criterion per line — what does done look like?",
+      criteriaHint: "One criterion per line.",
       assigneeLabel: "Assignee (agent)",
       assigneePlaceholder: "— none yet —",
       modelLabel: "Model",
@@ -263,6 +264,10 @@ const en = {
     editTitle: "Edit title",
     saveTitle: "Save title",
     cancelEditTitle: "Cancel editing title",
+    confirmStatusTitle: "Change status to \"{status}\"?",
+    confirmStatusMessage: "This will tear down the task's active sandbox. Any unsaved work in the container will be lost.",
+    confirmStatusButton: "Change status",
+    savingStatus: "Updating…",
   },
   teamsV2: {
     title: "Teams",
@@ -353,6 +358,7 @@ const en = {
     taskDeleted: "Task deleted",
     taskMarkedDone: "Task marked as done",
     taskAssigneeUpdated: "Assignee updated",
+    taskStatusUpdated: "Status updated",
   },
   relativeTime: {
     justNow: "just now",

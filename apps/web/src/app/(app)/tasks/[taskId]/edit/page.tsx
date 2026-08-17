@@ -83,8 +83,8 @@ export default function EditTaskPage() {
       await updateTask(task.id, {
         description: description.trim(),
         acceptanceCriteria,
-        area: area.trim() || undefined,
-        codebase: codebase || undefined,
+        area: area.trim() || null,
+        codebase: codebase || null,
       });
       router.push(`/tasks/${task.id}`);
     } finally {
@@ -117,7 +117,7 @@ export default function EditTaskPage() {
             onChange={(e) => setCriteriaRaw(e.target.value)}
             rows={4}
           />
-          <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>One criterion per line.</p>
+          <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>{t("tasks.create.criteriaHint")}</p>
         </Field>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>

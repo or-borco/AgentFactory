@@ -32,6 +32,8 @@ interface ToolCallEntry {
   resultEvent: RawEvent | null;
 }
 
+const DESTRUCTIVE_STATUSES: TaskStatus[] = ["done", "failed", "cancelled"];
+
 export default function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
   const router = useRouter();
@@ -43,6 +45,8 @@ export default function TaskDetailPage() {
   const [markingDone, setMarkingDone] = useState(false);
   const [savingAssignee, setSavingAssignee] = useState(false);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [confirmingStatus, setConfirmingStatus] = useState<TaskStatus | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -230,10 +234,25 @@ export default function TaskDetailPage() {
   // thinkingByRun, so both can drive rendering next to (or in place of) that run's reply.
   const errorsByRun = useMemo(() => groupErrorsByRun(rawEvents), [rawEvents]);
 
-  const handleStatusChange = async (status: TaskStatus) => {
+  const applyStatusChange = async (status: TaskStatus) => {
+    if (!task || savingStatus) return;
+    setSavingStatus(true);
+    try {
+      await updateTask(task.id, { status });
+      notify("toast.taskStatusUpdated");
+    } finally {
+      setSavingStatus(false);
+    }
+  };
+
+  const handleStatusChange = (status: TaskStatus) => {
     if (!task) return;
     setStatusMenuOpen(false);
-    await updateTask(task.id, { status });
+    if (task.sessionId && DESTRUCTIVE_STATUSES.includes(status)) {
+      setConfirmingStatus(status);
+      return;
+    }
+    void applyStatusChange(status);
   };
 
   const handleTitleSave = async () => {
@@ -411,6 +430,7 @@ export default function TaskDetailPage() {
                 <>
                   <input
                     ref={titleInputRef}
+                    aria-label={t("taskDetail.editTitle")}
                     value={titleDraft}
                     onChange={(e) => setTitleDraft(e.target.value)}
                     onKeyDown={(e) => {
@@ -570,7 +590,7 @@ export default function TaskDetailPage() {
               </dl>
             </section>
 
-            {task.status === "assigned" && !task.sessionId && (
+            {task.status === "assigned" && !task.sessionId && task.assigneeAgentId && (
               <div style={{ marginTop: 32 }}>
                 <Button variant="primary" disabled={starting} onClick={handleRun}>
                   {starting ? "Starting…" : "Run agent"}
@@ -651,6 +671,21 @@ export default function TaskDetailPage() {
           cancelLabel={t("common.cancel")}
           onCancel={() => setConfirmingDelete(false)}
           onConfirm={handleDelete}
+        />
+      )}
+
+      {confirmingStatus && (
+        <ConfirmDialog
+          title={t("taskDetail.confirmStatusTitle", { status: t(`tasks.status.${confirmingStatus}` as `tasks.status.${TaskStatus}`) })}
+          message={t("taskDetail.confirmStatusMessage")}
+          confirmLabel={savingStatus ? t("taskDetail.savingStatus") : t("taskDetail.confirmStatusButton")}
+          cancelLabel={t("common.cancel")}
+          onCancel={() => setConfirmingStatus(null)}
+          onConfirm={async () => {
+            const status = confirmingStatus;
+            setConfirmingStatus(null);
+            if (status) await applyStatusChange(status);
+          }}
         />
       )}
 

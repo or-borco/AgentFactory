@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { TaskStatus } from "@agentfactory/core";
 import { I18nProvider } from "../../lib/i18n/context";
 import { StatusMenu } from "../StatusMenu";
+import { STATUS_STYLES } from "../StatusPill";
 
 function renderMenu(overrides: { status?: TaskStatus; open?: boolean } = {}) {
   const onToggle = vi.fn();
@@ -55,6 +56,7 @@ describe("StatusMenu", () => {
     ]) {
       expect(within(menu).getByText(label)).toBeInTheDocument();
     }
+    expect(within(menu).getAllByRole("menuitem")).toHaveLength(Object.keys(STATUS_STYLES).length);
   });
 
   it("calls onSelect with the clicked status", () => {
