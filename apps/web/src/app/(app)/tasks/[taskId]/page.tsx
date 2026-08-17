@@ -9,7 +9,7 @@ import { useTranslation } from "@/lib/i18n/context";
 import { StatusMenu } from "@/components/StatusMenu";
 import { AssigneeSelect } from "@/components/AssigneeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { CheckIcon, TrashIcon } from "@/lib/icons";
+import { CheckIcon, TrashIcon, EditIcon, XIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
 import type { Run, TaskStatus } from "@agentfactory/core";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
@@ -43,6 +43,9 @@ export default function TaskDetailPage() {
   const [markingDone, setMarkingDone] = useState(false);
   const [savingAssignee, setSavingAssignee] = useState(false);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [runStatus, setRunStatus] = useState<string | null>(null);
@@ -233,6 +236,13 @@ export default function TaskDetailPage() {
     await updateTask(task.id, { status });
   };
 
+  const handleTitleSave = async () => {
+    const next = titleDraft.trim();
+    setEditingTitle(false);
+    if (!task || !next || next === task.title) return;
+    await updateTask(task.id, { title: next });
+  };
+
   // Only editable before a session exists — once a run has started, the assignee is committed
   // to that session and reassigning here wouldn't move or restart anything.
   const handleAssigneeChange = async (assigneeAgentId: number | undefined) => {
@@ -280,6 +290,10 @@ export default function TaskDetailPage() {
     const id = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(id);
   }, [isRunning]);
+
+  useEffect(() => {
+    if (editingTitle) titleInputRef.current?.focus();
+  }, [editingTitle]);
 
   if (!task) {
     return (
@@ -383,9 +397,52 @@ export default function TaskDetailPage() {
               />
             </div>
 
-            <h1 style={{ marginTop: 14, fontSize: 22, fontWeight: 700, lineHeight: 1.3 }}>
-              {task.title}
-            </h1>
+            <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 8 }}>
+              {editingTitle ? (
+                <>
+                  <input
+                    ref={titleInputRef}
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleTitleSave();
+                      if (e.key === "Escape") setEditingTitle(false);
+                    }}
+                    style={{
+                      fontSize: 22,
+                      fontWeight: 700,
+                      lineHeight: 1.3,
+                      flex: 1,
+                      background: "var(--color-surface)",
+                      border: "1px solid var(--color-neutral-700)",
+                      borderRadius: "var(--radius-sm)",
+                      color: "var(--color-text)",
+                      padding: "2px 8px",
+                    }}
+                  />
+                  <button onClick={handleTitleSave} aria-label={t("taskDetail.saveTitle")} style={titleButtonStyle}>
+                    <CheckIcon size={16} />
+                  </button>
+                  <button onClick={() => setEditingTitle(false)} aria-label={t("taskDetail.cancelEditTitle")} style={titleButtonStyle}>
+                    <XIcon size={16} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h1 style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.3 }}>{task.title}</h1>
+                  <button
+                    onClick={() => {
+                      setTitleDraft(task.title);
+                      setEditingTitle(true);
+                    }}
+                    aria-label={t("taskDetail.editTitle")}
+                    style={titleButtonStyle}
+                  >
+                    <EditIcon size={14} />
+                  </button>
+                </>
+              )}
+            </div>
 
             <section style={{ marginTop: 24 }}>
               <SectionLabel>{t("taskDetail.description")}</SectionLabel>
@@ -1116,6 +1173,16 @@ function MessageContent({ content }: { content: string }) {
     </>
   );
 }
+
+const titleButtonStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  background: "transparent",
+  border: "none",
+  padding: 2,
+  color: "var(--color-neutral-500)",
+  cursor: "pointer",
+};
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
