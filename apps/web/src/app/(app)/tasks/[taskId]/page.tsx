@@ -395,6 +395,15 @@ export default function TaskDetailPage() {
                 onToggle={() => setStatusMenuOpen((v) => !v)}
                 onSelect={handleStatusChange}
               />
+              {!task.sessionId && (
+                <Link
+                  href={`/tasks/${task.id}/edit`}
+                  aria-label={t("taskDetail.editTask")}
+                  style={{ display: "flex", color: "var(--color-neutral-500)" }}
+                >
+                  <EditIcon size={14} />
+                </Link>
+              )}
             </div>
 
             <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 8 }}>
