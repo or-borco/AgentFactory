@@ -25,21 +25,22 @@ export default function EditTaskPage() {
   const [criteriaRaw, setCriteriaRaw] = useState("");
   const [area, setArea] = useState("");
   const [codebase, setCodebase] = useState("");
-  const [initialized, setInitialized] = useState(false);
+  const [initializedForTaskId, setInitializedForTaskId] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [repos, setRepos] = useState<RepoOption[]>([]);
   const [reposLoading, setReposLoading] = useState(true);
 
-  // Pre-fill the form once the task loads — getTask() can return undefined for a moment
-  // after navigation, before MockBackendProvider's initial fetch resolves.
-  useEffect(() => {
-    if (!task || initialized) return;
+  // Pre-fill the form once the task loads, without a `useEffect` (which would call setState
+  // synchronously in an effect body, a pattern this project's lint config flags). Adjusting
+  // state directly in the render body when a dependency changes is React's own recommended
+  // alternative — see https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes.
+  if (task && initializedForTaskId !== task.id) {
+    setInitializedForTaskId(task.id);
     setDescription(task.description);
     setCriteriaRaw(task.acceptanceCriteria.map((c) => c.text).join("\n"));
     setArea(task.area ?? "");
     setCodebase(task.codebase ?? "");
-    setInitialized(true);
-  }, [task, initialized]);
+  }
 
   // Editing only makes sense before a session exists — once one does, the spec was
   // already handed to it, so bounce back to the read-only detail page.
