@@ -14,6 +14,8 @@ const STATUS_ORDER: TaskStatus[] = [
   "pr_open",
   "review_cycle",
   "done",
+  "failed",
+  "cancelled",
 ];
 
 interface StatusMenuProps {

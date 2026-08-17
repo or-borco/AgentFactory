@@ -42,7 +42,17 @@ describe("StatusMenu", () => {
   it("lists every status as an option when open", () => {
     renderMenu({ open: true });
     const menu = screen.getByRole("menu");
-    for (const label of ["Open", "Assigned", "In progress", "Needs input", "PR open", "Review cycle", "Done"]) {
+    for (const label of [
+      "Open",
+      "Assigned",
+      "In progress",
+      "Needs input",
+      "PR open",
+      "Review cycle",
+      "Done",
+      "Failed",
+      "Cancelled",
+    ]) {
       expect(within(menu).getByText(label)).toBeInTheDocument();
     }
   });
