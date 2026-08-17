@@ -217,6 +217,12 @@ const en = {
       submit: "Create task",
       cancel: "Cancel",
     },
+    edit: {
+      title: "Edit task",
+      subtitle: "Update the task's details",
+      submit: "Save changes",
+      saving: "Saving…",
+    },
   },
   activity: {
     title: "Activity",
@@ -253,6 +259,10 @@ const en = {
     confirmDeleteButton: "Delete",
     thinking: "Thinking",
     contextIncluded: "Team context included",
+    editTask: "Edit task details",
+    editTitle: "Edit title",
+    saveTitle: "Save title",
+    cancelEditTitle: "Cancel editing title",
   },
   teamsV2: {
     title: "Teams",

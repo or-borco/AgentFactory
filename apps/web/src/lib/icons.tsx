@@ -21,6 +21,7 @@ export {
   ListChecks as TasksIcon,
   Pulse as ActivityIcon,
   Trash as TrashIcon,
+  PencilSimple as EditIcon,
   Buildings as OrgIcon,
   GithubLogo as GithubIcon,
 } from "@phosphor-icons/react";
