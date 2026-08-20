@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupErrorsByRun, unattachedRunErrors } from "../run-errors";
+import { findErrorCodeForRun, groupErrorsByRun, unattachedRunErrors } from "../run-errors";
 
 describe("groupErrorsByRun", () => {
   it("groups error events by runId, ignoring other event types", () => {
@@ -51,5 +51,34 @@ describe("unattachedRunErrors", () => {
     const errorsByRun = new Map([[5, ["Run 5 has no session/agent to work with"]]]);
 
     expect(unattachedRunErrors(errorsByRun, new Set())).toEqual([[5, ["Run 5 has no session/agent to work with"]]]);
+  });
+});
+
+describe("findErrorCodeForRun", () => {
+  it("returns the classified code for the matching run's error event", () => {
+    const events = [
+      { runId: 1, type: "error", data: { message: "boom", code: "insufficient_credit" } },
+      { runId: 2, type: "error", data: { message: "kaboom" } },
+    ];
+
+    expect(findErrorCodeForRun(events, 1)).toBe("insufficient_credit");
+  });
+
+  it("returns undefined when the run's error event carries no code", () => {
+    const events = [{ runId: 1, type: "error", data: { message: "boom" } }];
+
+    expect(findErrorCodeForRun(events, 1)).toBeUndefined();
+  });
+
+  it("returns undefined when the run has no error event at all", () => {
+    const events = [{ runId: 1, type: "text_delta", data: { text: "hi" } }];
+
+    expect(findErrorCodeForRun(events, 1)).toBeUndefined();
+  });
+
+  it("ignores error events belonging to a different run", () => {
+    const events = [{ runId: 2, type: "error", data: { message: "boom", code: "insufficient_credit" } }];
+
+    expect(findErrorCodeForRun(events, 1)).toBeUndefined();
   });
 });

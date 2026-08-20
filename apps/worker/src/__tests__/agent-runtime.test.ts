@@ -4,7 +4,7 @@ import type { OutputChunk, SandboxProvider } from "../sandbox/types";
 // Mock the database dependency before importing agent-runtime
 vi.mock("@agentfactory/db", () => ({ listConnections: vi.fn() }));
 
-import { PromptTooLongError, runAgentTurn } from "../agent-runtime";
+import { InsufficientCreditError, PromptTooLongError, runAgentTurn } from "../agent-runtime";
 
 function fakeSandbox(chunks: OutputChunk[]): SandboxProvider {
   return {
@@ -51,6 +51,14 @@ describe("runAgentTurn", () => {
     const sandbox = fakeSandbox([{ stream: "stderr", data: "container crashed\n" }]);
 
     await expect(runAgentTurn(baseParams(sandbox))).rejects.toThrow(/produced no result line/);
+  });
+
+  it("throws InsufficientCreditError when the sandbox emits the insufficient_credit marker", async () => {
+    const sandbox = fakeSandbox([
+      { stream: "stdout", data: `__ERROR__${JSON.stringify({ code: "insufficient_credit" })}\n` },
+    ]);
+
+    await expect(runAgentTurn(baseParams(sandbox))).rejects.toBeInstanceOf(InsufficientCreditError);
   });
 
   it("falls through to the generic failure when the error code isn't prompt_too_long", async () => {
