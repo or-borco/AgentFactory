@@ -6,12 +6,12 @@ import Link from "next/link";
 import { Badge, Button } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
-import { StatusPill } from "@/components/StatusPill";
+import { StatusMenu } from "@/components/StatusMenu";
 import { AssigneeSelect } from "@/components/AssigneeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { CheckIcon, TrashIcon } from "@/lib/icons";
+import { CheckIcon, TrashIcon, EditIcon, XIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
-import type { Run } from "@agentfactory/core";
+import type { Run, TaskStatus } from "@agentfactory/core";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
 import { groupErrorsByRun, unattachedRunErrors } from "@/lib/run-errors";
 
@@ -32,6 +32,8 @@ interface ToolCallEntry {
   resultEvent: RawEvent | null;
 }
 
+const DESTRUCTIVE_STATUSES: TaskStatus[] = ["done", "failed", "cancelled"];
+
 export default function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
   const router = useRouter();
@@ -42,6 +44,12 @@ export default function TaskDetailPage() {
   const [starting, setStarting] = useState(false);
   const [markingDone, setMarkingDone] = useState(false);
   const [savingAssignee, setSavingAssignee] = useState(false);
+  const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [savingStatus, setSavingStatus] = useState(false);
+  const [confirmingStatus, setConfirmingStatus] = useState<TaskStatus | null>(null);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
+  const titleInputRef = useRef<HTMLInputElement>(null);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [runStatus, setRunStatus] = useState<string | null>(null);
@@ -226,6 +234,34 @@ export default function TaskDetailPage() {
   // thinkingByRun, so both can drive rendering next to (or in place of) that run's reply.
   const errorsByRun = useMemo(() => groupErrorsByRun(rawEvents), [rawEvents]);
 
+  const applyStatusChange = async (status: TaskStatus) => {
+    if (!task || savingStatus) return;
+    setSavingStatus(true);
+    try {
+      await updateTask(task.id, { status });
+      notify("toast.taskStatusUpdated");
+    } finally {
+      setSavingStatus(false);
+    }
+  };
+
+  const handleStatusChange = (status: TaskStatus) => {
+    if (!task) return;
+    setStatusMenuOpen(false);
+    if (task.sessionId && DESTRUCTIVE_STATUSES.includes(status)) {
+      setConfirmingStatus(status);
+      return;
+    }
+    void applyStatusChange(status);
+  };
+
+  const handleTitleSave = async () => {
+    const next = titleDraft.trim();
+    setEditingTitle(false);
+    if (!task || !next || next === task.title) return;
+    await updateTask(task.id, { title: next });
+  };
+
   // Only editable before a session exists — once a run has started, the assignee is committed
   // to that session and reassigning here wouldn't move or restart anything.
   const handleAssigneeChange = async (assigneeAgentId: number | undefined) => {
@@ -273,6 +309,10 @@ export default function TaskDetailPage() {
     const id = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(id);
   }, [isRunning]);
+
+  useEffect(() => {
+    if (editingTitle) titleInputRef.current?.focus();
+  }, [editingTitle]);
 
   if (!task) {
     return (
@@ -368,15 +408,70 @@ export default function TaskDetailPage() {
               >
                 {task.ref}
               </span>
-              <StatusPill
+              <StatusMenu
                 status={task.status}
-                label={t(`tasks.status.${task.status}` as `tasks.status.${typeof task.status}`)}
+                open={statusMenuOpen}
+                onToggle={() => setStatusMenuOpen((v) => !v)}
+                onSelect={handleStatusChange}
               />
+              {!task.sessionId && (
+                <Link
+                  href={`/tasks/${task.id}/edit`}
+                  aria-label={t("taskDetail.editTask")}
+                  style={{ display: "flex", color: "var(--color-neutral-500)" }}
+                >
+                  <EditIcon size={14} />
+                </Link>
+              )}
             </div>
 
-            <h1 style={{ marginTop: 14, fontSize: 22, fontWeight: 700, lineHeight: 1.3 }}>
-              {task.title}
-            </h1>
+            <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 8 }}>
+              {editingTitle ? (
+                <>
+                  <input
+                    ref={titleInputRef}
+                    aria-label={t("taskDetail.editTitle")}
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleTitleSave();
+                      if (e.key === "Escape") setEditingTitle(false);
+                    }}
+                    style={{
+                      fontSize: 22,
+                      fontWeight: 700,
+                      lineHeight: 1.3,
+                      flex: 1,
+                      background: "var(--color-surface)",
+                      border: "1px solid var(--color-neutral-700)",
+                      borderRadius: "var(--radius-sm)",
+                      color: "var(--color-text)",
+                      padding: "2px 8px",
+                    }}
+                  />
+                  <button onClick={handleTitleSave} aria-label={t("taskDetail.saveTitle")} style={titleButtonStyle}>
+                    <CheckIcon size={16} />
+                  </button>
+                  <button onClick={() => setEditingTitle(false)} aria-label={t("taskDetail.cancelEditTitle")} style={titleButtonStyle}>
+                    <XIcon size={16} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <h1 style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.3 }}>{task.title}</h1>
+                  <button
+                    onClick={() => {
+                      setTitleDraft(task.title);
+                      setEditingTitle(true);
+                    }}
+                    aria-label={t("taskDetail.editTitle")}
+                    style={titleButtonStyle}
+                  >
+                    <EditIcon size={14} />
+                  </button>
+                </>
+              )}
+            </div>
 
             <section style={{ marginTop: 24 }}>
               <SectionLabel>{t("taskDetail.description")}</SectionLabel>
@@ -495,7 +590,7 @@ export default function TaskDetailPage() {
               </dl>
             </section>
 
-            {task.status === "assigned" && !task.sessionId && (
+            {task.status === "assigned" && !task.sessionId && task.assigneeAgentId && (
               <div style={{ marginTop: 32 }}>
                 <Button variant="primary" disabled={starting} onClick={handleRun}>
                   {starting ? "Starting…" : "Run agent"}
@@ -576,6 +671,21 @@ export default function TaskDetailPage() {
           cancelLabel={t("common.cancel")}
           onCancel={() => setConfirmingDelete(false)}
           onConfirm={handleDelete}
+        />
+      )}
+
+      {confirmingStatus && (
+        <ConfirmDialog
+          title={t("taskDetail.confirmStatusTitle", { status: t(`tasks.status.${confirmingStatus}` as `tasks.status.${TaskStatus}`) })}
+          message={t("taskDetail.confirmStatusMessage")}
+          confirmLabel={savingStatus ? t("taskDetail.savingStatus") : t("taskDetail.confirmStatusButton")}
+          cancelLabel={t("common.cancel")}
+          onCancel={() => setConfirmingStatus(null)}
+          onConfirm={async () => {
+            const status = confirmingStatus;
+            setConfirmingStatus(null);
+            if (status) await applyStatusChange(status);
+          }}
         />
       )}
 
@@ -1107,6 +1217,16 @@ function MessageContent({ content }: { content: string }) {
     </>
   );
 }
+
+const titleButtonStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  background: "transparent",
+  border: "none",
+  padding: 2,
+  color: "var(--color-neutral-500)",
+  cursor: "pointer",
+};
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
