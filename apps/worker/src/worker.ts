@@ -26,7 +26,7 @@ import {
   updateTask,
 } from "@agentfactory/db";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
-import { type AgentTurnResult, PromptTooLongError, runAgentTurn } from "./agent-runtime";
+import { type AgentTurnResult, InsufficientCreditError, PromptTooLongError, runAgentTurn } from "./agent-runtime";
 import { composeSystemPrompt, hashPrompt } from "./prompt-composition";
 import {
   buildPullRequestBody,
@@ -237,7 +237,11 @@ const runWorker = new Worker<RunJobData>(
       // run, per this repo's domain model) — without this, the only record of why a run died
       // was this stdout line, gone the moment the worker's logs rotate or the process restarts.
       const message = err instanceof Error ? err.message : String(err);
-      await createEvent(runId, seq++, "error", { message });
+      // Classified so the web app can show a specific, safe message instead of its generic
+      // "couldn't reply" fallback (see ErrorCode in @agentfactory/core) — without this, an
+      // exhausted Claude API account and every other failure looked identical to the user.
+      const code = err instanceof InsufficientCreditError ? "insufficient_credit" : undefined;
+      await createEvent(runId, seq++, "error", { message, ...(code ? { code } : {}) });
       await updateRunStatus(runId, "failed", { finishedAt: new Date(), model: attemptModel });
       // Surface the failure on the owning task too — otherwise it's stuck at whatever status
       // it had when the run started, and the "failed" StatusPill can never actually show up.

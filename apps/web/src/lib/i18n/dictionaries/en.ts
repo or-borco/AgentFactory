@@ -121,6 +121,8 @@ const en = {
     messagePlaceholder: "Send a message... (Enter to send, Shift+Enter for new line)",
     send: "Send",
     replyFailed: "The agent couldn't reply — please try again.",
+    replyFailedInsufficientCredit:
+      "The agent couldn't reply because the connected Claude API account is out of usage credits. Ask a workspace admin to add credits, then try again.",
   },
   settings: {
     title: "Settings",

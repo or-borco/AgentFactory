@@ -58,9 +58,16 @@ export interface UsageEvent extends RunEventBase {
   costUsd: number;
 }
 
+// Classifies a run failure beyond its free-text message, so callers (e.g. the web app's chat
+// UI) can show a specific, safe message instead of always falling back to a generic one.
+// Add new codes here as more failure classes get classified — an unknown/absent code just means
+// "show the generic error", never a broken build.
+export type ErrorCode = "insufficient_credit";
+
 export interface ErrorEvent extends RunEventBase {
   type: "error";
   message: string;
+  code?: ErrorCode;
 }
 
 export interface ContextIncludedEvent extends RunEventBase {

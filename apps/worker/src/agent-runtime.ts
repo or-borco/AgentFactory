@@ -21,6 +21,17 @@ export class PromptTooLongError extends Error {
   }
 }
 
+// Thrown when the sandbox reports that the Claude API rejected the turn because the org's
+// account has run out of usage credits (run-turn.ts matches Anthropic's "credit balance" error
+// text). Kept distinct from the generic failure path so worker.ts can classify the resulting
+// run event with ErrorCode "insufficient_credit" instead of a one-size-fits-all message.
+export class InsufficientCreditError extends Error {
+  constructor() {
+    super("The connected Claude API account has run out of usage credits");
+    this.name = "InsufficientCreditError";
+  }
+}
+
 // The Claude Agent SDK call now runs *inside* the sandbox (apps/worker/sandbox-image/run-turn.ts),
 // not on the worker's own host process — this function just execs into it and parses the one
 // sentinel-prefixed result line back out. `resumeSessionRef` carries the prior turn's provider
@@ -109,6 +120,7 @@ export async function runAgentTurn(params: {
         // malformed error line — fall through to the generic failure below
       }
       if (errorPayload?.code === "prompt_too_long") throw new PromptTooLongError();
+      if (errorPayload?.code === "insufficient_credit") throw new InsufficientCreditError();
     }
     throw new Error(`Sandbox run produced no result line. stdout: ${stdout}\nstderr: ${stderr}`);
   }

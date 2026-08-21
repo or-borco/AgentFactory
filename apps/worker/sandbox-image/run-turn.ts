@@ -76,6 +76,14 @@ async function main(): Promise<void> {
       process.stdout.write(`${ERROR_MARKER}${JSON.stringify({ code: "prompt_too_long" })}\n`);
       return;
     }
+    // Anthropic's own wording for an exhausted account balance — matched on the API's actual
+    // error text (there's no separate error type for it; see the 400 invalid_request_error
+    // shape) rather than a status code, since that's all that survives through the SDK's
+    // thrown error message by the time it reaches this catch.
+    if (/credit balance/i.test(message)) {
+      process.stdout.write(`${ERROR_MARKER}${JSON.stringify({ code: "insufficient_credit" })}\n`);
+      return;
+    }
     throw err;
   }
 

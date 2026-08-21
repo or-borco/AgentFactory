@@ -4,6 +4,15 @@ interface RunEventLike {
   data: Record<string, unknown>;
 }
 
+// Finds the classified ErrorCode (see @agentfactory/core) for a specific run's error event, if
+// any — lets a caller show a specific, safe message instead of a one-size-fits-all fallback.
+// Undefined means "no classification" (an unclassified failure, or no error event at all), not
+// "no error" — callers should keep their own generic fallback for that case.
+export function findErrorCodeForRun(events: RunEventLike[], runId: number): string | undefined {
+  const event = events.find((e) => e.type === "error" && e.runId === runId && typeof e.data.code === "string");
+  return event ? (event.data.code as string) : undefined;
+}
+
 // Groups "error" RunEvents by runId, defaulting to a generic message when the event
 // carries no usable text.
 export function groupErrorsByRun(events: RunEventLike[]): Map<number, string[]> {
