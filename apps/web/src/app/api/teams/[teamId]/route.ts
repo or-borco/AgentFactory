@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { updateTeam } from "@agentfactory/db";
+import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
 
 // Requires a logged-in user but doesn't yet verify teamId belongs to their org — same
@@ -10,5 +11,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ te
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const team = await updateTeam(Number(teamId), body);
   if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
+  if (typeof body.defaultCodebase === "string" && body.defaultCodebase) {
+    await enqueueRepoMapWarmJob(team.orgId, body.defaultCodebase);
+  }
   return NextResponse.json(team);
 }
