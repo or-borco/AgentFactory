@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { deleteAgent, getAgent, updateAgent } from "@agentfactory/db";
 import { isValidModelId, isValidOverflowPolicy } from "@agentfactory/core";
+import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
 
 // Requires a logged-in user but doesn't yet verify agentId belongs to their org — same
@@ -17,6 +18,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ag
   }
   const agent = await updateAgent(Number(agentId), body);
   if (!agent) return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+  if (typeof body.defaultCodebase === "string" && body.defaultCodebase) {
+    await enqueueRepoMapWarmJob(agent.orgId, body.defaultCodebase);
+  }
   return NextResponse.json(agent);
 }
 
