@@ -42,11 +42,14 @@ export async function enqueueSandboxTeardownJob(sessionId: number): Promise<void
 }
 
 // jobId collapses duplicate warm requests for the same org+repo (e.g. an agent's and a team's
-// defaultCodebase both naming it) into a single queued job.
+// defaultCodebase both naming it) into a single queued job. removeOnComplete/removeOnFail clean
+// up the job once it settles — BullMQ retains completed jobs by default, and .add() with an
+// already-used jobId silently no-ops even after that job has completed, which would otherwise
+// permanently block every future warm request for the same org+repo pair.
 export async function enqueueRepoMapWarmJob(orgId: number, repoFullName: string): Promise<void> {
   await repoMapWarmQueue.add(
     "warm-repo-map",
     { orgId, repoFullName },
-    { jobId: `${orgId}-${repoFullName}` },
+    { jobId: `${orgId}-${repoFullName}`, removeOnComplete: true, removeOnFail: { count: 100 } },
   );
 }
