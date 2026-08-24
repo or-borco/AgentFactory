@@ -24,6 +24,19 @@ export function summarizeCommand(command: string): string {
   return "Running a command";
 }
 
+// Longest label we'll show in the step list before eliding — ThinkStep.detail still carries
+// the untruncated text for the hover tooltip, so nothing is lost.
+const MAX_LABEL_LENGTH = 90;
+
+// First sentence of a reasoning summary, flattened to one line and elided if long. Used as the
+// step label so the list stays scannable when a step's text is a paragraph rather than a phrase.
+function firstSentence(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  const end = flat.search(/[.!?](\s|$)/);
+  const sentence = end === -1 ? flat : flat.slice(0, end + 1);
+  return sentence.length > MAX_LABEL_LENGTH ? `${sentence.slice(0, MAX_LABEL_LENGTH - 1).trimEnd()}…` : sentence;
+}
+
 // Convert a thinking_delta event into a friendly phrase. Prefers the agent's own
 // tool `description` when it wrote one; otherwise infers intent from the tool + command.
 // Falls back to parsing the legacy `[Tool] text` string for events stored before the
@@ -45,6 +58,15 @@ export function humanizeStep(data: Record<string, unknown>): string {
       else if (tool === "Bash") command = rest;
       else description = rest;
     }
+  }
+
+  // A reasoning summary carries no tool and doesn't match the legacy `[Tool] …` shape — the
+  // agent's own words are a far better label than any phrase we could infer, so use them
+  // directly. Without this branch these events fall through to the "Working" default below,
+  // which is what every reasoning step rendered as before the sandbox asked the SDK for
+  // thinking display: "summarized".
+  if (!tool && typeof data.text === "string" && data.text.trim()) {
+    return firstSentence(data.text);
   }
 
   const file = filePath ? filePath.split("/").pop() ?? filePath : "";
