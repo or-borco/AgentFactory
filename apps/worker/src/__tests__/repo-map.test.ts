@@ -116,6 +116,41 @@ describe("ensureRepoMap", () => {
     expect(result).toBe("");
   });
 
+  it("returns an empty string without hanging when generation exceeds its wall-clock timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      getRepoMapMock.mockReset().mockResolvedValue(undefined);
+      insertRepoMapMock.mockReset();
+      const sandbox: SandboxProvider = {
+        create: vi.fn(),
+        exec: (async function* (_id: string, cmd: string[]) {
+          if (cmd.join(" ") === HEAD_CMD) {
+            yield { stream: "stdout", data: "abc123\n" } as OutputChunk;
+            return;
+          }
+          // Simulates a hung generation exec: the generator never yields, so execToString's
+          // for-await loop would wait forever without the Promise.race timeout in generateRepoMap.
+          await new Promise(() => {});
+          yield { stream: "stdout", data: "unreachable" } as OutputChunk;
+        }) as SandboxProvider["exec"],
+        writeFiles: vi.fn(),
+        readWorkspace: vi.fn(),
+        destroy: vi.fn(),
+        exists: vi.fn(),
+        resetMemory: vi.fn(),
+      };
+
+      const resultPromise = ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets");
+      await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+      const result = await resultPromise;
+
+      expect(result).toBe("");
+      expect(insertRepoMapMock).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("returns an empty string without throwing when the HEAD-sha lookup itself throws", async () => {
     getRepoMapMock.mockReset().mockResolvedValue(undefined);
     insertRepoMapMock.mockReset();

@@ -3,6 +3,10 @@ import type { SandboxProvider } from "./sandbox/types";
 import { cloneIntoSandbox, resolveCloneTarget, resolveDefaultBranchSha } from "./scm-provider";
 
 const RESULT_MARKER = "__RESULT__";
+const MAX_CONTENT_LENGTH = 16384;
+// Design spec's "its own short wall-clock cap (e.g. 2 minutes), independent of the triggering
+// run's budget" — a hung generation must not stall or fail the user's actual task.
+const GENERATION_TIMEOUT_MS = 2 * 60 * 1000;
 
 interface GeneratedMap {
   text: string;
@@ -28,9 +32,11 @@ async function getSandboxHeadSha(sandboxProvider: SandboxProvider, sandboxId: st
 // treats that identically to "no map available", never throws further up.
 async function generateRepoMap(sandboxProvider: SandboxProvider, sandboxId: string): Promise<GeneratedMap | undefined> {
   try {
-    const stdout = await execToString(sandboxProvider, sandboxId, [
-      "/agent/node_modules/.bin/tsx",
-      "/agent/generate-repo-map.ts",
+    const stdout = await Promise.race([
+      execToString(sandboxProvider, sandboxId, ["/agent/node_modules/.bin/tsx", "/agent/generate-repo-map.ts"]),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Repo map generation timed out")), GENERATION_TIMEOUT_MS),
+      ),
     ]);
     const resultLine = stdout.split("\n").find((line) => line.startsWith(RESULT_MARKER));
     if (!resultLine) return undefined;
@@ -61,15 +67,20 @@ export async function ensureRepoMap(
     const generated = await generateRepoMap(sandboxProvider, sandboxId);
     if (!generated) return "";
 
+    // Truncate once and store/return the same value — insertRepoMap enforces this cap
+    // independently (defense-in-depth CHECK constraint), but ensureRepoMap must return exactly
+    // what got cached, or the run that triggers generation sees a different (larger) prompt than
+    // every later run that hits the cache for the same commit.
+    const content = generated.text.slice(0, MAX_CONTENT_LENGTH);
     await insertRepoMap({
       orgId,
       repoFullName,
       commitSha: sha,
-      content: generated.text,
+      content,
       generationCostUsd: generated.costUsd,
       generationTokens: generated.tokens,
     });
-    return generated.text;
+    return content;
   } catch (err) {
     console.error("Repo map operation failed:", err);
     return "";
@@ -94,10 +105,17 @@ export async function warmRepoMap(
     if (!sha) return;
     if (await getRepoMap(orgId, repoFullName, sha)) return;
 
-    const workspace = await resolveCloneTarget(orgId, repoFullName, "main");
+    // Branch name only needs to be syntactically valid and not collide with whatever branch git
+    // already checked out — cloneIntoSandbox runs `git checkout -b "$BRANCH_NAME"` on a fresh
+    // clone, which fails if the default branch is also literally "main". This sandbox and its
+    // local branch are both discarded when the container is torn down below.
+    const workspace = await resolveCloneTarget(orgId, repoFullName, `repo-map-warm-${Date.now()}`);
     if (!workspace) return;
 
-    const sandbox = await sandboxProvider.create({ image: sandboxImage, env: {} });
+    const sandbox = await sandboxProvider.create({
+      image: sandboxImage,
+      env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "" },
+    });
     try {
       await cloneIntoSandbox(sandboxProvider, sandbox.id, workspace);
       await ensureRepoMap(sandboxProvider, sandbox.id, orgId, repoFullName);
