@@ -2,8 +2,10 @@ import "dotenv/config";
 import { Worker } from "bullmq";
 import {
   RUN_QUEUE_NAME,
+  REPO_MAP_WARM_QUEUE_NAME,
   SANDBOX_TEARDOWN_QUEUE_NAME,
   queueConnection,
+  type RepoMapWarmJobData,
   type RunJobData,
   type SandboxTeardownJobData,
 } from "@agentfactory/queue";
@@ -39,7 +41,7 @@ import {
   type CloneTarget,
 } from "./scm-provider";
 import { resolveEscalation } from "./model-escalation";
-import { ensureRepoMap } from "./repo-map";
+import { ensureRepoMap, warmRepoMap } from "./repo-map";
 
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
@@ -283,4 +285,22 @@ sandboxTeardownWorker.on("failed", (job, err) => {
   console.error(`Sandbox teardown job ${job?.id} failed:`, err);
 });
 
-console.log(`apps/worker listening on queues "${RUN_QUEUE_NAME}", "${SANDBOX_TEARDOWN_QUEUE_NAME}"`);
+// Triggered when an agent's or team's defaultCodebase is set (apps/web's agent/team routes) —
+// best-effort pre-warm so the first real task against that repo doesn't pay the generation cost
+// synchronously. Never touches runs/sessions/events; failures are logged, not surfaced anywhere.
+const repoMapWarmWorker = new Worker<RepoMapWarmJobData>(
+  REPO_MAP_WARM_QUEUE_NAME,
+  async (job) => {
+    const { orgId, repoFullName } = job.data;
+    await warmRepoMap(sandboxProvider, orgId, repoFullName, SANDBOX_IMAGE);
+  },
+  { connection: queueConnection },
+);
+
+repoMapWarmWorker.on("failed", (job, err) => {
+  console.error(`Repo map warm job ${job?.id} failed:`, err);
+});
+
+console.log(
+  `apps/worker listening on queues "${RUN_QUEUE_NAME}", "${SANDBOX_TEARDOWN_QUEUE_NAME}", "${REPO_MAP_WARM_QUEUE_NAME}"`,
+);
