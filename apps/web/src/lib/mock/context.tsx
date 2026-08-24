@@ -5,6 +5,7 @@ import type { Agent, ChatMessage, Connection, OrgMember, OverflowPolicy, Run, Se
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
+import { findErrorCodeForRun } from "@/lib/run-errors";
 
 type DisplayMessage = ChatMessage & { streaming?: boolean; error?: boolean };
 
@@ -55,7 +56,7 @@ interface MockBackendValue extends MockState {
   agentsForTeam: (teamId: number) => Agent[];
   messagesForSession: (sessionId: number) => DisplayMessage[];
   loadMessages: (sessionId: number) => Promise<void>;
-  createTeam: (name: string, description: string) => Promise<Team>;
+  createTeam: (name: string, description: string, defaultCodebase?: string) => Promise<Team>;
   updateTeam: (teamId: number, patch: { name: string; description: string }) => Promise<void>;
   updateTeamSharedContext: (teamId: number, sharedContext: string) => Promise<void>;
   assignAgentToTeam: (agentId: number, teamId: number) => Promise<void>;
@@ -75,6 +76,20 @@ interface MockBackendValue extends MockState {
   deleteTask: (taskId: number) => Promise<void>;
   runTask: (taskId: number) => Promise<{ task: Task; session: Session; runId: number }>;
   deleteConnection: (connectionId: number) => Promise<void>;
+}
+
+// Best-effort lookup of the classified ErrorCode for a failed run, via the same events endpoint
+// the task detail page uses (see run-errors.ts). Never throws — a fetch failure here shouldn't
+// stop the user from seeing at least the generic failure message.
+async function fetchRunErrorCode(sessionId: number, runId: number): Promise<string | undefined> {
+  try {
+    const events = await apiFetch<Array<{ runId: number; type: string; data: Record<string, unknown> }>>(
+      `/api/sessions/${sessionId}/events`,
+    );
+    return findErrorCodeForRun(events, runId);
+  } catch {
+    return undefined;
+  }
 }
 
 const MockBackendContext = createContext<MockBackendValue | null>(null);
@@ -145,8 +160,11 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const createTeam = useCallback(
-    async (name: string, description: string) => {
-      const team = await apiFetch<Team>("/api/teams", { method: "POST", body: JSON.stringify({ name, description }) });
+    async (name: string, description: string, defaultCodebase?: string) => {
+      const team = await apiFetch<Team>("/api/teams", {
+        method: "POST",
+        body: JSON.stringify({ name, description, defaultCodebase }),
+      });
       setState((s) => ({ ...s, teams: [...s.teams, team] }));
       showToast("toast.teamCreated");
       return team;
@@ -309,6 +327,12 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
             const assistantMessage = messages.find((m) => m.role === "assistant" && m.id > userMessage.id);
             if (assistantMessage) revealAssistantMessage(assistantMessage);
           } else if (run.status === "failed" || run.status === "cancelled") {
+            // Classified failures (e.g. an exhausted Claude API account) get a specific, safe
+            // message; anything unclassified keeps the generic fallback. Best-effort — a failed
+            // events fetch shouldn't block showing the user *something* went wrong.
+            const errorCode = await fetchRunErrorCode(sessionId, runId);
+            const content =
+              errorCode === "insufficient_credit" ? t("session.replyFailedInsufficientCredit") : t("session.replyFailed");
             setState((s) => ({
               ...s,
               messages: [
@@ -317,7 +341,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
                   id: -runId,
                   sessionId,
                   role: "assistant",
-                  content: t("session.replyFailed"),
+                  content,
                   createdAt: new Date().toISOString(),
                   error: true,
                 },

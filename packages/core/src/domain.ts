@@ -30,6 +30,7 @@ export interface Team {
   description?: string;
   sharedContext: string; // capped at 64KB, see ARCHITECTURE.md §2.3
   githubTeamSlug?: string;
+  defaultCodebase?: string;
   createdAt: ISODateTime;
 }
 

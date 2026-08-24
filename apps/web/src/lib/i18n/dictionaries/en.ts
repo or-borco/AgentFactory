@@ -121,6 +121,8 @@ const en = {
     messagePlaceholder: "Send a message... (Enter to send, Shift+Enter for new line)",
     send: "Send",
     replyFailed: "The agent couldn't reply — please try again.",
+    replyFailedInsufficientCredit:
+      "The agent couldn't reply because the connected Claude API account is out of usage credits. Ask a workspace admin to add credits, then try again.",
   },
   settings: {
     title: "Settings",
@@ -318,6 +320,10 @@ const en = {
     teamNamePlaceholder: "e.g. Platform",
     teamDescriptionLabel: "Description",
     teamDescriptionPlaceholder: "What is this team responsible for?",
+    teamDefaultCodebaseLabel: "Default codebase",
+    teamDefaultCodebasePlaceholder: "Select a repository (optional)…",
+    teamDefaultCodebaseLoading: "Loading repositories…",
+    teamDefaultCodebaseHelp: "Has no effect on which repo agents use — only pre-warms this repo's map so tasks against it start faster.",
     createTeam: "Create team",
     creatingTeam: "Creating…",
     nameRequired: "Name is required",

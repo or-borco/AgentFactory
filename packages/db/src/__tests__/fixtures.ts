@@ -38,9 +38,9 @@ export async function insertMembership(
 
 export async function insertTeam(
   orgId: number,
-  overrides: Partial<{ name: string; description: string }> = {},
+  overrides: Partial<{ name: string; description: string; defaultCodebase: string }> = {},
 ): Promise<Team> {
-  return createTeam(orgId, overrides.name ?? "Test Team", overrides.description ?? "");
+  return createTeam(orgId, overrides.name ?? "Test Team", overrides.description ?? "", overrides.defaultCodebase);
 }
 
 export async function insertAgent(
