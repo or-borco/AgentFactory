@@ -135,7 +135,7 @@ const runWorker = new Worker<RunJobData>(
         });
       }
 
-      const systemPrompt = composeSystemPrompt(teamContextPrefix, agent.systemPrompt);
+      const systemPrompt = composeSystemPrompt(teamContextPrefix, "", agent.systemPrompt);
       await updateRunStatus(runId, "running", { promptHash: hashPrompt(systemPrompt) });
 
       attemptModel = task?.model ?? agent.model;
