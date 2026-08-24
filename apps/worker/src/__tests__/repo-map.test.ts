@@ -253,4 +253,29 @@ describe("warmRepoMap", () => {
     await expect(warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local")).resolves.toBeUndefined();
     expect(destroy).toHaveBeenCalledWith("warm-sandbox-3");
   });
+
+  it("does not throw when sandbox creation itself fails", async () => {
+    resolveDefaultBranchShaMock.mockReset().mockResolvedValue("abc123");
+    getRepoMapMock.mockReset().mockResolvedValue(undefined);
+    resolveCloneTargetMock.mockReset().mockResolvedValue({
+      cloneUrl: "https://x-access-token:tok@github.com/acme/widgets.git",
+      branch: "main",
+      repoFullName: "acme/widgets",
+      installationId: 1,
+    });
+    const destroy = vi.fn();
+    const create = vi.fn().mockRejectedValue(new Error("docker unavailable"));
+    const sandbox: SandboxProvider = {
+      create,
+      exec: vi.fn(),
+      writeFiles: vi.fn(),
+      readWorkspace: vi.fn(),
+      destroy,
+      exists: vi.fn(),
+      resetMemory: vi.fn(),
+    };
+
+    await expect(warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local")).resolves.toBeUndefined();
+    expect(destroy).not.toHaveBeenCalled();
+  });
 });
