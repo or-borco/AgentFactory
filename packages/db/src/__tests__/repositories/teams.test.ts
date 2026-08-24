@@ -57,4 +57,16 @@ describe("teams repository", () => {
 
     await expect(getTeam(team.id)).resolves.toBeUndefined();
   });
+
+  it("stores and returns defaultCodebase, and clears it when patched to empty string", async () => {
+    const org = await insertOrg();
+    const team = await createTeam(org.id, "Platform", "", "acme-corp/backend");
+    expect(team.defaultCodebase).toBe("acme-corp/backend");
+
+    const updated = await updateTeam(team.id, { defaultCodebase: "acme-corp/frontend" });
+    expect(updated?.defaultCodebase).toBe("acme-corp/frontend");
+
+    const cleared = await updateTeam(team.id, { defaultCodebase: "" });
+    expect(cleared?.defaultCodebase).toBeUndefined();
+  });
 });

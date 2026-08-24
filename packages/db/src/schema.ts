@@ -77,6 +77,9 @@ export const teams = pgTable(
     // Large content goes to team_context_items (S3-backed) instead, not here.
     sharedContext: text("shared_context").notNull().default(""),
     githubTeamSlug: text("github_team_slug"),
+    // Triggers a non-blocking repo-map pre-warm when set/changed (apps/worker's
+    // repo-map-warm queue) — has no effect on which repo an agent or task actually uses.
+    defaultCodebase: text("default_codebase"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

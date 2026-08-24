@@ -24,6 +24,7 @@ function toTeam(row: typeof teams.$inferSelect): Team {
     description: row.description ?? undefined,
     sharedContext: row.sharedContext,
     githubTeamSlug: row.githubTeamSlug ?? undefined,
+    defaultCodebase: row.defaultCodebase ?? undefined,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -38,7 +39,12 @@ export async function getTeam(id: number): Promise<Team | undefined> {
   return row ? toTeam(row) : undefined;
 }
 
-export async function createTeam(orgId: number, name: string, description: string): Promise<Team> {
+export async function createTeam(
+  orgId: number,
+  name: string,
+  description: string,
+  defaultCodebase?: string,
+): Promise<Team> {
   const [row] = await db
     .insert(teams)
     .values({
@@ -46,6 +52,7 @@ export async function createTeam(orgId: number, name: string, description: strin
       name: capName(name),
       description: description || null,
       sharedContext: "",
+      defaultCodebase: defaultCodebase || null,
     })
     .returning();
   return toTeam(row);
@@ -53,12 +60,13 @@ export async function createTeam(orgId: number, name: string, description: strin
 
 export async function updateTeam(
   teamId: number,
-  patch: { name?: string; description?: string; sharedContext?: string },
+  patch: { name?: string; description?: string; sharedContext?: string; defaultCodebase?: string },
 ): Promise<Team | undefined> {
   const values: Partial<typeof teams.$inferInsert> = {};
   if (patch.name !== undefined) values.name = capName(patch.name);
   if (patch.description !== undefined) values.description = patch.description || null;
   if (patch.sharedContext !== undefined) values.sharedContext = capSharedContext(patch.sharedContext);
+  if (patch.defaultCodebase !== undefined) values.defaultCodebase = patch.defaultCodebase || null;
 
   if (Object.keys(values).length === 0) return getTeam(teamId);
   const [row] = await db.update(teams).set(values).where(eq(teams.id, teamId)).returning();
