@@ -47,6 +47,6 @@ export async function enqueueRepoMapWarmJob(orgId: number, repoFullName: string)
   await repoMapWarmQueue.add(
     "warm-repo-map",
     { orgId, repoFullName },
-    { jobId: `${orgId}-${repoFullName.replace(/\//g, "-")}` },
+    { jobId: `${orgId}-${repoFullName}` },
   );
 }
