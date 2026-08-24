@@ -30,6 +30,7 @@ import { type AgentTurnResult, InsufficientCreditError, PromptTooLongError, runA
 import { composeSystemPrompt, hashPrompt } from "./prompt-composition";
 import {
   buildPullRequestBody,
+  cloneIntoSandbox,
   fetchIssue,
   openDraftPullRequest,
   parseIssueReference,
@@ -38,6 +39,7 @@ import {
   type CloneTarget,
 } from "./scm-provider";
 import { resolveEscalation } from "./model-escalation";
+import { ensureRepoMap } from "./repo-map";
 
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
@@ -91,6 +93,7 @@ const runWorker = new Worker<RunJobData>(
 
       const task = await getTaskBySessionId(session.id);
       let workspace: CloneTarget | undefined;
+      let repoMap = "";
       if (task?.codebase) {
         workspace = await resolveCloneTarget(agent.orgId, task.codebase, `agent/session-${session.id}`);
         if (!workspace) {
@@ -98,6 +101,8 @@ const runWorker = new Worker<RunJobData>(
             `Task ${task.ref}'s codebase "${task.codebase}" isn't accessible via any connected GitHub installation`,
           );
         }
+        await cloneIntoSandbox(sandboxProvider, sandboxId, workspace);
+        repoMap = await ensureRepoMap(sandboxProvider, sandboxId, agent.orgId, workspace.repoFullName);
       }
 
       // The sandbox has no GitHub credentials or HTTP client (see scm-provider.ts's fetchIssue
@@ -135,7 +140,7 @@ const runWorker = new Worker<RunJobData>(
         });
       }
 
-      const systemPrompt = composeSystemPrompt(teamContextPrefix, "", agent.systemPrompt);
+      const systemPrompt = composeSystemPrompt(teamContextPrefix, repoMap, agent.systemPrompt);
       await updateRunStatus(runId, "running", { promptHash: hashPrompt(systemPrompt) });
 
       attemptModel = task?.model ?? agent.model;
