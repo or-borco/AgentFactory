@@ -52,20 +52,25 @@ export async function ensureRepoMap(
   orgId: number,
   repoFullName: string,
 ): Promise<string> {
-  const sha = await getSandboxHeadSha(sandboxProvider, sandboxId);
-  const cached = await getRepoMap(orgId, repoFullName, sha);
-  if (cached) return cached.content;
+  try {
+    const sha = await getSandboxHeadSha(sandboxProvider, sandboxId);
+    const cached = await getRepoMap(orgId, repoFullName, sha);
+    if (cached) return cached.content;
 
-  const generated = await generateRepoMap(sandboxProvider, sandboxId);
-  if (!generated) return "";
+    const generated = await generateRepoMap(sandboxProvider, sandboxId);
+    if (!generated) return "";
 
-  await insertRepoMap({
-    orgId,
-    repoFullName,
-    commitSha: sha,
-    content: generated.text,
-    generationCostUsd: generated.costUsd,
-    generationTokens: generated.tokens,
-  });
-  return generated.text;
+    await insertRepoMap({
+      orgId,
+      repoFullName,
+      commitSha: sha,
+      content: generated.text,
+      generationCostUsd: generated.costUsd,
+      generationTokens: generated.tokens,
+    });
+    return generated.text;
+  } catch (err) {
+    console.error("Repo map operation failed:", err);
+    return "";
+  }
 }

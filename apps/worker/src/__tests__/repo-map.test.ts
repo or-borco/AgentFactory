@@ -104,4 +104,27 @@ describe("ensureRepoMap", () => {
     const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets");
     expect(result).toBe("");
   });
+
+  it("returns an empty string without throwing when the HEAD-sha lookup itself throws", async () => {
+    getRepoMapMock.mockReset().mockResolvedValue(undefined);
+    insertRepoMapMock.mockReset();
+    const sandbox: SandboxProvider = {
+      create: vi.fn(),
+      exec: (async function* (_id: string, cmd: string[]) {
+        if (cmd.join(" ") === HEAD_CMD) {
+          throw new Error("git command failed");
+        }
+        throw new Error("unexpected command");
+      }) as SandboxProvider["exec"],
+      writeFiles: vi.fn(),
+      readWorkspace: vi.fn(),
+      destroy: vi.fn(),
+      exists: vi.fn(),
+      resetMemory: vi.fn(),
+    };
+
+    const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets");
+    expect(result).toBe("");
+    expect(insertRepoMapMock).not.toHaveBeenCalled();
+  });
 });
