@@ -12,7 +12,11 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ te
   const team = await updateTeam(Number(teamId), body);
   if (!team) return NextResponse.json({ error: "Team not found" }, { status: 404 });
   if (typeof body.defaultCodebase === "string" && body.defaultCodebase) {
-    await enqueueRepoMapWarmJob(team.orgId, body.defaultCodebase);
+    // Fire-and-forget: the team row is already committed, so a transient queue/Redis failure
+    // here must not turn a successful update into an apparent 500 for the client.
+    enqueueRepoMapWarmJob(team.orgId, body.defaultCodebase).catch((err) => {
+      console.error("Failed to enqueue repo map warm job:", err);
+    });
   }
   return NextResponse.json(team);
 }

@@ -15,7 +15,11 @@ export async function POST(request: Request) {
   const body = await request.json();
   const team = await createTeam(ctx.orgId, body.name, body.description ?? "", body.defaultCodebase);
   if (team.defaultCodebase) {
-    await enqueueRepoMapWarmJob(ctx.orgId, team.defaultCodebase);
+    // Fire-and-forget: the team row is already committed, so a transient queue/Redis failure
+    // here must not turn a successful creation into an apparent 500 for the client.
+    enqueueRepoMapWarmJob(ctx.orgId, team.defaultCodebase).catch((err) => {
+      console.error("Failed to enqueue repo map warm job:", err);
+    });
   }
   return NextResponse.json(team, { status: 201 });
 }

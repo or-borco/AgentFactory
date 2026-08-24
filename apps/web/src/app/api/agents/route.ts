@@ -22,7 +22,11 @@ export async function POST(request: Request) {
   }
   const agent = await createAgent(ctx.orgId, body);
   if (agent.defaultCodebase) {
-    await enqueueRepoMapWarmJob(ctx.orgId, agent.defaultCodebase);
+    // Fire-and-forget: the agent row is already committed, so a transient queue/Redis failure
+    // here must not turn a successful creation into an apparent 500 for the client.
+    enqueueRepoMapWarmJob(ctx.orgId, agent.defaultCodebase).catch((err) => {
+      console.error("Failed to enqueue repo map warm job:", err);
+    });
   }
   return NextResponse.json(agent, { status: 201 });
 }
