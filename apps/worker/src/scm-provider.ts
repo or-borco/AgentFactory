@@ -141,6 +141,32 @@ export async function fetchIssue(
   return { title: issue.title, body: issue.body ?? "" };
 }
 
+// Resolves a repo's default branch HEAD sha via the GitHub API alone, with no sandbox and no
+// clone — used by the repo-map pre-warm job to check whether a commit is already cached before
+// paying for a container. Mirrors openDraftPullRequest's own default-branch lookup.
+export async function resolveDefaultBranchSha(orgId: number, repoFullName: string): Promise<string | undefined> {
+  const installationId = await findInstallationForRepo(orgId, repoFullName);
+  if (installationId === undefined) return undefined;
+
+  const token = await getInstallationToken(installationId);
+  const repoRes = await fetch(`${GITHUB_API}/repos/${repoFullName}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+  });
+  if (!repoRes.ok) {
+    throw new Error(`GitHub API repo lookup failed: ${repoRes.status} ${await repoRes.text().catch(() => "")}`);
+  }
+  const { default_branch: branch } = (await repoRes.json()) as { default_branch: string };
+
+  const commitRes = await fetch(`${GITHUB_API}/repos/${repoFullName}/commits/${branch}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+  });
+  if (!commitRes.ok) {
+    throw new Error(`GitHub API commit lookup failed: ${commitRes.status} ${await commitRes.text().catch(() => "")}`);
+  }
+  const { sha } = (await commitRes.json()) as { sha: string };
+  return sha;
+}
+
 // Clones into /workspace on first use only — the same container is reused across a session's
 // later runs (worker.ts's ensureSandbox), and re-cloning would wipe any uncommitted changes an
 // earlier turn made. When /workspace already has a repo, its remote is checked against the
