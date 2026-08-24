@@ -1,0 +1,1 @@
+ALTER TABLE "teams" ADD COLUMN "default_codebase" text;

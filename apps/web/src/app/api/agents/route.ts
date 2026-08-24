@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAgent, listAgents } from "@agentfactory/db";
 import { isValidModelId, isValidOverflowPolicy } from "@agentfactory/core";
+import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
 
 export async function GET() {
@@ -20,5 +21,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid onContextOverflow value" }, { status: 400 });
   }
   const agent = await createAgent(ctx.orgId, body);
+  if (agent.defaultCodebase) {
+    // Fire-and-forget: the agent row is already committed, so a transient queue/Redis failure
+    // here must not turn a successful creation into an apparent 500 for the client.
+    enqueueRepoMapWarmJob(ctx.orgId, agent.defaultCodebase).catch((err) => {
+      console.error("Failed to enqueue repo map warm job:", err);
+    });
+  }
   return NextResponse.json(agent, { status: 201 });
 }

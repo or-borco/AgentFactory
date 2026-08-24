@@ -11,10 +11,11 @@ export const PLATFORM_PREAMBLE =
   "commit it and open a pull request rather than pushing directly to a protected branch. Keep " +
   "your final response concise — it is shown to the team as the run's summary.\n\n---\n\n";
 
-// Order per ARCHITECTURE.md §3 (narrowed to this issue's scope: no retrieved context items,
-// no skills index yet — see runs.prompt_hash comment on why the whole thing is hashed).
-export function composeSystemPrompt(teamContextPrefix: string, agentSystemPrompt: string): string {
-  return PLATFORM_PREAMBLE + teamContextPrefix + agentSystemPrompt;
+// Order per ARCHITECTURE.md §3, extended with the repo map (docs/superpowers/specs/
+// 2026-08-23-repo-map-indexing-design.md) between team context and the agent's own prompt —
+// narrowed to this repo's actual scope: no retrieved context items, no skills index yet.
+export function composeSystemPrompt(teamContextPrefix: string, repoMap: string, agentSystemPrompt: string): string {
+  return PLATFORM_PREAMBLE + teamContextPrefix + repoMap + agentSystemPrompt;
 }
 
 export function hashPrompt(prompt: string): string {

@@ -56,7 +56,7 @@ interface MockBackendValue extends MockState {
   agentsForTeam: (teamId: number) => Agent[];
   messagesForSession: (sessionId: number) => DisplayMessage[];
   loadMessages: (sessionId: number) => Promise<void>;
-  createTeam: (name: string, description: string) => Promise<Team>;
+  createTeam: (name: string, description: string, defaultCodebase?: string) => Promise<Team>;
   updateTeam: (teamId: number, patch: { name: string; description: string }) => Promise<void>;
   updateTeamSharedContext: (teamId: number, sharedContext: string) => Promise<void>;
   assignAgentToTeam: (agentId: number, teamId: number) => Promise<void>;
@@ -160,8 +160,11 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const createTeam = useCallback(
-    async (name: string, description: string) => {
-      const team = await apiFetch<Team>("/api/teams", { method: "POST", body: JSON.stringify({ name, description }) });
+    async (name: string, description: string, defaultCodebase?: string) => {
+      const team = await apiFetch<Team>("/api/teams", {
+        method: "POST",
+        body: JSON.stringify({ name, description, defaultCodebase }),
+      });
       setState((s) => ({ ...s, teams: [...s.teams, team] }));
       showToast("toast.teamCreated");
       return team;

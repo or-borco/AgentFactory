@@ -14,3 +14,4 @@ export * from "./repositories/runs";
 export * from "./repositories/events";
 export * from "./repositories/tasks";
 export * from "./repositories/team-context-items";
+export * from "./repositories/repo-maps";

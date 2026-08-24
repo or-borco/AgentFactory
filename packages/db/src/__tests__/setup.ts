@@ -26,6 +26,7 @@ const migrationDb = drizzle(migrationClient);
 // Ordered leaves-first so FK constraints don't block the truncate even without CASCADE, though
 // CASCADE is kept as a safety net for any relation added later.
 const TABLES_LEAVES_FIRST = [
+  "repo_maps",
   "events",
   "runs",
   "messages",

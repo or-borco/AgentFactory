@@ -11,6 +11,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type { AcceptanceCriterion, ModelSpec, ToolPolicy } from "@agentfactory/core";
 
@@ -76,6 +77,9 @@ export const teams = pgTable(
     // Large content goes to team_context_items (S3-backed) instead, not here.
     sharedContext: text("shared_context").notNull().default(""),
     githubTeamSlug: text("github_team_slug"),
+    // Triggers a non-blocking repo-map pre-warm when set/changed (apps/worker's
+    // repo-map-warm queue) — has no effect on which repo an agent or task actually uses.
+    defaultCodebase: text("default_codebase"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -311,3 +315,28 @@ export const events = pgTable("events", {
   data: jsonb("data").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Auto-generated CLAUDE.md-style summary of a repo, cached per exact commit so it self-
+// invalidates the moment the code moves on — see docs/superpowers/specs/
+// 2026-08-23-repo-map-indexing-design.md. Plain text, not S3/content-addressed, following
+// teams.sharedContext's reasoning (small, hot, read on every run) rather than the
+// skills-bundle pattern.
+export const repoMaps = pgTable(
+  "repo_maps",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    repoFullName: text("repo_full_name").notNull(),
+    commitSha: text("commit_sha").notNull(),
+    content: text("content").notNull(),
+    generationCostUsd: doublePrecision("generation_cost_usd").notNull().default(0),
+    generationTokens: integer("generation_tokens").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("repo_maps_org_repo_sha").on(table.orgId, table.repoFullName, table.commitSha),
+    check("repo_maps_content_max_length", sql`char_length(${table.content}) <= 16384`),
+  ],
+);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
@@ -8,6 +8,7 @@ import type { Agent, OverflowPolicy, Team } from "@agentfactory/core";
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
 import { parseSharedContext, serializeSharedContext } from "@/lib/shared-context";
 import { SharedContextPanels } from "@/components/SharedContextPanels";
+import { apiFetch } from "@/lib/api-client";
 
 const selectClassName =
   "w-full appearance-none rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none";
@@ -79,15 +80,32 @@ function NewTeamPanel({ onCreated, onCancel }: {
   const { createTeam } = useMockBackend();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [defaultCodebase, setDefaultCodebase] = useState("");
+  const [repos, setRepos] = useState<{ id: number; fullName: string }[]>([]);
+  const [reposLoading, setReposLoading] = useState(true);
   const [nameError, setNameError] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<{ id: number; fullName: string }[]>("/api/connections/github/repos")
+      .then((result) => {
+        if (!cancelled) setRepos(result);
+      })
+      .finally(() => {
+        if (!cancelled) setReposLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setNameError(true); return; }
     setSaving(true);
     try {
-      const team = await createTeam(name.trim(), description.trim());
+      const team = await createTeam(name.trim(), description.trim(), defaultCodebase || undefined);
       onCreated(team.id);
     } finally {
       setSaving(false);
@@ -134,6 +152,29 @@ function NewTeamPanel({ onCreated, onCancel }: {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.teamDefaultCodebaseLabel")}
+          </label>
+          <select
+            value={defaultCodebase}
+            onChange={(e) => setDefaultCodebase(e.target.value)}
+            className={selectClassName}
+          >
+            <option value="">
+              {reposLoading ? t("teamsV2.teamDefaultCodebaseLoading") : t("teamsV2.teamDefaultCodebasePlaceholder")}
+            </option>
+            {repos.map((repo) => (
+              <option key={repo.id} value={repo.fullName}>
+                {repo.fullName}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1.5 text-xs text-[var(--color-neutral-600)]">
+            {t("teamsV2.teamDefaultCodebaseHelp")}
+          </p>
         </div>
       </div>
 

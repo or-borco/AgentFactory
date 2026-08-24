@@ -17,6 +17,7 @@ const {
   parseIssueReference,
   pushChangesIfDirty,
   resolveCloneTarget,
+  resolveDefaultBranchSha,
 } = await import("../scm-provider");
 
 function githubConnection(id: number, installationId: number): Connection {
@@ -425,6 +426,51 @@ describe("fetchIssue", () => {
     );
 
     await expect(fetchIssue(1, "acme-org/platform", 37)).rejects.toThrow("GitHub API issue fetch failed: 404");
+  });
+});
+
+describe("resolveDefaultBranchSha", () => {
+  beforeEach(() => {
+    process.env.GITHUB_APP_ID = "12345";
+    process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    listConnectionsMock.mockReset();
+    delete process.env.GITHUB_APP_ID;
+    delete process.env.GITHUB_APP_PRIVATE_KEY;
+  });
+
+  it("returns the default branch's HEAD sha for a repo the org can access", async () => {
+    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ repositories: [{ full_name: "acme-org/platform" }] }), { status: 200 }),
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_api" }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ default_branch: "main" }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ sha: "abc123" }), { status: 200 })),
+    );
+
+    await expect(resolveDefaultBranchSha(1, "acme-org/platform")).resolves.toBe("abc123");
+  });
+
+  it("returns undefined when no installation can see the repo", async () => {
+    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ repositories: [] }), { status: 200 })),
+    );
+
+    await expect(resolveDefaultBranchSha(1, "acme-org/platform")).resolves.toBeUndefined();
   });
 });
 
