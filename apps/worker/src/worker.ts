@@ -29,7 +29,7 @@ import {
 } from "@agentfactory/db";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { type AgentTurnResult, InsufficientCreditError, PromptTooLongError, runAgentTurn } from "./agent-runtime";
-import { composeSystemPrompt, hashPrompt } from "./prompt-composition";
+import { composeSystemPrompt, formatEnvironmentForPrompt, hashPrompt } from "./prompt-composition";
 import {
   buildPullRequestBody,
   cloneIntoSandbox,
@@ -61,12 +61,31 @@ async function ensureSandbox(session: Session): Promise<string> {
   return sandbox.id;
 }
 
+// Phase timing, straight to stdout. runs.created_at/finished_at are the only timestamps the
+// schema carries, which made it impossible to tell a slow agent turn apart from a slow provision
+// or a long queue wait (run 27 of the perf review: 42 minutes total, 57 seconds of it model). A
+// proper queued_at/started_at/first_token_at migration is the real fix; this is the zero-risk
+// version that makes the same attribution possible from the worker log today.
+function phaseTimer(runId: number): (phase: string) => void {
+  const start = Date.now();
+  let last = start;
+  return (phase: string) => {
+    const now = Date.now();
+    console.log(`[run ${runId}] ${phase}: ${now - last}ms (total ${now - start}ms)`);
+    last = now;
+  };
+}
+
 const runWorker = new Worker<RunJobData>(
   RUN_QUEUE_NAME,
   async (job) => {
     const { runId } = job.data;
+    const mark = phaseTimer(runId);
     const run = await getRun(runId);
     if (!run) return;
+    // Queue wait is invisible from inside the job handler otherwise: the job is only picked up
+    // now, but runs.created_at was stamped when apps/web enqueued it.
+    mark(`picked up (queued ${Date.now() - new Date(run.createdAt).getTime()}ms)`);
 
     // Hoisted above the try block so the catch below can persist whichever model actually ran,
     // even when the failure happens after one or more escalation attempts (runs.model must record
@@ -87,6 +106,7 @@ const runWorker = new Worker<RunJobData>(
       // Shrink back to base before this run starts — a sandbox that grew to handle a heavy
       // task on a prior run shouldn't keep that cap for this one (see docker-sandbox-provider.ts).
       await sandboxProvider.resetMemory(sandboxId);
+      mark("sandbox ready");
 
       await updateRunStatus(runId, "running");
 
@@ -104,7 +124,9 @@ const runWorker = new Worker<RunJobData>(
           );
         }
         await cloneIntoSandbox(sandboxProvider, sandboxId, workspace);
+        mark("clone");
         repoMap = await ensureRepoMap(sandboxProvider, sandboxId, agent.orgId, workspace.repoFullName);
+        mark(repoMap ? "repo map (cache hit)" : "repo map (miss - generation deferred)");
         // Label and delimit before it hits composeSystemPrompt's raw concatenation — this text is
         // produced by an agent exploring an arbitrary repo with full tool access, so a poisoned
         // README/config file could otherwise get cached and re-presented as platform-authored
@@ -150,8 +172,18 @@ const runWorker = new Worker<RunJobData>(
         });
       }
 
-      const systemPrompt = composeSystemPrompt(teamContextPrefix, repoMap, agent.systemPrompt);
+      // Everything below is already known to the worker before the turn starts; stating it in the
+      // prompt is what stops the agent rediscovering it with tool calls (see
+      // formatEnvironmentForPrompt). issueContext is non-empty only when fetchIssue actually
+      // succeeded, so "the issue is in your prompt" is never claimed falsely.
+      const environment = formatEnvironmentForPrompt({
+        workspacePath: workspace ? "/workspace" : undefined,
+        branch: workspace?.branch,
+        hasIssueContext: issueContext.length > 0,
+      });
+      const systemPrompt = composeSystemPrompt(environment, teamContextPrefix, repoMap, agent.systemPrompt);
       await updateRunStatus(runId, "running", { promptHash: hashPrompt(systemPrompt) });
+      mark("prompt composed - handing off to model");
 
       attemptModel = task?.model ?? agent.model;
       let turnResult!: AgentTurnResult;
@@ -164,7 +196,6 @@ const runWorker = new Worker<RunJobData>(
             model: attemptModel,
             userText: (triggeringMessage?.content ?? "") + issueContext,
             resumeSessionRef,
-            workspace,
             onEvent: async (type, data) => {
               await createEvent(runId, seq++, type, data);
             },
@@ -184,6 +215,7 @@ const runWorker = new Worker<RunJobData>(
         }
       }
       const { text, providerSessionRef } = turnResult;
+      mark("agent turn");
 
       await createMessage(run.sessionId, "assistant", text, runId);
       await createEvent(runId, seq++, "text_delta", { text });
@@ -236,13 +268,19 @@ const runWorker = new Worker<RunJobData>(
       // it unfiltered would surface the entire repo (hundreds of pre-existing files) as if the
       // agent had touched all of them. Narrow to what this turn actually changed; a workspace-less
       // run (no codebase attached) keeps the old full-tree snapshot since there's no diff to take.
-      const fullSnapshot = await sandboxProvider.readWorkspace(sandboxId);
+      // readWorkspace tars and UTF-8-decodes the entire checkout. When a codebase is attached and
+      // this turn changed nothing (a read-only turn - "what does this do?", or the release-notes
+      // run that only inspected git log), every byte of that work is thrown away one line later by
+      // the changedFiles filter. Skip it outright in that case.
+      const skipSnapshot = workspace !== undefined && changedFiles.length === 0;
+      const fullSnapshot = skipSnapshot ? {} : await sandboxProvider.readWorkspace(sandboxId);
       const workspaceSnapshot = workspace
         ? Object.fromEntries(changedFiles.filter((f) => f in fullSnapshot).map((f) => [f, fullSnapshot[f]]))
         : fullSnapshot;
       if (Object.keys(workspaceSnapshot).length > 0) {
         await updateRunWorkspace(runId, workspaceSnapshot);
       }
+      mark("finalize");
 
       await updateRunStatus(runId, "done", { finishedAt: new Date(), providerSessionRef, model: attemptModel });
       await touchSessionActivity(session.id);
