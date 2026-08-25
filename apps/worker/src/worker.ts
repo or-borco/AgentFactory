@@ -194,7 +194,12 @@ const runWorker = new Worker<RunJobData>(
         agent.systemPrompt,
       );
       const systemPrompt = composed.prompt;
-      await updateRunStatus(runId, "running", { promptHash: hashPrompt(systemPrompt) });
+      // Segments and hash describe the same string and are computed at the same moment;
+      // storing them in one statement means they can never describe different prompts.
+      await updateRunStatus(runId, "running", {
+        promptHash: hashPrompt(composed.prompt),
+        promptSegments: composed.segments,
+      });
       mark("prompt composed - handing off to model");
 
       attemptModel = task?.model ?? agent.model;
