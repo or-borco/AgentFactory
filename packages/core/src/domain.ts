@@ -262,7 +262,10 @@ export interface PromptSegment {
 export interface RunPrompt {
   runId: ID;
   segments: PromptSegment[];
-  promptHash: string;
+  // Optional because the column is independently nullable: nothing in the schema
+  // forces prompt_hash and prompt_segments to be written together, so the type
+  // admits the state the database can actually hold rather than fabricating "".
+  promptHash?: string;
 }
 
 export interface Artifact {

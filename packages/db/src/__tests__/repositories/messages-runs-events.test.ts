@@ -112,6 +112,16 @@ describe("runs repository", () => {
     await expect(getRunPrompt(run.id)).resolves.toBeUndefined();
     await expect(getRunPrompt(999999)).resolves.toBeUndefined();
   });
+
+  it("returns promptHash undefined, not an empty string, when segments are stored without a hash", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+    const segments = [{ id: "agent_system_prompt", text: "You are a reviewer." }];
+
+    await updateRunStatus(run.id, "running", { promptSegments: segments });
+
+    await expect(getRunPrompt(run.id)).resolves.toEqual({ runId: run.id, segments, promptHash: undefined });
+  });
 });
 
 describe("events repository", () => {

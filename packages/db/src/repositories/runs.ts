@@ -95,5 +95,8 @@ export async function getRunPrompt(id: number): Promise<RunPrompt | undefined> {
     .from(runs)
     .where(eq(runs.id, id));
   if (!row?.promptSegments) return undefined;
-  return { runId: id, segments: row.promptSegments, promptHash: row.promptHash ?? "" };
+  // promptHash stays undefined rather than "" when the column is null — an empty
+  // string would be indistinguishable from a real (impossible) empty hash, and
+  // this feature exists to stop the stored record lying about what was sent.
+  return { runId: id, segments: row.promptSegments, promptHash: row.promptHash ?? undefined };
 }
