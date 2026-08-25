@@ -1,5 +1,5 @@
 import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
-import type { ModelSpec, Run, RunStatus } from "@agentfactory/core";
+import type { ModelSpec, PromptSegment, Run, RunPrompt, RunStatus } from "@agentfactory/core";
 import { db } from "../client";
 import { runs } from "../schema";
 
@@ -50,13 +50,20 @@ export async function getRun(id: number): Promise<Run | undefined> {
 export async function updateRunStatus(
   id: number,
   status: RunStatus,
-  patch?: { finishedAt?: Date; providerSessionRef?: string; model?: ModelSpec; promptHash?: string },
+  patch?: {
+    finishedAt?: Date;
+    providerSessionRef?: string;
+    model?: ModelSpec;
+    promptHash?: string;
+    promptSegments?: PromptSegment[];
+  },
 ): Promise<Run | undefined> {
   const values: Partial<typeof runs.$inferInsert> = { status };
   if (patch?.finishedAt !== undefined) values.finishedAt = patch.finishedAt;
   if (patch?.providerSessionRef !== undefined) values.providerSessionRef = patch.providerSessionRef;
   if (patch?.model !== undefined) values.model = patch.model;
   if (patch?.promptHash !== undefined) values.promptHash = patch.promptHash;
+  if (patch?.promptSegments !== undefined) values.promptSegments = patch.promptSegments;
 
   const [row] = await db.update(runs).set(values).where(eq(runs.id, id)).returning();
   return row ? toRun(row) : undefined;
@@ -77,4 +84,16 @@ export async function getLatestProviderSessionRef(
     .orderBy(desc(runs.createdAt))
     .limit(1);
   return row?.providerSessionRef ?? undefined;
+}
+
+// The Context tab's read. Selects ONLY the prompt columns — never the full row —
+// so this can't grow into another every-column poll payload the way
+// getRun/getRunsForSession ship workspaceSnapshot on every status tick.
+export async function getRunPrompt(id: number): Promise<RunPrompt | undefined> {
+  const [row] = await db
+    .select({ promptSegments: runs.promptSegments, promptHash: runs.promptHash })
+    .from(runs)
+    .where(eq(runs.id, id));
+  if (!row?.promptSegments) return undefined;
+  return { runId: id, segments: row.promptSegments, promptHash: row.promptHash ?? "" };
 }

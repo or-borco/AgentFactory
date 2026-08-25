@@ -5,7 +5,7 @@ import { db } from "../../client.js";
 import { events } from "../../schema.js";
 import { createEvent, listEventsForSession } from "../../repositories/events.js";
 import { createMessage, getMessage, listMessages } from "../../repositories/messages.js";
-import { createRun, getLatestProviderSessionRef, getRun, updateRunStatus } from "../../repositories/runs.js";
+import { createRun, getLatestProviderSessionRef, getRun, getRunPrompt, updateRunStatus } from "../../repositories/runs.js";
 import { insertAgent, insertOrg, insertSession } from "../fixtures.js";
 import type { Session } from "@agentfactory/core";
 
@@ -85,6 +85,32 @@ describe("runs repository", () => {
 
     expect(updated?.promptHash).toBe(promptHash);
     await expect(getRun(run.id)).resolves.toMatchObject({ promptHash });
+  });
+
+  it("stores prompt segments with the status update and reads them back via getRunPrompt only", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+    const promptHash = "b".repeat(64);
+    const segments = [
+      { id: "platform_preamble", text: "You are an agent.\n\n---\n\n" },
+      { id: "team_context", text: "", omittedReason: "no_team" as const },
+      { id: "agent_system_prompt", text: "You are a reviewer." },
+    ];
+
+    await updateRunStatus(run.id, "running", { promptHash, promptSegments: segments });
+
+    await expect(getRunPrompt(run.id)).resolves.toEqual({ runId: run.id, segments, promptHash });
+    // Segments must never surface on the Run type — it rides the task page's status polls.
+    const fetched = await getRun(run.id);
+    expect(fetched).not.toHaveProperty("promptSegments");
+  });
+
+  it("returns undefined from getRunPrompt for a missing run and for a run without stored segments", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+
+    await expect(getRunPrompt(run.id)).resolves.toBeUndefined();
+    await expect(getRunPrompt(999999)).resolves.toBeUndefined();
   });
 });
 
