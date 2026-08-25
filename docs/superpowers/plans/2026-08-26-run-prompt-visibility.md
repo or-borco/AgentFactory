@@ -495,6 +495,7 @@ git commit -m "Add run prompt endpoint for the Context tab"
 **Files:**
 - Modify: `apps/web/src/lib/i18n/dictionaries/en.ts` (inside the existing `taskDetail` block, ~line 243)
 - Create: `apps/web/src/components/RunContextPanel.tsx`
+- Create: `apps/web/src/components/__tests__/RunContextPanel.test.tsx`
 - Modify: `apps/web/src/app/(app)/tasks/[taskId]/page.tsx`
 
 **Interfaces:**
@@ -784,6 +785,112 @@ function SegmentRow({
 
 Note: check how `t()` interpolation works in this repo before using `t("taskDetail.contextBytes", { bytes, percent })` — `taskDetail.confirmDeleteTitle` uses `{title}` placeholders, so the pattern exists; match its exact call signature in `@/lib/i18n/context`.
 
+- [ ] **Step 2b: Write component tests**
+
+Create `apps/web/src/components/__tests__/RunContextPanel.test.tsx`, following the existing pattern in `AssigneeSelect.test.tsx` (jsdom pragma, `I18nProvider` wrapper). Mock `apiFetch` so the panel's fetch is deterministic:
+
+```tsx
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Run } from "@agentfactory/core";
+import { I18nProvider } from "../../lib/i18n/context";
+import { RunContextPanel } from "../RunContextPanel";
+
+const apiFetchMock = vi.fn();
+vi.mock("@/lib/api-client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }));
+
+const RUNS: Run[] = [{ id: 7, sessionId: 1, status: "done", costUsd: 0, tokensUsed: 0, createdAt: "2026-08-26T10:00:00.000Z" } as Run];
+
+const PROMPT = {
+  runId: 7,
+  promptHash: "c".repeat(64),
+  segments: [
+    { id: "platform_preamble", text: "You are an agent.\n" },
+    { id: "team_context", text: "", omittedReason: "no_team" },
+    { id: "agent_system_prompt", text: "You are a reviewer." },
+  ],
+};
+
+function renderPanel(runs: Run[] = RUNS) {
+  render(
+    <I18nProvider>
+      <RunContextPanel runs={runs} />
+    </I18nProvider>,
+  );
+}
+
+beforeEach(() => apiFetchMock.mockReset());
+
+describe("RunContextPanel", () => {
+  it("renders an empty state when the session has no runs", () => {
+    renderPanel([]);
+    expect(screen.getByText("No runs yet")).toBeInTheDocument();
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("fetches the newest run's prompt once and lists each layer with its label", async () => {
+    apiFetchMock.mockResolvedValue(PROMPT);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Platform preamble")).toBeInTheDocument());
+    expect(apiFetchMock).toHaveBeenCalledExactlyOnceWith("/api/runs/7/prompt");
+    expect(screen.getByText("Team context")).toBeInTheDocument();
+    expect(screen.getByText("Agent system prompt")).toBeInTheDocument();
+  });
+
+  // The reason an omitted layer exists at all — "empty" and "why it's empty" are different bugs.
+  it("shows the specific omission reason for a layer that contributed nothing", async () => {
+    apiFetchMock.mockResolvedValue(PROMPT);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Not included: agent has no team")).toBeInTheDocument());
+  });
+
+  it("expands a layer to reveal its exact text", async () => {
+    apiFetchMock.mockResolvedValue(PROMPT);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Platform preamble")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Platform preamble"));
+    expect(screen.getByText("You are an agent.")).toBeInTheDocument();
+  });
+
+  it("shows the joined prompt and hash in the raw view", async () => {
+    apiFetchMock.mockResolvedValue(PROMPT);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("View raw prompt")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("View raw prompt"));
+    expect(screen.getByText("You are an agent.\nYou are a reviewer.")).toBeInTheDocument();
+    expect(screen.getByText(`Prompt hash: ${"c".repeat(64)}`)).toBeInTheDocument();
+  });
+
+  it("states plainly when a run never recorded a prompt", async () => {
+    apiFetchMock.mockResolvedValue({ segments: null });
+    renderPanel();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("No prompt was recorded for this run — it failed before composing one."),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("surfaces a load failure instead of rendering an empty prompt", async () => {
+    apiFetchMock.mockRejectedValue(new Error("boom"));
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Couldn't load this run's prompt. Try again.")).toBeInTheDocument());
+  });
+});
+```
+
+Adjust the `vi.mock` path and the raw-text matcher if the component's actual import specifier or whitespace handling differs — the assertions, not the selectors, are what must hold. If `toHaveBeenCalledExactlyOnceWith` is unavailable in this Vitest version, use `expect(apiFetchMock).toHaveBeenCalledTimes(1)` plus `toHaveBeenCalledWith`.
+
+Run: `pnpm test:unit -- RunContextPanel` — Expected: PASS.
+
 - [ ] **Step 3: Wire the tab into the task page**
 
 In `apps/web/src/app/(app)/tasks/[taskId]/page.tsx`:
@@ -829,7 +936,7 @@ Requires the dev stack (see repo README / docker-compose for Postgres + Redis + 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/web/src/lib/i18n/dictionaries/en.ts apps/web/src/components/RunContextPanel.tsx "apps/web/src/app/(app)/tasks/[taskId]/page.tsx"
+git add apps/web/src/lib/i18n/dictionaries/en.ts apps/web/src/components/RunContextPanel.tsx apps/web/src/components/__tests__/RunContextPanel.test.tsx "apps/web/src/app/(app)/tasks/[taskId]/page.tsx"
 git commit -m "Add Context tab showing each run's assembled prompt by layer"
 ```
 
