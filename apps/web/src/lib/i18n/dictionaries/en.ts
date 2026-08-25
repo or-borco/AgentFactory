@@ -126,6 +126,12 @@ const en = {
   },
   settings: {
     title: "Settings",
+    appearanceHeading: "Appearance",
+    themeLabel: "Theme",
+    themeHelp: "Choose how AgentFactory looks on this device.",
+    themeLight: "Light",
+    themeDark: "Dark",
+    themeSystem: "System",
     organizationHeading: "Organization",
     orgFallback: "—",
     githubAppHeading: "GitHub App",
