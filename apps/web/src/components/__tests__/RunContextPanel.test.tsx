@@ -22,7 +22,7 @@ const PROMPT = {
 };
 
 function renderPanel(runs: Run[] = RUNS) {
-  render(
+  return render(
     <I18nProvider>
       <RunContextPanel runs={runs} />
     </I18nProvider>,
@@ -36,6 +36,27 @@ describe("RunContextPanel", () => {
     renderPanel([]);
     expect(screen.getByText("No runs yet")).toBeInTheDocument();
     expect(apiFetchMock).not.toHaveBeenCalled();
+  });
+
+  // Regression: the Context tab is gated only on the session existing, so a user can open it
+  // before the page's own runs fetch resolves — the panel then mounts with runs=[] and must
+  // recover once runs arrives, rather than freezing on an empty-at-mount selection.
+  it("starts loading a run's prompt once the runs list arrives after mount", async () => {
+    apiFetchMock.mockResolvedValue(PROMPT);
+    const { rerender } = renderPanel([]);
+
+    expect(screen.getByText("No runs yet")).toBeInTheDocument();
+    expect(apiFetchMock).not.toHaveBeenCalled();
+
+    rerender(
+      <I18nProvider>
+        <RunContextPanel runs={RUNS} />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Platform preamble")).toBeInTheDocument());
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/runs/7/prompt");
   });
 
   it("fetches the newest run's prompt once and lists each layer with its label", async () => {
