@@ -234,6 +234,37 @@ export interface Run {
   finishedAt?: ISODateTime;
 }
 
+// ── Run prompt record ───────────────────────────────────────────────────────────
+// Why a given prompt layer contributed nothing to this run. Machine-readable; the
+// web app maps codes to i18n strings and renders unknown codes as a generic
+// "not included" — adding a code is never a breaking change.
+export type PromptOmissionReason =
+  | "no_team"
+  | "empty_shared_context"
+  | "no_codebase"
+  | "repo_map_pending";
+
+// One layer of a run's composed system prompt. Invariant (tested in
+// prompt-composition.test.ts): joining segment texts in order reproduces the
+// exact string the model received. `id` is a stable layer id
+// ("platform_preamble" | "environment" | "team_context" | "repo_map" |
+// "agent_system_prompt" today) typed as string so old clients render future
+// layers without a core bump.
+export interface PromptSegment {
+  id: string;
+  text: string;
+  omittedReason?: PromptOmissionReason;
+}
+
+// The stored prompt record for one run — served by GET /api/runs/[runId]/prompt.
+// Deliberately NOT part of Run: the task page polls run status on a timer, and
+// this payload is up to ~80 KB.
+export interface RunPrompt {
+  runId: ID;
+  segments: PromptSegment[];
+  promptHash: string;
+}
+
 export interface Artifact {
   id: ID;
   runId: ID;
