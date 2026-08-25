@@ -2,9 +2,9 @@ import type { ReactNode } from "react";
 
 export function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "success" | "warning" }) {
   const tones = {
-    neutral: "bg-[rgba(147,151,171,0.1)] text-[var(--color-neutral-500)]",
-    success: "bg-[rgba(78,202,139,0.12)] text-[#4eca8b]",
-    warning: "bg-[rgba(232,164,74,0.15)] text-[#e8a44a]",
+    neutral: "bg-[color-mix(in_srgb,var(--color-neutral-500)_10%,transparent)] text-[var(--color-neutral-500)]",
+    success: "bg-[color-mix(in_srgb,var(--color-status-green)_12%,transparent)] text-[var(--color-status-green)]",
+    warning: "bg-[color-mix(in_srgb,var(--color-status-amber)_15%,transparent)] text-[var(--color-status-amber)]",
   };
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium ${tones[tone]}`}>

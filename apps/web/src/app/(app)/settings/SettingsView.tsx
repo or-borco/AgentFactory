@@ -1,7 +1,8 @@
 "use client";
 
-import { PageHeader, Badge, Card } from "@agentfactory/shared";
+import { PageHeader, Badge, Card, Button } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
+import { useTheme, type ThemeSetting } from "@/lib/theme/context";
 import { OrgIcon, GithubIcon } from "@/lib/icons";
 import { ConnectionsList } from "@/components/ConnectionsList";
 
@@ -15,6 +16,13 @@ export function SettingsView({
   github: { configured: boolean; slug?: string };
 }) {
   const { t } = useTranslation();
+  const { theme, setTheme } = useTheme();
+
+  const themeOptions: { value: ThemeSetting; label: string }[] = [
+    { value: "light", label: t("settings.themeLight") },
+    { value: "dark", label: t("settings.themeDark") },
+    { value: "system", label: t("settings.themeSystem") },
+  ];
 
   return (
     <div className="px-10 pb-16 pt-10">
@@ -37,6 +45,29 @@ export function SettingsView({
                 {orgName ?? t("settings.orgFallback")}
               </p>
               <p className="text-xs text-[var(--color-neutral-500)]">{orgSlug ?? t("settings.orgFallback")}</p>
+            </div>
+          </Card>
+        </section>
+
+        <section>
+          <h2 className="mb-3 text-base font-semibold text-[var(--color-text)]">
+            {t("settings.appearanceHeading")}
+          </h2>
+          <Card className="flex items-center justify-between px-5 py-4">
+            <p className="text-sm text-[var(--color-neutral-500)]">{t("settings.appearanceHelp")}</p>
+            <div className="flex shrink-0 gap-2" role="radiogroup" aria-label={t("settings.appearanceHeading")}>
+              {themeOptions.map((option) => (
+                <Button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={theme === option.value}
+                  variant={theme === option.value ? "primary" : "secondary"}
+                  onClick={() => setTheme(option.value)}
+                >
+                  {option.label}
+                </Button>
+              ))}
             </div>
           </Card>
         </section>

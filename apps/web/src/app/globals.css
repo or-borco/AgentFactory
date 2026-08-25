@@ -84,6 +84,31 @@
   --font-body: "Inter", system-ui, sans-serif;
 }
 
+/* Light theme: overrides the tokens that must invert between light/dark surfaces
+   (page bg, card surface, primary text, dividers, the neutral text/border scale, and
+   shadows). Accent/accent-2/section/status tokens are self-contained color ramps that
+   already read fine on both backgrounds, so they're intentionally left unchanged. */
+[data-theme="light"] {
+  --color-bg: #eef0f6;
+  --color-surface: #ffffff;
+  --color-text: #191a22;
+  --color-divider: color-mix(in srgb, #191a22 12%, transparent);
+
+  --color-neutral-100: #14151c;
+  --color-neutral-200: #262832;
+  --color-neutral-300: #3a3c47;
+  --color-neutral-400: #52545f;
+  --color-neutral-500: #6b6d78;
+  --color-neutral-600: #888a95;
+  --color-neutral-700: #aeb0b8;
+  --color-neutral-800: #d2d3d9;
+  --color-neutral-900: #eef0f5;
+
+  --shadow-sm: 0 0 0 1px #d7d9e0;
+  --shadow-md: 0 0 0 1px #c3c5cd, 0 6px 18px rgba(20,21,28,0.12);
+  --shadow-lg: 0 0 0 1px #aeb0b8, 0 16px 40px rgba(20,21,28,0.16);
+}
+
 @theme inline {
   --color-background: var(--color-bg);
   --color-foreground: var(--color-text);
@@ -95,6 +120,7 @@ body {
   background: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-body);
+  transition: background-color 0.15s ease, color 0.15s ease;
   margin: 0;
 }
 

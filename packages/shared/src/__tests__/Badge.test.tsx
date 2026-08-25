@@ -17,11 +17,11 @@ describe("Badge", () => {
 
   it("applies the success tone", () => {
     render(<Badge tone="success">Done</Badge>);
-    expect(screen.getByText("Done").className).toContain("#4eca8b");
+    expect(screen.getByText("Done").className).toContain("var(--color-status-green)");
   });
 
   it("applies the warning tone", () => {
     render(<Badge tone="warning">Pending</Badge>);
-    expect(screen.getByText("Pending").className).toContain("#e8a44a");
+    expect(screen.getByText("Pending").className).toContain("var(--color-status-amber)");
   });
 });
