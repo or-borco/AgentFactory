@@ -3,7 +3,28 @@ import type { ModelSpec, PromptSegment, Run, RunPrompt, RunStatus } from "@agent
 import { db } from "../client";
 import { runs } from "../schema";
 
-function toRun(row: typeof runs.$inferSelect): Run {
+// Exactly the columns `toRun` reads — never `select()`. `getRun`/`getRunsForSession` sit on the
+// task page's ~1.5s status poll, and prompt_segments is an ~80 KB blob that `toRun` drops on the
+// floor; naming the columns keeps it out of the query, off the wire, and out of Node.
+type RunRow = Pick<typeof runs.$inferSelect, keyof typeof RUN_COLUMNS>;
+
+const RUN_COLUMNS = {
+  id: runs.id,
+  sessionId: runs.sessionId,
+  status: runs.status,
+  triggeringMessageId: runs.triggeringMessageId,
+  providerSessionRef: runs.providerSessionRef,
+  promptHash: runs.promptHash,
+  costUsd: runs.costUsd,
+  tokensUsed: runs.tokensUsed,
+  budgetExceeded: runs.budgetExceeded,
+  workspaceSnapshot: runs.workspaceSnapshot,
+  model: runs.model,
+  createdAt: runs.createdAt,
+  finishedAt: runs.finishedAt,
+} as const;
+
+function toRun(row: RunRow): Run {
   return {
     id: row.id,
     sessionId: row.sessionId,
@@ -23,7 +44,7 @@ function toRun(row: typeof runs.$inferSelect): Run {
 
 export async function getRunsForSession(sessionId: number): Promise<Run[]> {
   const rows = await db
-    .select()
+    .select(RUN_COLUMNS)
     .from(runs)
     .where(eq(runs.sessionId, sessionId))
     .orderBy(desc(runs.createdAt));
@@ -43,7 +64,7 @@ export async function createRun(sessionId: number, triggeringMessageId?: number)
 }
 
 export async function getRun(id: number): Promise<Run | undefined> {
-  const [row] = await db.select().from(runs).where(eq(runs.id, id));
+  const [row] = await db.select(RUN_COLUMNS).from(runs).where(eq(runs.id, id));
   return row ? toRun(row) : undefined;
 }
 
