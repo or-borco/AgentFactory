@@ -12,7 +12,11 @@ import { requireAuthContext } from "@/server/auth";
 export async function GET(_request: Request, { params }: { params: Promise<{ runId: string }> }) {
   if (!(await requireAuthContext())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { runId } = await params;
-  const prompt = await getRunPrompt(Number(runId));
+  const id = Number(runId);
+  // A non-numeric segment is just another "no such run": without this guard NaN reaches
+  // Postgres as an invalid integer and the route 500s, contradicting the contract above.
+  if (!Number.isInteger(id)) return NextResponse.json({ segments: null });
+  const prompt = await getRunPrompt(id);
   if (!prompt) return NextResponse.json({ segments: null });
   return NextResponse.json(prompt);
 }
