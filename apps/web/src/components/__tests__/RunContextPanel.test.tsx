@@ -11,6 +11,9 @@ vi.mock("@/lib/api-client", () => ({ apiFetch: (...args: unknown[]) => apiFetchM
 
 const RUNS: Run[] = [{ id: 7, sessionId: 1, status: "done", costUsd: 0, tokensUsed: 0, createdAt: "2026-08-26T10:00:00.000Z" } as Run];
 
+const NO_PROMPT_COPY =
+  "No prompt was recorded for this run. Runs that fail before composing a prompt, and runs from before this feature shipped, have nothing to show here.";
+
 const PROMPT = {
   runId: 7,
   promptHash: "c".repeat(64),
@@ -101,24 +104,74 @@ describe("RunContextPanel", () => {
     expect(screen.getByText(`Prompt hash: ${"c".repeat(64)}`)).toBeInTheDocument();
   });
 
-  it("states plainly when a run never recorded a prompt", async () => {
+  it("states plainly when a terminal run never recorded a prompt, and asks only once", async () => {
     apiFetchMock.mockResolvedValue({ segments: null });
-    renderPanel();
+    const { rerender } = renderPanel();
 
-    await waitFor(() =>
-      expect(
-        screen.getByText("No prompt was recorded for this run — it failed before composing one."),
-      ).toBeInTheDocument(),
+    await waitFor(() => expect(screen.getByText(NO_PROMPT_COPY)).toBeInTheDocument());
+
+    // A finished run that has no segments never will have any, so a re-render (the task page
+    // re-renders this panel on every ~1.5s poll tick) must not re-ask.
+    rerender(
+      <I18nProvider>
+        <RunContextPanel runs={RUNS} />
+      </I18nProvider>,
     );
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledTimes(1));
+  });
+
+  // Regression: a run that is still in flight hasn't had its segments written yet (the worker
+  // writes them in the same statement that flips the status to `running`). Caching that null as
+  // "never recorded" left a healthy run permanently claiming it had no prompt.
+  it("re-asks for a still-running run's prompt once its status advances", async () => {
+    const queuedRun = [{ ...RUNS[0], status: "queued" } as Run];
+    apiFetchMock.mockResolvedValueOnce({ segments: null });
+    const { rerender } = renderPanel(queuedRun);
+
+    await waitFor(() => expect(screen.getByText(NO_PROMPT_COPY)).toBeInTheDocument());
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+
+    apiFetchMock.mockResolvedValueOnce(PROMPT);
+    rerender(
+      <I18nProvider>
+        <RunContextPanel runs={[{ ...RUNS[0], status: "running" } as Run]} />
+      </I18nProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText("Platform preamble")).toBeInTheDocument());
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(NO_PROMPT_COPY)).not.toBeInTheDocument();
   });
 
   it("surfaces a load failure instead of rendering an empty prompt", async () => {
-    // mockRejectedValueOnce (rather than the persistent mockRejectedValue) avoids a Vitest
-    // quirk where a still-configured rejection handler leaks an unhandled-rejection warning
-    // into this test; the panel only ever calls apiFetch once per run regardless.
+    // One rejection is all the panel can consume — it fetches once per run.
     apiFetchMock.mockRejectedValueOnce(new Error("boom"));
     renderPanel();
 
-    await waitFor(() => expect(screen.getByText("Couldn't load this run's prompt. Try again.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Couldn't load this run's prompt/)).toBeInTheDocument());
+  });
+
+  it("retries the fetch when the user clicks Try again after a failure", async () => {
+    apiFetchMock.mockRejectedValueOnce(new Error("boom"));
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument());
+
+    apiFetchMock.mockResolvedValueOnce(PROMPT);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(screen.getByText("Platform preamble")).toBeInTheDocument());
+    expect(apiFetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders an omitted layer as a plain row, not a disabled button", async () => {
+    apiFetchMock.mockResolvedValue(PROMPT);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Team context")).toBeInTheDocument());
+    // The expandable layers are buttons; the omitted one must not be (a disabled button leaves
+    // the tab order and is announced inconsistently).
+    expect(screen.queryByRole("button", { name: /Team context/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Platform preamble/ })).toBeInTheDocument();
   });
 });

@@ -268,8 +268,10 @@ const en = {
     contextLayersToggle: "View layers",
     contextPromptHash: "Prompt hash",
     contextBytes: "{bytes} bytes · {percent}%",
-    contextNoPrompt: "No prompt was recorded for this run — it failed before composing one.",
-    contextLoadError: "Couldn't load this run's prompt. Try again.",
+    contextNoPrompt:
+      "No prompt was recorded for this run. Runs that fail before composing a prompt, and runs from before this feature shipped, have nothing to show here.",
+    contextLoadError: "Couldn't load this run's prompt.",
+    contextRetry: "Try again",
     contextNoRuns: "No runs yet",
     contextNoRunsSub: "Each run's assembled prompt will appear here once the agent starts working.",
     contextOmittedGeneric: "Not included",
