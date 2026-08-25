@@ -575,7 +575,12 @@ type PromptFetchState = { status: "loading" } | { status: "error" } | { status: 
 export function RunContextPanel({ runs }: { runs: Run[] }) {
   const { t } = useTranslation();
   // runs arrive newest-first from /api/sessions/:id/runs; default to the newest.
-  const [selectedRunId, setSelectedRunId] = useState<number | null>(runs[0]?.id ?? null);
+  // Holds ONLY an explicit pick from the run selector. The run actually shown is derived
+  // below, never stored — the tab can be opened before the page's run list finishes
+  // loading, and a useState initializer would freeze `null` in that window and leave the
+  // panel permanently blank for the common single-run case (no selector is rendered for
+  // one run, so nothing would ever set it).
+  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [promptsByRun, setPromptsByRun] = useState<Map<number, PromptFetchState>>(new Map());
   const [showRaw, setShowRaw] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -584,17 +589,21 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
     setPromptsByRun((prev) => new Map(prev).set(runId, state));
   }, []);
 
-  useEffect(() => {
-    if (selectedRunId === null || promptsByRun.has(selectedRunId)) return;
-    setPromptState(selectedRunId, { status: "loading" });
-    apiFetch<RunPrompt | { segments: null }>(`/api/runs/${selectedRunId}/prompt`)
-      .then((data) =>
-        setPromptState(selectedRunId, { status: "loaded", prompt: data.segments === null ? null : (data as RunPrompt) }),
-      )
-      .catch(() => setPromptState(selectedRunId, { status: "error" }));
-  }, [selectedRunId, promptsByRun, setPromptState]);
+  // The run on screen: an explicit pick if there is one, otherwise the newest run — recomputed
+  // every render, so it starts working the moment `runs` arrives rather than being frozen at mount.
+  const shownRunId = selectedRunId ?? runs[0]?.id ?? null;
 
-  const state = selectedRunId !== null ? promptsByRun.get(selectedRunId) : undefined;
+  useEffect(() => {
+    if (shownRunId === null || promptsByRun.has(shownRunId)) return;
+    setPromptState(shownRunId, { status: "loading" });
+    apiFetch<RunPrompt | { segments: null }>(`/api/runs/${shownRunId}/prompt`)
+      .then((data) =>
+        setPromptState(shownRunId, { status: "loaded", prompt: data.segments === null ? null : (data as RunPrompt) }),
+      )
+      .catch(() => setPromptState(shownRunId, { status: "error" }));
+  }, [shownRunId, promptsByRun, setPromptState]);
+
+  const state = shownRunId !== null ? promptsByRun.get(shownRunId) : undefined;
   const prompt = state?.status === "loaded" ? state.prompt : null;
 
   const totalBytes = useMemo(
@@ -619,7 +628,7 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         {runs.length > 1 && (
           <select
-            value={selectedRunId ?? undefined}
+            value={shownRunId ?? undefined}
             onChange={(e) => {
               setSelectedRunId(Number(e.target.value));
               setShowRaw(false);
