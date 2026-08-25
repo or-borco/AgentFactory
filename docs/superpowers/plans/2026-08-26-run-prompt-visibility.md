@@ -69,7 +69,10 @@ export interface PromptSegment {
 export interface RunPrompt {
   runId: ID;
   segments: PromptSegment[];
-  promptHash: string;
+  // Optional because the column is independently nullable: nothing in the schema
+  // forces prompt_hash and prompt_segments to be written together, so the type
+  // admits the state the database can actually hold rather than fabricating "".
+  promptHash?: string;
 }
 ```
 
@@ -380,7 +383,10 @@ export async function getRunPrompt(id: number): Promise<RunPrompt | undefined> {
     .from(runs)
     .where(eq(runs.id, id));
   if (!row?.promptSegments) return undefined;
-  return { runId: id, segments: row.promptSegments, promptHash: row.promptHash ?? "" };
+  // promptHash stays undefined rather than "" when the column is null — an empty
+  // string would be indistinguishable from a real (impossible) empty hash, and
+  // this feature exists to stop the stored record lying about what was sent.
+  return { runId: id, segments: row.promptSegments, promptHash: row.promptHash ?? undefined };
 }
 ```
 
@@ -667,9 +673,11 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
 
       {prompt && showRaw && (
         <div>
-          <p style={{ fontSize: 12, color: "var(--color-neutral-600)", marginBottom: 8, fontFamily: "monospace" }}>
-            {t("taskDetail.contextPromptHash")}: {prompt.promptHash}
-          </p>
+          {prompt.promptHash && (
+            <p style={{ fontSize: 12, color: "var(--color-neutral-600)", marginBottom: 8, fontFamily: "monospace" }}>
+              {t("taskDetail.contextPromptHash")}: {prompt.promptHash}
+            </p>
+          )}
           <pre
             style={{
               background: "var(--color-surface)",
