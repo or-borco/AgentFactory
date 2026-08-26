@@ -101,6 +101,23 @@ describe("processEvalJob", () => {
     expect(deps.failEval).toHaveBeenCalledWith(1, "judge_error");
   });
 
+  // BullMQ's stalled-job recovery can re-deliver a job after a worker crash. Re-running a
+  // non-queued row would re-bill the judge call and walk an already-"done" row back through
+  // "running" → "done" (or clobber a "failed" row's terminal reason). Only a fresh "queued"
+  // row may proceed.
+  it.each(["running", "done", "failed"] as const)(
+    "skips the job without judging or writing anything when the row's status is already %s",
+    async (status) => {
+      const deps = makeDeps({ getRunEval: vi.fn().mockResolvedValue({ ...EVAL, status }) });
+      await processEvalJob(1, deps);
+
+      expect(deps.markEvalRunning).not.toHaveBeenCalled();
+      expect(deps.judge).not.toHaveBeenCalled();
+      expect(deps.completeEval).not.toHaveBeenCalled();
+      expect(deps.failEval).not.toHaveBeenCalled();
+    },
+  );
+
   it("drops the job quietly when the eval row is gone", async () => {
     const deps = makeDeps({ getRunEval: vi.fn().mockResolvedValue(undefined) });
     await processEvalJob(1, deps);

@@ -62,6 +62,15 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
     return;
   }
 
+  // BullMQ's stalled-job recovery can re-deliver a job after a worker crash. Re-running a row
+  // that already left "queued" would re-bill the judge call and, for a "done" row, walk it
+  // back through "running" before landing on "done" again — or clobber a "failed" row's
+  // terminal reason. Only a fresh "queued" row may proceed past this point.
+  if (evalRow.status !== "queued") {
+    console.error(`Eval ${evalId} is already ${evalRow.status}; skipping redelivered job`);
+    return;
+  }
+
   try {
     // Inside the try: markEvalRunning is itself a DB write and can fail. Once we're past the
     // row-existence check above, every subsequent failure — including this one — must land on
