@@ -298,6 +298,7 @@ const en = {
     evalNoRequirements: "The context contains no checkable instructions — nothing to grade.",
     evalArtefactDiff: "Graded the branch diff",
     evalArtefactFinalMessage: "Graded the final reply (no code was committed)",
+    evalTruncated: "The artefact was too large and was cut before grading — this score may not reflect the full deliverable.",
     evalJudgeStamp: "Judged by {model}",
     evalFailedTitle: "Evaluation failed",
     evalErrorRunNeverComposedPrompt: "This run failed before composing a prompt, so there is no context to grade.",

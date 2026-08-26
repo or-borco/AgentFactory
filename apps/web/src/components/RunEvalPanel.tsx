@@ -276,6 +276,11 @@ function EvalCard({
               ? t("taskDetail.evalArtefactDiff")
               : t("taskDetail.evalArtefactFinalMessage")}
           </p>
+          {runEval.result.truncated && (
+            <p style={{ color: "var(--color-status-amber)", margin: "0 0 8px" }}>
+              {t("taskDetail.evalTruncated")}
+            </p>
+          )}
           {runEval.result.layers.map((layer) => (
             <div key={layer.segmentId} style={{ marginBottom: 12 }}>
               <p style={{ fontWeight: 600, margin: "0 0 6px" }}>

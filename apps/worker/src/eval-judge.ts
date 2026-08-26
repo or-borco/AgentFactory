@@ -145,12 +145,16 @@ export function validateJudgeLayers(input: unknown): EvalLayerResult[] {
 }
 
 // The score is computed here, never trusted from the model.
-export function computeResult(layers: EvalLayerResult[], artefactKind: EvalArtefactKind): RunEvalResult {
+export function computeResult(
+  layers: EvalLayerResult[],
+  artefactKind: EvalArtefactKind,
+  truncated = false,
+): RunEvalResult {
   const requirements = layers.flatMap((layer) => layer.requirements);
   const passed = requirements.filter((requirement) => requirement.verdict === "pass").length;
   // Zero checkable requirements is a valid result, not an error — score 0 by the spec.
   const score = requirements.length === 0 ? 0 : passed / requirements.length;
-  return { artefactKind, layers, score };
+  return { artefactKind, layers, score, truncated };
 }
 
 // One structured-output call: requirement extraction and verdicting in a single pass, the
@@ -171,5 +175,6 @@ export async function judgeCompliance(
   const toolUse = response.content.find((block) => block.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") throw new Error("judge returned no report_eval tool call");
   const layers = validateJudgeLayers(toolUse.input);
-  return { result: computeResult(layers, artefact.kind), judgeModelId: DEFAULT_MODEL_ID };
+  const result = computeResult(layers, artefact.kind, isArtefactTruncated(artefact));
+  return { result, judgeModelId: DEFAULT_MODEL_ID };
 }

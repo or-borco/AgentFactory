@@ -91,6 +91,21 @@ describe("RunEvalPanel", () => {
     expect(screen.getByText("Judged by claude-sonnet-5")).toBeInTheDocument();
   });
 
+  it("shows a truncation notice when the artefact was cut for size before grading", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      { ...DONE_EVAL, result: { ...DONE_EVAL.result!, truncated: true } },
+    ]);
+    renderPanel();
+    expect(await screen.findByText(/too large/i)).toBeInTheDocument();
+  });
+
+  it("shows no truncation notice when the artefact was graded whole", async () => {
+    apiFetchMock.mockResolvedValueOnce([DONE_EVAL]);
+    renderPanel();
+    await screen.findByText("1 of 2 instructions followed");
+    expect(screen.queryByText(/too large/i)).not.toBeInTheDocument();
+  });
+
   it("states plainly when nothing was checkable", async () => {
     apiFetchMock.mockResolvedValueOnce([
       { ...DONE_EVAL, result: { artefactKind: "final_message", score: 0, layers: [] } },

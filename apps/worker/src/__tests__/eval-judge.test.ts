@@ -135,4 +135,17 @@ describe("computeResult", () => {
     const result = computeResult([{ segmentId: "team_context", requirements: [] }], "final_message");
     expect(result.score).toBe(0);
   });
+
+  // Truncation happens outside this function (buildJudgeUserMessage cuts the artefact before
+  // it ever reaches the model) but the flag must still reach the stored result — otherwise a
+  // score against half a diff renders identically to a score against the whole thing.
+  it("carries a truncated flag through to the result when the caller says the artefact was cut", () => {
+    const layers = [{ segmentId: "team_context", requirements: [] }];
+    expect(computeResult(layers, "diff", true).truncated).toBe(true);
+  });
+
+  it("defaults truncated to false when the caller doesn't say otherwise", () => {
+    const layers = [{ segmentId: "team_context", requirements: [] }];
+    expect(computeResult(layers, "diff").truncated).toBe(false);
+  });
 });

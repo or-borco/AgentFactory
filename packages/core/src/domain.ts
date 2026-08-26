@@ -297,6 +297,10 @@ export interface RunEvalResult {
   layers: EvalLayerResult[];
   // passed / total checkable requirements, 0..1; 0 when none were checkable.
   score: number;
+  // True when the artefact exceeded the judge's size cap and was cut before grading. Optional
+  // so rows stored before this field existed keep parsing as undefined (falsy); a truncated
+  // grading must never render identically to a complete one on the card.
+  truncated?: boolean;
 }
 
 export interface RunEval {
