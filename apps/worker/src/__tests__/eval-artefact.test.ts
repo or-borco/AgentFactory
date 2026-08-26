@@ -59,6 +59,14 @@ describe("resolveEvalArtefact", () => {
     expect(deps.getFinalMessage).not.toHaveBeenCalled();
   });
 
+  it("fails when no GitHub installation covers the repo (target unresolvable)", async () => {
+    const deps = makeDeps({ resolveTarget: vi.fn().mockResolvedValue(undefined) });
+    await expect(resolveEvalArtefact(7, SESSION, TASK_WITH_REPO, 1, deps)).rejects.toBeInstanceOf(
+      ArtefactUnavailableError,
+    );
+    expect(deps.getFinalMessage).not.toHaveBeenCalled();
+  });
+
   it("grades the final message directly when the task has no codebase", async () => {
     const deps = makeDeps();
     const artefact = await resolveEvalArtefact(7, SESSION, { id: 5 } as Task, 1, deps);
