@@ -8,6 +8,13 @@ vi.mock("@agentfactory/db", () => ({
   insertRepoMap: (...args: unknown[]) => insertRepoMapMock(...args),
 }));
 
+// repo-map.ts now imports the warm queue, whose module body throws unless REDIS_URL is set —
+// mocked here so this stays a unit test with no Redis dependency, the same way @agentfactory/db is.
+const enqueueRepoMapWarmJobMock = vi.fn();
+vi.mock("@agentfactory/queue", () => ({
+  enqueueRepoMapWarmJob: (...args: unknown[]) => enqueueRepoMapWarmJobMock(...args),
+}));
+
 const resolveDefaultBranchShaMock = vi.fn();
 const resolveCloneTargetMock = vi.fn();
 const cloneIntoSandboxMock = vi.fn();
@@ -45,6 +52,7 @@ describe("ensureRepoMap", () => {
   it("returns the cached map without invoking the generation script on a cache hit", async () => {
     getRepoMapMock.mockReset().mockResolvedValue({ content: "cached map" });
     insertRepoMapMock.mockReset();
+    enqueueRepoMapWarmJobMock.mockReset().mockResolvedValue(undefined);
     const sandbox = fakeSandbox({
       [HEAD_CMD]: [{ stream: "stdout", data: "abc123\n" }],
     });
@@ -54,43 +62,35 @@ describe("ensureRepoMap", () => {
     expect(result).toBe("cached map");
     expect(getRepoMapMock).toHaveBeenCalledWith(1, "acme/widgets", "abc123");
     expect(insertRepoMapMock).not.toHaveBeenCalled();
+    expect(enqueueRepoMapWarmJobMock).not.toHaveBeenCalled();
   });
 
-  it("generates and caches a map on a cache miss", async () => {
-    getRepoMapMock.mockReset().mockResolvedValue(undefined);
-    insertRepoMapMock.mockReset().mockResolvedValue(undefined);
-    const sandbox = fakeSandbox({
-      [HEAD_CMD]: [{ stream: "stdout", data: "abc123\n" }],
-      [GENERATE_CMD]: [
-        { stream: "stdout", data: `__RESULT__${JSON.stringify({ text: "generated map", costUsd: 0.01, tokens: 500 })}\n` },
-      ],
-    });
-
-    const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets");
-
-    expect(result).toBe("generated map");
-    expect(insertRepoMapMock).toHaveBeenCalledWith({
-      orgId: 1,
-      repoFullName: "acme/widgets",
-      commitSha: "abc123",
-      content: "generated map",
-      generationCostUsd: 0.01,
-      generationTokens: 500,
-    });
-  });
-
-  it("returns an empty string without throwing when generation produces no result line", async () => {
+  // The core of the latency fix: a miss must not run the generation turn inline. fakeSandbox
+  // throws on any command it has no registered result for, so registering only HEAD_CMD means
+  // this test fails loudly if ensureRepoMap ever reaches for GENERATE_CMD again.
+  it("defers generation to the warm queue on a cache miss instead of blocking the run", async () => {
     getRepoMapMock.mockReset().mockResolvedValue(undefined);
     insertRepoMapMock.mockReset();
+    enqueueRepoMapWarmJobMock.mockReset().mockResolvedValue(undefined);
     const sandbox = fakeSandbox({
       [HEAD_CMD]: [{ stream: "stdout", data: "abc123\n" }],
-      [GENERATE_CMD]: [{ stream: "stderr", data: "container crashed\n" }],
     });
 
     const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets");
 
     expect(result).toBe("");
+    expect(enqueueRepoMapWarmJobMock).toHaveBeenCalledWith(1, "acme/widgets");
     expect(insertRepoMapMock).not.toHaveBeenCalled();
+  });
+
+  it("still returns an empty string when the warm job cannot even be enqueued", async () => {
+    getRepoMapMock.mockReset().mockResolvedValue(undefined);
+    enqueueRepoMapWarmJobMock.mockReset().mockRejectedValue(new Error("redis down"));
+    const sandbox = fakeSandbox({
+      [HEAD_CMD]: [{ stream: "stdout", data: "abc123\n" }],
+    });
+
+    await expect(ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets")).resolves.toBe("");
   });
 
   it("returns an empty string without throwing when the generation exec itself throws", async () => {
@@ -114,41 +114,6 @@ describe("ensureRepoMap", () => {
 
     const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets");
     expect(result).toBe("");
-  });
-
-  it("returns an empty string without hanging when generation exceeds its wall-clock timeout", async () => {
-    vi.useFakeTimers();
-    try {
-      getRepoMapMock.mockReset().mockResolvedValue(undefined);
-      insertRepoMapMock.mockReset();
-      const sandbox: SandboxProvider = {
-        create: vi.fn(),
-        exec: (async function* (_id: string, cmd: string[]) {
-          if (cmd.join(" ") === HEAD_CMD) {
-            yield { stream: "stdout", data: "abc123\n" } as OutputChunk;
-            return;
-          }
-          // Simulates a hung generation exec: the generator never yields, so execToString's
-          // for-await loop would wait forever without the Promise.race timeout in generateRepoMap.
-          await new Promise(() => {});
-          yield { stream: "stdout", data: "unreachable" } as OutputChunk;
-        }) as SandboxProvider["exec"],
-        writeFiles: vi.fn(),
-        readWorkspace: vi.fn(),
-        destroy: vi.fn(),
-        exists: vi.fn(),
-        resetMemory: vi.fn(),
-      };
-
-      const resultPromise = ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets");
-      await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
-      const result = await resultPromise;
-
-      expect(result).toBe("");
-      expect(insertRepoMapMock).not.toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it("returns an empty string without throwing when the HEAD-sha lookup itself throws", async () => {

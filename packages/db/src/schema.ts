@@ -13,7 +13,7 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { AcceptanceCriterion, ModelSpec, ToolPolicy } from "@agentfactory/core";
+import type { AcceptanceCriterion, ModelSpec, PromptSegment, ToolPolicy } from "@agentfactory/core";
 
 // `generatedByDefaultAsIdentity` (not `generatedAlways`) so seed.ts can still assign explicit,
 // stable ids for its fixture rows via `.overridingSystemValue()`, while app-created rows omit
@@ -223,6 +223,13 @@ export const runs = pgTable("runs", {
   // Snapshot of /workspace at run completion: path → utf-8 content. Excludes node_modules and
   // binary files. Null until the run finishes or if the sandbox was unreachable at teardown.
   workspaceSnapshot: jsonb("workspace_snapshot").$type<Record<string, string>>(),
+  // The exact system prompt this run's turn received, as ordered labeled segments
+  // (PromptSegment in @agentfactory/core; join of texts === the sent string, and
+  // prompt_hash on this row is the hash of that join). Null until the run composes
+  // a prompt — and permanently null for runs that fail before that point, which is
+  // itself diagnostic. Follows the workspaceSnapshot precedent for large per-run
+  // jsonb; read only via getRunPrompt, never selected into Run.
+  promptSegments: jsonb("prompt_segments").$type<PromptSegment[]>(),
   // The ModelSpec that actually executed this run's turn — may differ from the agent/task's
   // assigned model if context-overflow escalation (worker.ts) bumped it to a larger tier.
   // Null until the run resolves a model (never set for runs that fail before that point).

@@ -32,18 +32,27 @@ async function main(): Promise<void> {
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         resume,
-        thinking: { type: "adaptive" },
+        // `display` defaults to "omitted" on Sonnet 5 / Opus 5 and the 4.7+ family, which streams
+        // thinking blocks with empty text — the run then shows nothing at all until the final
+        // answer lands. "summarized" returns a readable summary of the reasoning instead. Thinking
+        // is billed identically either way; this only controls whether we can show it.
+        thinking: { type: "adaptive", display: "summarized" },
       },
     })) {
       if (message.type === "assistant") {
         for (const block of message.message.content) {
-          if (block.type === "tool_use") {
-            // Surface tool invocations as thinking steps — the agent's narrated reasoning.
-            // The SDK redacts internal thinking text (thinking blocks always have empty .thinking),
-            // but each tool call reveals what the agent is doing. We emit the structured pieces
-            // (tool name + the agent's own `description` + the raw command + target file) so the
-            // UI can render a friendly narrative ("Installing dependencies", "Writing strings.ts")
-            // instead of raw shell. `text` is kept as a human-readable fallback for older clients.
+          if (block.type === "thinking" && block.thinking) {
+            // The agent's own reasoning summary, available because the query above asks for
+            // display: "summarized". Without it these blocks arrive with empty text and the run
+            // looks frozen until the final answer — on a tool-less turn, nothing is emitted at all.
+            process.stdout.write(`${EVENT_MARKER}${JSON.stringify({ type: "thinking_delta", text: block.thinking })}\n`);
+          } else if (block.type === "tool_use") {
+            // Surface tool invocations as thinking steps too — a tool call reveals what the agent
+            // is doing, and it stays useful alongside the reasoning summaries above. We emit the
+            // structured pieces (tool name + the agent's own `description` + the raw command +
+            // target file) so the UI can render a friendly narrative ("Installing dependencies",
+            // "Writing strings.ts") instead of raw shell. `text` is kept as a human-readable
+            // fallback for older clients.
             const input = block.input as Record<string, unknown>;
             const description = typeof input.description === "string" ? input.description : undefined;
             const command = typeof input.command === "string" ? input.command : undefined;

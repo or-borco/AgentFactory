@@ -1,3 +1,4 @@
+import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
 import { getRepoMap, insertRepoMap } from "@agentfactory/db";
 import type { SandboxProvider } from "./sandbox/types";
 import { cloneIntoSandbox, resolveCloneTarget, resolveDefaultBranchSha } from "./scm-provider";
@@ -50,10 +51,48 @@ async function generateRepoMap(sandboxProvider: SandboxProvider, sandboxId: stri
 // Run-time path: called from the run pipeline right after clone, with a sandbox that already
 // has the target repo checked out. Cache key is the exact commit sha being worked on — see
 // docs/superpowers/specs/2026-08-23-repo-map-indexing-design.md's "Design decisions" for why
-// this (not repoFullName alone, not a merge-base) is the invalidation mechanism. Never throws:
-// any failure here falls back to "" (no map), and the run proceeds exactly as it did before
-// this feature existed.
+// this (not repoFullName alone, not a merge-base) is the invalidation mechanism.
+//
+// Deliberately NON-BLOCKING on a cache miss. Generation is itself a full agent turn against a
+// second model, measured at 33-38s on an 884KB repo, and it used to sit directly on the critical
+// path between the user sending a message and the agent's first token: it was ~35s of run 32's
+// 101s total. Because the cache key is an exact sha, an actively developed repo misses on the
+// first run after every single commit, so that cost was being paid over and over rather than
+// once. A miss now schedules generation on the repo-map-warm queue (a throwaway sandbox, off this
+// run's critical path) and returns "" — the run proceeds with no map, exactly as it already did
+// whenever generation failed. Later runs against the same commit, including the next turn of this
+// same session, get the cached map for free.
+//
+// Never throws: any failure here falls back to "" (no map), and the run proceeds exactly as it
+// did before this feature existed.
 export async function ensureRepoMap(
+  sandboxProvider: SandboxProvider,
+  sandboxId: string,
+  orgId: number,
+  repoFullName: string,
+): Promise<string> {
+  try {
+    const sha = await getSandboxHeadSha(sandboxProvider, sandboxId);
+    const cached = await getRepoMap(orgId, repoFullName, sha);
+    if (cached) return cached.content;
+
+    // Best-effort, and awaited only for the Redis round trip (single-digit ms) — never for the
+    // generation itself. A failure to even enqueue must not fail the run that triggered it.
+    await enqueueRepoMapWarmJob(orgId, repoFullName).catch((err: unknown) => {
+      console.error(`Failed to schedule repo map generation for ${repoFullName}:`, err);
+    });
+    return "";
+  } catch (err) {
+    console.error("Repo map operation failed:", err);
+    return "";
+  }
+}
+
+// Generates and caches the map for whatever commit is checked out in `sandboxId`, blocking until
+// it finishes. Only the pre-warm path calls this — it runs on its own queue in its own throwaway
+// sandbox, where wall-clock time costs nobody anything. Returns the stored content, or "" if
+// generation failed.
+async function generateAndCacheRepoMap(
   sandboxProvider: SandboxProvider,
   sandboxId: string,
   orgId: number,
@@ -68,9 +107,8 @@ export async function ensureRepoMap(
     if (!generated) return "";
 
     // Truncate once and store/return the same value — insertRepoMap enforces this cap
-    // independently (defense-in-depth CHECK constraint), but ensureRepoMap must return exactly
-    // what got cached, or the run that triggers generation sees a different (larger) prompt than
-    // every later run that hits the cache for the same commit.
+    // independently (defense-in-depth CHECK constraint), but this must return exactly what got
+    // cached, or the caller would see a different (larger) map than every later cache hit.
     const content = generated.text.slice(0, MAX_CONTENT_LENGTH);
     await insertRepoMap({
       orgId,
@@ -82,7 +120,7 @@ export async function ensureRepoMap(
     });
     return content;
   } catch (err) {
-    console.error("Repo map operation failed:", err);
+    console.error("Repo map generation failed:", err);
     return "";
   }
 }
@@ -118,7 +156,7 @@ export async function warmRepoMap(
     });
     try {
       await cloneIntoSandbox(sandboxProvider, sandbox.id, workspace);
-      await ensureRepoMap(sandboxProvider, sandbox.id, orgId, repoFullName);
+      await generateAndCacheRepoMap(sandboxProvider, sandbox.id, orgId, repoFullName);
     } finally {
       await sandboxProvider.destroy(sandbox.id).catch((err) => {
         console.error(`Failed to tear down warm sandbox ${sandbox.id} for ${repoFullName}:`, err);
