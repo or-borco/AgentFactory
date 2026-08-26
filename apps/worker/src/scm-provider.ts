@@ -167,6 +167,33 @@ export async function resolveDefaultBranchSha(orgId: number, repoFullName: strin
   return sha;
 }
 
+// The eval judge's artefact when a run committed: the branch's diff against the repo's default
+// branch, straight from the GitHub compare API in raw diff form. Returns undefined when the
+// branch does not exist — that is the artefact rule's "run never committed" signal, not an
+// error. Every other non-OK answer throws: the caller must fail the eval rather than silently
+// grade the wrong document.
+export async function fetchBranchDiff(target: CloneTarget): Promise<string | undefined> {
+  const token = await getInstallationToken(target.installationId);
+
+  const repoRes = await fetch(`${GITHUB_API}/repos/${target.repoFullName}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+  });
+  if (!repoRes.ok) {
+    throw new Error(`GitHub API repo lookup failed: ${repoRes.status} ${await repoRes.text().catch(() => "")}`);
+  }
+  const { default_branch: base } = (await repoRes.json()) as { default_branch: string };
+
+  const compareRes = await fetch(
+    `${GITHUB_API}/repos/${target.repoFullName}/compare/${base}...${encodeURIComponent(target.branch)}`,
+    { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github.v3.diff" } },
+  );
+  if (compareRes.status === 404) return undefined;
+  if (!compareRes.ok) {
+    throw new Error(`GitHub API compare failed: ${compareRes.status} ${await compareRes.text().catch(() => "")}`);
+  }
+  return compareRes.text();
+}
+
 // Clones into /workspace on first use only — the same container is reused across a session's
 // later runs (worker.ts's ensureSandbox), and re-cloning would wipe any uncommitted changes an
 // earlier turn made. When /workspace already has a repo, its remote is checked against the
