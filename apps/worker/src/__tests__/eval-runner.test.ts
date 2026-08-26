@@ -58,7 +58,14 @@ describe("processEvalJob", () => {
       [{ id: "agent_system_prompt", text: "You are a reviewer." }],
       { kind: "diff", text: "+line" },
     );
-    expect(deps.resolveArtefact).toHaveBeenCalledWith(7, { id: 12, orgId: 2, agentId: 3 }, { id: 5, codebase: "acme/backend" }, 2);
+    // The whole Run, not just its id: the artefact rule reads the run's recorded commit range
+    // to decide what this run — as opposed to its siblings on the same branch — is graded on.
+    expect(deps.resolveArtefact).toHaveBeenCalledWith(
+      { id: 7, sessionId: 12, status: "done" },
+      { id: 12, orgId: 2, agentId: 3 },
+      { id: 5, codebase: "acme/backend" },
+      2,
+    );
     expect(deps.completeEval).toHaveBeenCalledWith(1, RESULT, "claude-sonnet-5");
     expect(deps.failEval).not.toHaveBeenCalled();
   });

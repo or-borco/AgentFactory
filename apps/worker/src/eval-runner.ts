@@ -23,7 +23,7 @@ export interface EvalRunnerDeps {
   markEvalRunning: (id: number) => Promise<void>;
   completeEval: (id: number, result: RunEvalResult, judgeModelId: string) => Promise<RunEval>;
   failEval: (id: number, error: string) => Promise<RunEval>;
-  resolveArtefact: (runId: number, session: Session, task: Task | undefined, orgId: number) => Promise<EvalArtefact>;
+  resolveArtefact: (run: Run, session: Session, task: Task | undefined, orgId: number) => Promise<EvalArtefact>;
   judge: (segments: PromptSegment[], artefact: EvalArtefact) => Promise<{ result: RunEvalResult; judgeModelId: string }>;
 }
 
@@ -106,7 +106,7 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
     const task = await deps.getTaskBySessionId(session.id);
     let artefact: EvalArtefact;
     try {
-      artefact = await deps.resolveArtefact(run.id, session, task, evalRow.orgId);
+      artefact = await deps.resolveArtefact(run, session, task, evalRow.orgId);
     } catch (err) {
       if (err instanceof ArtefactUnavailableError) {
         console.error(`Eval ${evalId}: ${err.message}`);

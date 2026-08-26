@@ -84,7 +84,7 @@ describe("RunEvalPanel", () => {
     apiFetchMock.mockResolvedValueOnce([DONE_EVAL]);
     renderPanel();
     expect(await screen.findByText("1 of 2 instructions followed")).toBeInTheDocument();
-    expect(screen.getByText("Graded the branch diff")).toBeInTheDocument();
+    expect(screen.getByText("Graded the code this run committed")).toBeInTheDocument();
     expect(screen.getByText("Use conventional commits")).toBeInTheDocument();
     expect(screen.getByText("Not followed")).toBeInTheDocument();
     expect(screen.getByText(/No CHANGELOG edit in the diff/)).toBeInTheDocument();

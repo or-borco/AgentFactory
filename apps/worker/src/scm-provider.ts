@@ -168,40 +168,23 @@ export async function resolveDefaultBranchSha(orgId: number, repoFullName: strin
   return sha;
 }
 
-// The eval judge's artefact when a run committed: the branch's diff against the repo's default
-// branch, straight from the GitHub compare API in raw diff form.
+// The eval judge's artefact when a run committed: the diff of exactly the commits THAT run
+// pushed, straight from the GitHub compare API in raw diff form.
 //
-// A 404 from the compare endpoint alone is NOT trusted as "the branch doesn't exist" — the
-// compare URL below builds its head ref with encodeURIComponent (every branch this feature
-// compares is "agent/session-<id>", i.e. contains a slash) while base is left unencoded, and
-// GitHub's handling of a %2F-encoded ref on this endpoint is not something to bet an eval's
-// correctness on. So branch existence is checked independently, against the branches endpoint,
-// before any conclusion is drawn: a genuinely absent branch (404 there) is the artefact rule's
-// "run never committed" signal; a branch that exists but compares empty against base is also a
-// legitimate never-committed signal (returned as ""). Every other non-OK response — including a
-// compare 404 for a branch that DOES exist — throws, so the caller fails the eval with
-// artefact_unavailable instead of silently grading the run's chat reply for a codebase-attached
-// run, which is the worst output this feature can produce.
-export async function fetchBranchDiff(target: CloneTarget): Promise<string | undefined> {
+// The range comes from the run itself (Run.commitRange, recorded at push time), never from the
+// branch's current state — a session's branch accumulates every run's work, so comparing the
+// branch against the default branch would grade run 1 against run 3's commits. Both ends are
+// commit shas, so no ref-encoding question arises.
+//
+// There is no "not found" return value here, deliberately. Whether a run committed is answered
+// by whether it recorded a range, not by what GitHub says; a recorded range whose commits cannot
+// be fetched means the artefact is unavailable, and every non-OK response — 404 included —
+// throws so the caller fails the eval rather than silently grading the run's chat reply instead.
+export async function fetchCommitRangeDiff(target: CloneTarget, range: RunCommitRange): Promise<string> {
   const token = await getInstallationToken(target.installationId);
-  const authHeaders = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
-
-  const branchRes = await fetch(`${GITHUB_API}/repos/${target.repoFullName}/branches/${target.branch}`, {
-    headers: authHeaders,
-  });
-  if (branchRes.status === 404) return undefined;
-  if (!branchRes.ok) {
-    throw new Error(`GitHub API branch lookup failed: ${branchRes.status} ${await branchRes.text().catch(() => "")}`);
-  }
-
-  const repoRes = await fetch(`${GITHUB_API}/repos/${target.repoFullName}`, { headers: authHeaders });
-  if (!repoRes.ok) {
-    throw new Error(`GitHub API repo lookup failed: ${repoRes.status} ${await repoRes.text().catch(() => "")}`);
-  }
-  const { default_branch: base } = (await repoRes.json()) as { default_branch: string };
 
   const compareRes = await fetch(
-    `${GITHUB_API}/repos/${target.repoFullName}/compare/${base}...${encodeURIComponent(target.branch)}`,
+    `${GITHUB_API}/repos/${target.repoFullName}/compare/${range.baseSha}...${range.headSha}`,
     { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github.v3.diff" } },
   );
   if (!compareRes.ok) {

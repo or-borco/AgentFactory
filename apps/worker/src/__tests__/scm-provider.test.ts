@@ -12,7 +12,7 @@ vi.mock("@agentfactory/db", () => ({ listConnections: (orgId: number) => listCon
 const {
   buildPullRequestBody,
   cloneIntoSandbox,
-  fetchBranchDiff,
+  fetchCommitRangeDiff,
   fetchIssue,
   openDraftPullRequest,
   parseIssueReference,
@@ -540,7 +540,7 @@ describe("resolveDefaultBranchSha", () => {
   });
 });
 
-describe("fetchBranchDiff", () => {
+describe("fetchCommitRangeDiff", () => {
   beforeEach(() => {
     process.env.GITHUB_APP_ID = "12345";
     process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
@@ -558,79 +558,63 @@ describe("fetchBranchDiff", () => {
     repoFullName: "acme-org/platform",
     installationId: 999,
   };
+  const RANGE = { baseSha: "a".repeat(40), headSha: "b".repeat(40) };
 
   function tokenResponse() {
     return new Response(JSON.stringify({ token: "ghs_diff" }), { status: 200 });
   }
 
-  it("returns the diff when the branch exists and has commits ahead of base, hitting branch-lookup then repo then compare in order", async () => {
+  it("compares the two shas directly and returns the diff", async () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(new Response("", { status: 200 })) // branch lookup: exists
-      .mockResolvedValueOnce(new Response(JSON.stringify({ default_branch: "main" }), { status: 200 })) // repo lookup
-      .mockResolvedValueOnce(new Response("diff --git a/x b/x\n+added\n", { status: 200 })); // compare
+      .mockResolvedValueOnce(new Response("diff --git a/x b/x\n+added\n", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await expect(fetchBranchDiff(target)).resolves.toBe("diff --git a/x b/x\n+added\n");
+    await expect(fetchCommitRangeDiff(target, RANGE)).resolves.toBe("diff --git a/x b/x\n+added\n");
 
+    // Shas, not the branch name: the branch has moved on if a later run pushed to it. They are
+    // hex, so no encoding question arises — the pitfall that made the branch-based compare
+    // unsafe cannot recur here.
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
-      "https://api.github.com/repos/acme-org/platform/branches/agent/session-12",
-      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer ghs_diff" }) }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      4,
-      "https://api.github.com/repos/acme-org/platform/compare/main...agent%2Fsession-12",
+      `https://api.github.com/repos/acme-org/platform/compare/${RANGE.baseSha}...${RANGE.headSha}`,
       expect.objectContaining({
-        headers: expect.objectContaining({ Accept: "application/vnd.github.v3.diff" }),
+        headers: expect.objectContaining({
+          Authorization: "Bearer ghs_diff",
+          Accept: "application/vnd.github.v3.diff",
+        }),
       }),
     );
   });
 
-  it("returns undefined — the never-committed signal — when the branch genuinely does not exist, without ever calling compare", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(new Response("Not Found", { status: 404 })); // branch lookup: absent
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(fetchBranchDiff(target)).resolves.toBeUndefined();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+  it("returns an empty diff as a string, never undefined — no result can read as a never-committed signal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(new Response("", { status: 200 })),
+    );
+    // "" and not undefined: the caller decides whether a run committed from its recorded commit
+    // range, and nothing this function returns may be mistaken for that answer.
+    await expect(fetchCommitRangeDiff(target, RANGE)).resolves.toBe("");
   });
 
-  it("returns an empty diff — also a legitimate never-committed signal — when the branch exists but is even with base", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(new Response("", { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ default_branch: "main" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response("", { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(fetchBranchDiff(target)).resolves.toBe("");
+  it("raises on a 404 — a recorded range whose commits are gone is unavailable, never never-committed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(tokenResponse())
+        .mockResolvedValueOnce(new Response("Not Found", { status: 404 })),
+    );
+    await expect(fetchCommitRangeDiff(target, RANGE)).rejects.toThrow(/compare failed: 404/);
   });
 
-  it("raises when the compare endpoint 404s even though the branch exists — must not be mistaken for never-committed", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(new Response("", { status: 200 })) // branch exists
-      .mockResolvedValueOnce(new Response(JSON.stringify({ default_branch: "main" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response("not found", { status: 404 })); // compare 404s anyway
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(fetchBranchDiff(target)).rejects.toThrow(/compare failed: 404/);
-  });
-
-  it("raises on a non-404 error status from the branch lookup itself", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(new Response("boom", { status: 500 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(fetchBranchDiff(target)).rejects.toThrow(/branch lookup failed: 500/);
+  it("raises on any other error status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(new Response("boom", { status: 500 })),
+    );
+    await expect(fetchCommitRangeDiff(target, RANGE)).rejects.toThrow(/compare failed: 500/);
   });
 });
 
