@@ -48,6 +48,27 @@ function fakeSandbox(chunks: OutputChunk[]): SandboxProvider {
   };
 }
 
+// Same as fakeSandbox, but keeps the argv it was called with so a test can assert on the
+// shell script the caller actually built.
+function capturingSandbox(chunks: OutputChunk[]): { sandbox: SandboxProvider; script: () => string } {
+  let captured = "";
+  return {
+    sandbox: {
+      create: vi.fn(),
+      exec: async function* (_id: string, argv: string[]) {
+        captured = argv[argv.length - 1];
+        for (const chunk of chunks) yield chunk;
+      },
+      writeFiles: vi.fn(),
+      readWorkspace: vi.fn(),
+      destroy: vi.fn(),
+      exists: vi.fn(),
+      resetMemory: vi.fn(),
+    } as unknown as SandboxProvider,
+    script: () => captured,
+  };
+}
+
 describe("resolveCloneTarget", () => {
   beforeEach(() => {
     process.env.GITHUB_APP_ID = "12345";
@@ -241,6 +262,50 @@ describe("pushChangesIfDirty", () => {
       pushed: true,
       changedFiles: ["src/foo.ts", "README.md"],
     });
+  });
+
+  it("reports the commit range this push added to the branch", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const base = "1".repeat(40);
+    const head = "2".repeat(40);
+    const sandbox = fakeSandbox([
+      { stream: "stdout", data: `BASE_SHA:${base}\nHEAD_SHA:${head}\n` },
+      { stream: "stdout", data: "PUSH_OK\n" },
+    ]);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toMatchObject({
+      pushed: true,
+      commitRange: { baseSha: base, headSha: head },
+    });
+  });
+
+  it("asks the sandbox for both ends of the range before and after committing", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const { sandbox, script } = capturingSandbox([{ stream: "stdout", data: "NO_CHANGES\n" }]);
+    await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    expect(script()).toContain("BASE_SHA:");
+    expect(script()).toContain("HEAD_SHA:");
+  });
+
+  it("omits the commit range when the sandbox reported no shas", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
+    const result = await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    expect(result.pushed).toBe(true);
+    expect(result.commitRange).toBeUndefined();
+  });
+
+  it("omits the commit range when nothing was pushed", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const sandbox = fakeSandbox([
+      { stream: "stdout", data: `BASE_SHA:${"3".repeat(40)}\n` },
+      { stream: "stdout", data: "NO_CHANGES\n" },
+    ]);
+    const result = await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    expect(result.pushed).toBe(false);
+    expect(result.commitRange).toBeUndefined();
   });
 
   it("throws when the push fails", async () => {

@@ -25,6 +25,7 @@ import {
   getTeam,
   setSessionSandboxId,
   touchSessionActivity,
+  updateRunCommitRange,
   updateRunStatus,
   updateRunWorkspace,
   updateTask,
@@ -253,6 +254,11 @@ const runWorker = new Worker<RunJobData>(
           agent.name,
         );
         changedFiles = result.changedFiles;
+        // Recorded here, at the only moment it is knowable: the next run in this session pushes
+        // to the same branch, after which the branch tip no longer distinguishes the two.
+        if (result.commitRange) {
+          await updateRunCommitRange(runId, result.commitRange);
+        }
         if (result.branchMismatch) {
           // The agent has full unrestricted bash access and occasionally switches off the
           // session's assigned branch mid-turn (see T-047) — surfaced as a run event rather than

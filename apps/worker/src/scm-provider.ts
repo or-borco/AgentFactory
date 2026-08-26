@@ -1,5 +1,6 @@
 import jwt from "jsonwebtoken";
 import { listConnections } from "@agentfactory/db";
+import type { RunCommitRange } from "@agentfactory/core";
 import type { SandboxProvider } from "./sandbox/types";
 
 const GITHUB_API = "https://api.github.com";
@@ -280,6 +281,10 @@ export interface PushResult {
   // tree, so callers (the workspace-snapshot UI, the PR body) can show just what changed instead
   // of every file the clone happened to bring in.
   changedFiles: string[];
+  // The commits this push added to target.branch, as a RunCommitRange. Absent when nothing was
+  // pushed, and also when the sandbox could not name a base (a branch with no remote counterpart
+  // and no origin/HEAD) — in which case the range is genuinely unknown and must not be guessed.
+  commitRange?: RunCommitRange;
   // Set whenever the agent ended its turn checked out on a branch other than target.branch (it
   // has full unrestricted bash access — nothing stops it running `git checkout -b`). When set,
   // `agentBranch` is whatever branch it was actually on. If that branch was a descendant of
@@ -334,6 +339,12 @@ else
     COMMIT_STATUS=0
   fi
   git diff-tree --no-commit-id --name-only -r HEAD | sed 's/^/CHANGED_FILE:/'
+  # Both ends of what this run is adding. BASE_SHA is the branch as the remote knew it before
+  # this push (or the default branch, for the session's first run); HEAD_SHA is where it lands
+  # after committing. Emitted here rather than derived later because the branch keeps moving:
+  # once the next run pushes, nothing on the branch can say which commits were this run's.
+  if [ -n "$UPSTREAM_BASE" ]; then echo "BASE_SHA:$UPSTREAM_BASE"; fi
+  echo "HEAD_SHA:$(git rev-parse HEAD)"
   git remote set-url origin "https://x-access-token:$PUSH_TOKEN@github.com/$REPO_FULL_NAME.git"
   git push -u origin "$BRANCH_NAME"
   PUSH_STATUS=$?
@@ -364,7 +375,13 @@ fi`;
       .filter((line) => line.startsWith("CHANGED_FILE:"))
       .map((line) => line.slice("CHANGED_FILE:".length).trim())
       .filter(Boolean);
-    return { pushed: true, changedFiles, branchMismatch };
+    const baseSha = /^BASE_SHA:(\S+)$/m.exec(stdout)?.[1];
+    const headSha = /^HEAD_SHA:(\S+)$/m.exec(stdout)?.[1];
+    // Both ends or neither: half a range cannot be compared, and a partial one would invite a
+    // caller to fill in the other side from the branch tip — exactly the per-session guess this
+    // field exists to replace.
+    const commitRange = baseSha && headSha ? { baseSha, headSha } : undefined;
+    return { pushed: true, changedFiles, branchMismatch, commitRange };
   }
   throw new Error("Failed to push agent changes to the remote");
 }
