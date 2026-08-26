@@ -18,6 +18,7 @@ import type {
   AcceptanceCriterion,
   ModelSpec,
   PromptSegment,
+  RunCommitRange,
   RunEvalResult,
   ToolPolicy,
 } from "@agentfactory/core";
@@ -230,6 +231,12 @@ export const runs = pgTable("runs", {
   // Snapshot of /workspace at run completion: path → utf-8 content. Excludes node_modules and
   // binary files. Null until the run finishes or if the sandbox was unreachable at teardown.
   workspaceSnapshot: jsonb("workspace_snapshot").$type<Record<string, string>>(),
+  // What this run added to the session's branch: the branch head before its push and after
+  // (RunCommitRange in @agentfactory/core). Null when the run pushed nothing — and also for
+  // runs that predate this column, which is why the eval path treats "no range but a
+  // non-empty workspace_snapshot" as unknowable rather than as "committed nothing". Small
+  // enough to sit in RUN_COLUMNS, unlike workspace_snapshot's sibling blobs below.
+  commitRange: jsonb("commit_range").$type<RunCommitRange>(),
   // The exact system prompt this run's turn received, as ordered labeled segments
   // (PromptSegment in @agentfactory/core; join of texts === the sent string, and
   // prompt_hash on this row is the hash of that join). Null until the run composes

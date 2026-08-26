@@ -1,0 +1,1 @@
+ALTER TABLE "runs" ADD COLUMN "commit_range" jsonb;

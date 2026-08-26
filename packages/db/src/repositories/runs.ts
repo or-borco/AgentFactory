@@ -1,5 +1,5 @@
 import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
-import type { ModelSpec, PromptSegment, Run, RunPrompt, RunStatus } from "@agentfactory/core";
+import type { ModelSpec, PromptSegment, Run, RunCommitRange, RunPrompt, RunStatus } from "@agentfactory/core";
 import { db } from "../client";
 import { runs } from "../schema";
 
@@ -19,6 +19,7 @@ const RUN_COLUMNS = {
   tokensUsed: runs.tokensUsed,
   budgetExceeded: runs.budgetExceeded,
   workspaceSnapshot: runs.workspaceSnapshot,
+  commitRange: runs.commitRange,
   model: runs.model,
   createdAt: runs.createdAt,
   finishedAt: runs.finishedAt,
@@ -36,6 +37,7 @@ function toRun(row: RunRow): Run {
     tokensUsed: row.tokensUsed,
     budgetExceeded: row.budgetExceeded ?? undefined,
     workspaceSnapshot: (row.workspaceSnapshot as Record<string, string>) ?? undefined,
+    commitRange: (row.commitRange as RunCommitRange) ?? undefined,
     model: row.model ?? undefined,
     createdAt: row.createdAt.toISOString(),
     finishedAt: row.finishedAt ? row.finishedAt.toISOString() : undefined,
@@ -56,6 +58,13 @@ export async function updateRunWorkspace(
   workspaceSnapshot: Record<string, string>,
 ): Promise<void> {
   await db.update(runs).set({ workspaceSnapshot }).where(eq(runs.id, id));
+}
+
+// Written once, only when the run's push succeeded. Nothing recomputes this later: the
+// session's branch keeps moving as later runs push to it, so the commits belonging to THIS
+// run are only knowable at the moment it pushed them.
+export async function updateRunCommitRange(id: number, commitRange: RunCommitRange): Promise<void> {
+  await db.update(runs).set({ commitRange }).where(eq(runs.id, id));
 }
 
 export async function createRun(sessionId: number, triggeringMessageId?: number): Promise<Run> {

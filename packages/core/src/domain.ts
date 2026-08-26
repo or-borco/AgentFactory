@@ -218,6 +218,15 @@ export type RunStatus =
   | "failed"
   | "cancelled";
 
+// Exactly what one run added to the session's branch: `baseSha` is where the branch stood
+// before this run pushed, `headSha` where it stood after. Recorded at push time because
+// nothing else can reconstruct it later — a session's branch accumulates every run's work,
+// so the branch tip alone cannot say which commits belong to which run.
+export interface RunCommitRange {
+  baseSha: string;
+  headSha: string;
+}
+
 export interface Run {
   id: ID;
   sessionId: ID;
@@ -229,6 +238,9 @@ export interface Run {
   tokensUsed: number;
   budgetExceeded?: boolean;
   workspaceSnapshot?: Record<string, string>;
+  // Set only when this run actually pushed commits. Absent means either "this run committed
+  // nothing" or "this run predates the field" — `workspaceSnapshot` distinguishes the two.
+  commitRange?: RunCommitRange;
   model?: ModelSpec;
   createdAt: ISODateTime;
   finishedAt?: ISODateTime;
