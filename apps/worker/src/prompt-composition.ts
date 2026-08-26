@@ -99,12 +99,30 @@ export function buildRepoMapSegment(hasCodebase: boolean, wrapped: string): Prom
   return { id: "repo_map", text: "", omittedReason: hasCodebase ? "repo_map_pending" : "no_codebase" };
 }
 
-// Order per ARCHITECTURE.md §3, extended with the repo map (docs/superpowers/specs/
-// 2026-08-23-repo-map-indexing-design.md) between team context and the agent's own prompt —
-// narrowed to this repo's actual scope: no retrieved context items, no skills index yet. The
-// environment brief sits directly after the preamble: like the preamble it is platform-authored
-// and describes hard constraints, so it must not be readable as something team context or the
-// agent's own prompt could override.
+// Order per ARCHITECTURE.md §3, narrowed to this repo's actual scope: no retrieved context
+// items, no skills index yet. Two rules decide the arrangement:
+//
+// 1. Platform-authored constraints lead. The preamble and the environment brief describe hard
+//    facts about the sandbox, so they must not read as something team context or the agent's
+//    own prompt could override.
+// 2. Human-authored instructions go LAST, with machine-generated reference material before
+//    them. The repo map is descriptive bulk (capped at 16 KB, routinely 60-70% of the whole
+//    prompt); team context and the agent's system prompt are what a human actually wrote and
+//    expects to be obeyed. Putting the map between them buries the team's instructions.
+//
+// Rule 2 is measured, not assumed. The repo map used to sit between team context and the agent
+// prompt. Replaying a real run's exact layers against claude-haiku-4-5 and scoring the output
+// against every instruction those layers contained (docs/superpowers/experiments/
+// 2026-08-26-prompt-layer-ordering.md) gave, for fully-compliant responses:
+//
+//     map between team context and agent prompt   1/10
+//     map before both (this order)               10/10
+//
+// The gap is almost entirely the team-context instructions, and it widens — not narrows — once
+// a long tool-use transcript sits between the system prompt and the answer, which is the normal
+// condition for a real run. The reordering costs nothing: identical bytes, identical content.
+// An appended "requirements checklist" was also tried and scored worse than reordering alone,
+// so it was not adopted.
 //
 // Returns the segments alongside the joined prompt so the caller can persist exactly what was
 // sent (runs.prompt_segments) — `prompt` is derived from `segments`, never built separately, so
@@ -118,8 +136,8 @@ export function composeSystemPrompt(
   const segments: PromptSegment[] = [
     { id: "platform_preamble", text: PLATFORM_PREAMBLE },
     { id: "environment", text: environment },
-    teamContext,
     repoMap,
+    teamContext,
     { id: "agent_system_prompt", text: agentSystemPrompt },
   ];
   return { segments, prompt: segments.map((s) => s.text).join("") };
