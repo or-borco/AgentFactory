@@ -10,11 +10,16 @@ export interface Org {
   createdAt: ISODateTime;
 }
 
+export type ThemePreference = "dark" | "light";
+
 export interface User {
   id: ID;
   email: string;
   name: string;
   avatarUrl?: string;
+  // Per-user UI preference, persisted server-side so it follows the user across devices/sessions
+  // rather than living in localStorage. Defaults to "dark" (the app's original/only theme).
+  themePreference: ThemePreference;
 }
 
 export interface Membership {

@@ -9,7 +9,7 @@ export async function createAuthSession(input: { tokenHash: string; userId: numb
 
 export async function getUserByTokenHash(tokenHash: string): Promise<User | undefined> {
   const [row] = await db
-    .select({ id: users.id, email: users.email, name: users.name })
+    .select({ id: users.id, email: users.email, name: users.name, themePreference: users.themePreference })
     .from(authSessions)
     .innerJoin(users, eq(authSessions.userId, users.id))
     .where(and(eq(authSessions.tokenHash, tokenHash), gt(authSessions.expiresAt, new Date())));

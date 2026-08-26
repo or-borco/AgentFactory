@@ -14,5 +14,5 @@ export async function POST(request: Request) {
   }
 
   await createSession(user.id);
-  return NextResponse.json({ id: user.id, email: user.email, name: user.name });
+  return NextResponse.json({ id: user.id, email: user.email, name: user.name, themePreference: user.themePreference });
 }

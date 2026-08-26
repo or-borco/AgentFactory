@@ -84,6 +84,37 @@
   --font-body: "Inter", system-ui, sans-serif;
 }
 
+/* Light theme — opted into per-user via Settings → Appearance (packages/core User.themePreference),
+   applied as a `data-theme="light"` attribute on <html> by ThemeProvider (lib/theme/context.tsx).
+   Overrides only the tokens that must flip for a light surface to read correctly: page/surface/
+   text/divider and the full neutral scale (whose steps are numbered by *distance from text/bg*,
+   so 100 stays "near text" and 900 stays "near bg" — the actual lightness of each step inverts).
+   Accent/accent-2/section/status scales are left as-is: every place that uses them already pairs
+   a scale color with its own contrasting text (e.g. accent-800 bg + accent-200 text), so they're
+   self-contained chips that read fine floating on either a light or dark page. */
+:root[data-theme="light"] {
+  --color-bg: #f4f5fa;
+  --color-surface: #ffffff;
+  --color-text: #1b1d29;
+  --color-accent: #5b4bc4;
+  --color-accent-2: #5d55a6;
+  --color-divider: color-mix(in srgb, #1b1d29 12%, transparent);
+
+  --color-neutral-100: #1b1d29;
+  --color-neutral-200: #30323f;
+  --color-neutral-300: #474a5c;
+  --color-neutral-400: #5c5f74;
+  --color-neutral-500: #6a6e89;
+  --color-neutral-600: #8b8fa4;
+  --color-neutral-700: #b9bcc9;
+  --color-neutral-800: #e2e4ec;
+  --color-neutral-900: #edeef4;
+
+  --shadow-sm: 0 0 0 1px #e2e4ec;
+  --shadow-md: 0 0 0 1px #b9bcc9, 0 6px 18px rgba(27,29,41,0.12);
+  --shadow-lg: 0 0 0 1px #6a6e89, 0 16px 40px rgba(27,29,41,0.18);
+}
+
 @theme inline {
   --color-background: var(--color-bg);
   --color-foreground: var(--color-text);

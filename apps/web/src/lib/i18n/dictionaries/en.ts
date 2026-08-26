@@ -134,6 +134,10 @@ const en = {
     githubNotConfiguredHelp: "Register the platform GitHub App before connecting repositories.",
     githubConfiguredBadge: "Configured",
     githubNotConfiguredBadge: "Not configured",
+    appearanceHeading: "Appearance",
+    appearanceDescription: "Choose how AgentFactory looks on this account. Applies everywhere you're signed in.",
+    themeDark: "Dark",
+    themeLight: "Light",
   },
   connections: {
     title: "Connections",

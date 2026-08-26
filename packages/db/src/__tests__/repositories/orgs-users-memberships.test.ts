@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { getOrg, createOrg } from "../../repositories/orgs.js";
-import { getUserByEmail, getUserById, createUser } from "../../repositories/users.js";
+import { getUserByEmail, getUserById, createUser, updateUserThemePreference } from "../../repositories/users.js";
 import { getPrimaryMembership, listOrgMembers } from "../../repositories/memberships.js";
 import { hashPassword } from "../../password.js";
 import { insertMembership, insertOrg, insertUser } from "../fixtures.js";
@@ -37,6 +37,46 @@ describe("users repository", () => {
     await expect(
       createUser({ email: "dup@example.com", name: "Second", passwordHash }),
     ).rejects.toThrow();
+  });
+
+  it("defaults a new user's theme preference to dark", async () => {
+    const user = await insertUser();
+    expect(user.themePreference).toBe("dark");
+    await expect(getUserById(user.id)).resolves.toMatchObject({ themePreference: "dark" });
+  });
+});
+
+describe("updateUserThemePreference", () => {
+  it("persists the new preference and it survives a fresh read", async () => {
+    const user = await insertUser();
+
+    const updated = await updateUserThemePreference(user.id, "light");
+
+    expect(updated?.themePreference).toBe("light");
+    await expect(getUserById(user.id)).resolves.toMatchObject({ themePreference: "light" });
+  });
+
+  it("only changes the targeted user's preference — it's per-user, not global", async () => {
+    const alice = await insertUser({ name: "Alice" });
+    const bob = await insertUser({ name: "Bob" });
+
+    await updateUserThemePreference(alice.id, "light");
+
+    await expect(getUserById(alice.id)).resolves.toMatchObject({ themePreference: "light" });
+    await expect(getUserById(bob.id)).resolves.toMatchObject({ themePreference: "dark" });
+  });
+
+  it("can switch back to dark", async () => {
+    const user = await insertUser();
+    await updateUserThemePreference(user.id, "light");
+
+    const reverted = await updateUserThemePreference(user.id, "dark");
+
+    expect(reverted?.themePreference).toBe("dark");
+  });
+
+  it("returns undefined for a non-existent user", async () => {
+    await expect(updateUserThemePreference(999_999, "light")).resolves.toBeUndefined();
   });
 });
 

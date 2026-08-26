@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { cache } from "react";
 import { cookies } from "next/headers";
 import type { User } from "@agentfactory/core";
 import { createAuthSession, deleteAuthSession, getPrimaryMembership, getUserByTokenHash } from "@agentfactory/db";
@@ -27,12 +28,16 @@ export async function createSession(userId: number): Promise<void> {
   });
 }
 
-export async function getCurrentUser(): Promise<User | undefined> {
+// Wrapped in React's cache() so the root layout (which needs the user's theme preference to set
+// data-theme on <html>) and (app)/layout.tsx (which needs it for the auth redirect) share one DB
+// lookup per request instead of two — cache() dedupes by arguments for the lifetime of a single
+// render pass, then resets on the next request.
+export const getCurrentUser = cache(async (): Promise<User | undefined> => {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
   if (!token) return undefined;
   return getUserByTokenHash(hashToken(token));
-}
+});
 
 export interface AuthContext {
   user: User;

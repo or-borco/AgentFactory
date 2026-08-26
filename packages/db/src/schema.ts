@@ -25,11 +25,18 @@ export const orgs = pgTable("orgs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// A closed set matching ThemePreference in packages/core/src/domain.ts — a native enum rejects
+// an invalid write instead of an app-level bug slipping an arbitrary string into the column.
+export const themePreferenceEnum = pgEnum("theme_preference", ["dark", "light"]);
+
 export const users = pgTable("users", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
+  // Per-user UI preference (see packages/core/src/domain.ts) — "dark" default matches the app's
+  // original/only theme, so existing rows don't need a backfill beyond the column default.
+  themePreference: themePreferenceEnum("theme_preference").notNull().default("dark"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
