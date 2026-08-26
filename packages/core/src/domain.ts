@@ -268,6 +268,51 @@ export interface RunPrompt {
   promptHash?: string;
 }
 
+// ── Run evals ────────────────────────────────────────────────────────────────
+// One row per judge invocation — a run can be evaluated more than once, so this
+// is its own entity, never a column on Run (the task page polls Run on a timer;
+// see the workspaceSnapshot over-fetch lesson).
+
+export type EvalStatus = "queued" | "running" | "done" | "failed";
+export type EvalVerdict = "pass" | "fail" | "unclear";
+// What the judge graded: the branch's diff when the run committed, otherwise the
+// run's final assistant message. Stored so no score is ambiguous about its input.
+export type EvalArtefactKind = "diff" | "final_message";
+
+export interface EvalRequirement {
+  text: string;
+  verdict: EvalVerdict;
+  // A quoted line from the artefact (or a brief statement of what is absent).
+  evidence: string;
+}
+
+export interface EvalLayerResult {
+  // PromptSegment id — "team_context" | "agent_system_prompt" in practice.
+  segmentId: string;
+  requirements: EvalRequirement[];
+}
+
+export interface RunEvalResult {
+  artefactKind: EvalArtefactKind;
+  layers: EvalLayerResult[];
+  // passed / total checkable requirements, 0..1; 0 when none were checkable.
+  score: number;
+}
+
+export interface RunEval {
+  id: ID;
+  orgId: ID;
+  runId: ID;
+  status: EvalStatus;
+  result?: RunEvalResult;
+  // Which model graded — scores from different judges are not comparable.
+  judgeModelId?: string;
+  // Machine-readable failure reason code; only set when status is "failed".
+  error?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
 export interface Artifact {
   id: ID;
   runId: ID;
