@@ -12,6 +12,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CheckIcon, TrashIcon, EditIcon, XIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
 import { RunContextPanel } from "@/components/RunContextPanel";
+import { RunEvalPanel } from "@/components/RunEvalPanel";
 import type { Run, TaskStatus } from "@agentfactory/core";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
 import { groupErrorsByRun, unattachedRunErrors } from "@/lib/run-errors";
@@ -58,7 +59,7 @@ export default function TaskDetailPage() {
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"transcript" | "files" | "context">("transcript");
+  const [activeTab, setActiveTab] = useState<"transcript" | "files" | "context" | "evals">("transcript");
   const [sessionRuns, setSessionRuns] = useState<Run[]>([]);
   const [reply, setReply] = useState("");
   const [replying, setReplying] = useState(false);
@@ -718,6 +719,11 @@ export default function TaskDetailPage() {
               {t("taskDetail.contextTab")}
             </TabBtn>
           )}
+          {session && (
+            <TabBtn active={activeTab === "evals"} onClick={() => setActiveTab("evals")}>
+              {t("taskDetail.evalTab")}
+            </TabBtn>
+          )}
           {/* Agent working indicator in tab bar */}
           {isRunning && (
             <div
@@ -1033,6 +1039,7 @@ export default function TaskDetailPage() {
         )}
 
         {activeTab === "context" && <RunContextPanel runs={sessionRuns} />}
+        {activeTab === "evals" && <RunEvalPanel runs={sessionRuns} />}
       </div>
 
       <style>{`
