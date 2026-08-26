@@ -168,16 +168,32 @@ export async function resolveDefaultBranchSha(orgId: number, repoFullName: strin
 }
 
 // The eval judge's artefact when a run committed: the branch's diff against the repo's default
-// branch, straight from the GitHub compare API in raw diff form. Returns undefined when the
-// branch does not exist — that is the artefact rule's "run never committed" signal, not an
-// error. Every other non-OK answer throws: the caller must fail the eval rather than silently
-// grade the wrong document.
+// branch, straight from the GitHub compare API in raw diff form.
+//
+// A 404 from the compare endpoint alone is NOT trusted as "the branch doesn't exist" — the
+// compare URL below builds its head ref with encodeURIComponent (every branch this feature
+// compares is "agent/session-<id>", i.e. contains a slash) while base is left unencoded, and
+// GitHub's handling of a %2F-encoded ref on this endpoint is not something to bet an eval's
+// correctness on. So branch existence is checked independently, against the branches endpoint,
+// before any conclusion is drawn: a genuinely absent branch (404 there) is the artefact rule's
+// "run never committed" signal; a branch that exists but compares empty against base is also a
+// legitimate never-committed signal (returned as ""). Every other non-OK response — including a
+// compare 404 for a branch that DOES exist — throws, so the caller fails the eval with
+// artefact_unavailable instead of silently grading the run's chat reply for a codebase-attached
+// run, which is the worst output this feature can produce.
 export async function fetchBranchDiff(target: CloneTarget): Promise<string | undefined> {
   const token = await getInstallationToken(target.installationId);
+  const authHeaders = { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" };
 
-  const repoRes = await fetch(`${GITHUB_API}/repos/${target.repoFullName}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+  const branchRes = await fetch(`${GITHUB_API}/repos/${target.repoFullName}/branches/${target.branch}`, {
+    headers: authHeaders,
   });
+  if (branchRes.status === 404) return undefined;
+  if (!branchRes.ok) {
+    throw new Error(`GitHub API branch lookup failed: ${branchRes.status} ${await branchRes.text().catch(() => "")}`);
+  }
+
+  const repoRes = await fetch(`${GITHUB_API}/repos/${target.repoFullName}`, { headers: authHeaders });
   if (!repoRes.ok) {
     throw new Error(`GitHub API repo lookup failed: ${repoRes.status} ${await repoRes.text().catch(() => "")}`);
   }
@@ -187,7 +203,6 @@ export async function fetchBranchDiff(target: CloneTarget): Promise<string | und
     `${GITHUB_API}/repos/${target.repoFullName}/compare/${base}...${encodeURIComponent(target.branch)}`,
     { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github.v3.diff" } },
   );
-  if (compareRes.status === 404) return undefined;
   if (!compareRes.ok) {
     throw new Error(`GitHub API compare failed: ${compareRes.status} ${await compareRes.text().catch(() => "")}`);
   }
