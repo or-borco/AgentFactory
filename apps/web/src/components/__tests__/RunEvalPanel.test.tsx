@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Run, RunEval } from "@agentfactory/core";
 import { I18nProvider } from "../../lib/i18n/context";
@@ -14,6 +14,11 @@ const DONE_RUN: Run[] = [
 ];
 const RUNNING_RUN: Run[] = [
   { id: 8, sessionId: 1, status: "running", costUsd: 0, tokensUsed: 0, createdAt: "2026-08-26T10:00:00.000Z" } as Run,
+];
+// Terminal, but the run never got a promptHash recorded (e.g. it failed before composing a
+// prompt) — the second of the two disabled-reason branches.
+const NO_PROMPT_RUN: Run[] = [
+  { id: 9, sessionId: 1, status: "done", costUsd: 0, tokensUsed: 0, createdAt: "2026-08-26T10:00:00.000Z" } as Run,
 ];
 
 const DONE_EVAL: RunEval = {
@@ -124,5 +129,67 @@ describe("RunEvalPanel", () => {
       expect(apiFetchMock).toHaveBeenCalledWith("/api/runs/7/evals", expect.objectContaining({ method: "POST" })),
     );
     expect(await screen.findByText("Evaluating…")).toBeInTheDocument();
+  });
+
+  it("disables the button with a reason when the run has no recorded prompt", async () => {
+    apiFetchMock.mockResolvedValueOnce([]);
+    renderPanel(NO_PROMPT_RUN);
+    expect(await screen.findByRole("button", { name: "Evaluate" })).toBeDisabled();
+    expect(screen.getByText("This run has no recorded prompt to grade against")).toBeInTheDocument();
+  });
+
+  it("keeps loaded history when a create attempt fails, and surfaces the failure locally", async () => {
+    apiFetchMock.mockResolvedValueOnce([DONE_EVAL]); // initial GET
+    renderPanel();
+    const button = await screen.findByRole("button", { name: "Evaluate again" });
+    expect(screen.getByText("1 of 2 instructions followed")).toBeInTheDocument();
+
+    apiFetchMock.mockRejectedValueOnce(new Error("Run is not finished"));
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/runs/7/evals", expect.objectContaining({ method: "POST" })),
+    );
+
+    // The already-loaded card must survive a failed create — it must not be replaced by the
+    // generic "couldn't load" view, which reads from the same evalsByRun state.
+    expect(screen.getByText("1 of 2 instructions followed")).toBeInTheDocument();
+    expect(screen.queryByText("Couldn't load evaluations for this run.")).not.toBeInTheDocument();
+    // The failure is surfaced locally, near the button, using existing eval copy.
+    expect(await screen.findByText("The judge call failed. Try again.")).toBeInTheDocument();
+  });
+
+  it("stops polling once a queued eval reaches a terminal status", async () => {
+    vi.useFakeTimers();
+    try {
+      const queued = { ...DONE_EVAL, status: "queued" as const, result: undefined, completedAt: undefined };
+      apiFetchMock.mockResolvedValueOnce([queued]); // initial GET on mount
+
+      renderPanel();
+
+      // Flush the mount-time fetch effect.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText("Evaluating…")).toBeInTheDocument();
+      expect(apiFetchMock).toHaveBeenCalledTimes(1);
+
+      // One poll tick fires and the eval flips to done.
+      apiFetchMock.mockResolvedValueOnce([{ ...DONE_EVAL, status: "done" as const }]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(apiFetchMock).toHaveBeenCalledTimes(2);
+      expect(screen.getByText("1 of 2 instructions followed")).toBeInTheDocument();
+
+      // Further ticks must NOT issue another GET — this is the assertion that would catch a
+      // poll that never stops once its eval reaches a terminal status.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000 * 5);
+      });
+      expect(apiFetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -15,13 +15,14 @@ const LAYER_LABEL_KEYS: Record<string, TranslationKey> = {
   agent_system_prompt: "taskDetail.contextLayerAgentSystemPrompt",
 };
 
-// error column values → copy. Unknown codes (including "judge_error", and any future reason)
-// fall through to the generic line.
+// error column values → copy, explicit for all five codes the worker stores. Unknown codes
+// (any future reason) fall through to the generic line.
 const ERROR_LABEL_KEYS: Record<string, TranslationKey> = {
   run_never_composed_prompt: "taskDetail.evalErrorRunNeverComposedPrompt",
   no_human_context: "taskDetail.evalErrorNoHumanContext",
   artefact_unavailable: "taskDetail.evalErrorArtefactUnavailable",
   insufficient_credit: "taskDetail.evalErrorInsufficientCredit",
+  judge_error: "taskDetail.evalErrorGeneric",
 };
 
 const VERDICT_LABEL_KEYS: Record<EvalRequirement["verdict"], TranslationKey> = {
@@ -56,6 +57,11 @@ export function RunEvalPanel({ runs }: { runs: Run[] }) {
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
   const [evalsByRun, setEvalsByRun] = useState<Map<number, EvalFetchState>>(new Map());
   const [creating, setCreating] = useState(false);
+  // A failed POST (e.g. a 409 from a status race between render and click) must never clobber
+  // already-loaded history in evalsByRun — that map is what the whole panel renders from. Track
+  // creation failures separately, keyed by run, so they only ever affect the Evaluate button's
+  // own area and are cleared the moment a later attempt is made.
+  const [createErrorRunId, setCreateErrorRunId] = useState<number | null>(null);
   // Guards the initial fetch per run so the effect below never double-requests.
   const requestedRunIds = useRef<Set<number>>(new Set());
 
@@ -105,11 +111,15 @@ export function RunEvalPanel({ runs }: { runs: Run[] }) {
   const startEval = async () => {
     if (shownRunId === null) return;
     setCreating(true);
+    setCreateErrorRunId(null);
     try {
       await apiFetch<RunEval>(`/api/runs/${shownRunId}/evals`, { method: "POST" });
       await fetchEvals(shownRunId);
     } catch {
-      setEvalsByRun((prev) => new Map(prev).set(shownRunId, { status: "error" }));
+      // Do NOT touch evalsByRun here — it holds already-loaded, valid history for this run,
+      // and a failed create (e.g. a 409 because the run wasn't terminal after all) must not
+      // replace that with the generic load-error view. Surface the failure locally instead.
+      setCreateErrorRunId(shownRunId);
     } finally {
       setCreating(false);
     }
@@ -120,7 +130,10 @@ export function RunEvalPanel({ runs }: { runs: Run[] }) {
       {runs.length > 1 && (
         <select
           value={shownRunId ?? undefined}
-          onChange={(e) => setSelectedRunId(Number(e.target.value))}
+          onChange={(e) => {
+            setSelectedRunId(Number(e.target.value));
+            setCreateErrorRunId(null);
+          }}
           aria-label={t("taskDetail.contextRunLabel")}
           style={{
             background: "var(--color-surface)",
@@ -186,6 +199,11 @@ export function RunEvalPanel({ runs }: { runs: Run[] }) {
               </button>
               {disabledReason && (
                 <p style={{ color: "var(--color-neutral-500)", marginTop: 6 }}>{disabledReason}</p>
+              )}
+              {createErrorRunId === shownRunId && (
+                <p style={{ color: "var(--color-status-amber)", marginTop: 6 }}>
+                  {t("taskDetail.evalErrorGeneric")}
+                </p>
               )}
             </div>
           )}
