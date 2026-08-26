@@ -14,7 +14,11 @@ const teamSeg = (text: string): PromptSegment => ({ id: "team_context", text });
 const repoSeg = (text: string): PromptSegment => ({ id: "repo_map", text });
 
 describe("composeSystemPrompt", () => {
-  it("orders platform preamble, then environment, then team context, then repo map, then agent system prompt", () => {
+  // Human-authored instruction layers (team context, agent prompt) must come AFTER the
+  // machine-generated repo map. Measured, not stylistic: see composeSystemPrompt's comment and
+  // docs/superpowers/experiments/2026-08-26-prompt-layer-ordering.md — the old arrangement, with
+  // the map between them, produced fully-compliant output 1/10 vs 10/10 for this one.
+  it("orders platform preamble, then environment, then repo map, then team context, then agent system prompt", () => {
     const { prompt } = composeSystemPrompt(
       "## Environment\n\nCheckout is at /workspace.\n\n---\n\n",
       teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
@@ -30,9 +34,9 @@ describe("composeSystemPrompt", () => {
 
     expect(preambleIndex).toBe(0);
     expect(environmentIndex).toBeGreaterThan(preambleIndex);
-    expect(teamIndex).toBeGreaterThan(environmentIndex);
-    expect(repoMapIndex).toBeGreaterThan(teamIndex);
-    expect(agentIndex).toBeGreaterThan(repoMapIndex);
+    expect(repoMapIndex).toBeGreaterThan(environmentIndex);
+    expect(teamIndex).toBeGreaterThan(repoMapIndex);
+    expect(agentIndex).toBeGreaterThan(teamIndex);
   });
 
   it("still leads with the platform preamble when every optional section is empty", () => {
@@ -40,7 +44,7 @@ describe("composeSystemPrompt", () => {
     expect(prompt).toBe(PLATFORM_PREAMBLE + "You are a reviewer.");
   });
 
-  it("omits the repo map cleanly when empty, without changing prior behavior", () => {
+  it("omits the repo map cleanly when empty, leaving team context adjacent to the agent prompt", () => {
     const { prompt } = composeSystemPrompt(
       "",
       teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
@@ -48,6 +52,24 @@ describe("composeSystemPrompt", () => {
       "You are a reviewer.",
     );
     expect(prompt).toBe(PLATFORM_PREAMBLE + "## Team Context\n\nUse pnpm.\n\n---\n\n" + "You are a reviewer.");
+  });
+
+  // The load-bearing property, stated directly rather than as a sequence: whatever else moves,
+  // nothing machine-generated may come between the two human-authored instruction layers. That
+  // separation is what measurably cost compliance (1/10 vs 10/10) before this ordering.
+  it("never separates team context from the agent's own prompt with generated bulk", () => {
+    const { prompt } = composeSystemPrompt(
+      "## Environment\n\n---\n\n",
+      teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
+      repoSeg("## Repo Map\n\nGENERATED-BULK\n\n---\n\n"),
+      "You are a reviewer.",
+    );
+
+    const between = prompt.slice(
+      prompt.indexOf("Use pnpm."),
+      prompt.indexOf("You are a reviewer."),
+    );
+    expect(between).not.toContain("GENERATED-BULK");
   });
 
   // The core guarantee of the whole feature: the stored record IS the sent prompt.
@@ -64,8 +86,8 @@ describe("composeSystemPrompt", () => {
       expect(segments.map((s) => s.id)).toEqual([
         "platform_preamble",
         "environment",
-        "team_context",
         "repo_map",
+        "team_context",
         "agent_system_prompt",
       ]);
     }
