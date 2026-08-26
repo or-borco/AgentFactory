@@ -1,0 +1,128 @@
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Run, RunEval } from "@agentfactory/core";
+import { I18nProvider } from "../../lib/i18n/context";
+import { RunEvalPanel } from "../RunEvalPanel";
+
+const apiFetchMock = vi.fn();
+vi.mock("@/lib/api-client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }));
+
+const DONE_RUN: Run[] = [
+  { id: 7, sessionId: 1, status: "done", costUsd: 0, tokensUsed: 0, promptHash: "c".repeat(64), createdAt: "2026-08-26T10:00:00.000Z" } as Run,
+];
+const RUNNING_RUN: Run[] = [
+  { id: 8, sessionId: 1, status: "running", costUsd: 0, tokensUsed: 0, createdAt: "2026-08-26T10:00:00.000Z" } as Run,
+];
+
+const DONE_EVAL: RunEval = {
+  id: 31,
+  orgId: 1,
+  runId: 7,
+  status: "done",
+  judgeModelId: "claude-sonnet-5",
+  createdAt: "2026-08-26T11:00:00.000Z",
+  completedAt: "2026-08-26T11:00:20.000Z",
+  result: {
+    artefactKind: "diff",
+    score: 0.5,
+    layers: [
+      {
+        segmentId: "team_context",
+        requirements: [
+          { text: "Use conventional commits", verdict: "pass", evidence: "feat: add parser" },
+          { text: "Update the changelog", verdict: "fail", evidence: "No CHANGELOG edit in the diff" },
+        ],
+      },
+    ],
+  },
+};
+
+function renderPanel(runs: Run[] = DONE_RUN) {
+  return render(
+    <I18nProvider>
+      <RunEvalPanel runs={runs} />
+    </I18nProvider>,
+  );
+}
+
+beforeEach(() => apiFetchMock.mockReset());
+
+describe("RunEvalPanel", () => {
+  it("renders an empty state when the session has no runs", () => {
+    renderPanel([]);
+    expect(screen.getByText("No runs yet")).toBeInTheDocument();
+  });
+
+  it("shows the intro and an enabled Evaluate button for a finished run with no evals", async () => {
+    apiFetchMock.mockResolvedValueOnce([]);
+    renderPanel();
+    expect(await screen.findByRole("button", { name: "Evaluate" })).toBeEnabled();
+    expect(screen.getByText(/Score this run's deliverable/)).toBeInTheDocument();
+  });
+
+  it("disables the button with a reason while the run is still active", async () => {
+    apiFetchMock.mockResolvedValueOnce([]);
+    renderPanel(RUNNING_RUN);
+    expect(await screen.findByRole("button", { name: "Evaluate" })).toBeDisabled();
+    expect(screen.getByText("Available once the run finishes")).toBeInTheDocument();
+  });
+
+  it("shows the running treatment for a queued eval", async () => {
+    apiFetchMock.mockResolvedValue([{ ...DONE_EVAL, status: "queued", result: undefined, completedAt: undefined }]);
+    renderPanel();
+    expect(await screen.findByText("Evaluating…")).toBeInTheDocument();
+  });
+
+  it("renders a done card: headline, artefact, verdicts, evidence, judge stamp", async () => {
+    apiFetchMock.mockResolvedValueOnce([DONE_EVAL]);
+    renderPanel();
+    expect(await screen.findByText("1 of 2 instructions followed")).toBeInTheDocument();
+    expect(screen.getByText("Graded the branch diff")).toBeInTheDocument();
+    expect(screen.getByText("Use conventional commits")).toBeInTheDocument();
+    expect(screen.getByText("Not followed")).toBeInTheDocument();
+    expect(screen.getByText(/No CHANGELOG edit in the diff/)).toBeInTheDocument();
+    expect(screen.getByText("Judged by claude-sonnet-5")).toBeInTheDocument();
+  });
+
+  it("states plainly when nothing was checkable", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      { ...DONE_EVAL, result: { artefactKind: "final_message", score: 0, layers: [] } },
+    ]);
+    renderPanel();
+    expect(await screen.findByText(/no checkable instructions/)).toBeInTheDocument();
+  });
+
+  it("renders a failed card with the mapped reason and the button again", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      { ...DONE_EVAL, status: "failed", result: undefined, error: "artefact_unavailable" },
+    ]);
+    renderPanel();
+    expect(await screen.findByText(/could not be fetched/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Evaluate again" })).toBeEnabled();
+  });
+
+  it("lists older evals under a history heading, newest card first", async () => {
+    const older: RunEval = { ...DONE_EVAL, id: 30, createdAt: "2026-08-26T09:00:00.000Z" };
+    apiFetchMock.mockResolvedValueOnce([DONE_EVAL, older]);
+    renderPanel();
+    expect(await screen.findByText("Previous evaluations")).toBeInTheDocument();
+    expect(screen.getByText("1 of 2 instructions followed")).toBeInTheDocument();
+  });
+
+  it("POSTs a new eval and refreshes the list when Evaluate is clicked", async () => {
+    apiFetchMock.mockResolvedValueOnce([]); // initial GET
+    renderPanel();
+    const button = await screen.findByRole("button", { name: "Evaluate" });
+
+    apiFetchMock.mockResolvedValueOnce({ ...DONE_EVAL, status: "queued", result: undefined }); // POST
+    apiFetchMock.mockResolvedValue([{ ...DONE_EVAL, status: "queued", result: undefined }]); // refresh GET
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/runs/7/evals", expect.objectContaining({ method: "POST" })),
+    );
+    expect(await screen.findByText("Evaluating…")).toBeInTheDocument();
+  });
+});
