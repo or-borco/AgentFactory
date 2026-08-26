@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { ChatMessage } from "@agentfactory/core";
 import { db } from "../client";
 import { messages } from "../schema";
@@ -40,4 +40,17 @@ export async function createMessage(
     })
     .returning();
   return toChatMessage(row);
+}
+
+// The eval artefact for a run that committed nothing: the final assistant message the run
+// produced. Newest-by-id because a run appends exactly one assistant message today, but
+// nothing enforces that — if a future runtime emits several, the last word is the deliverable.
+export async function getFinalAssistantMessageForRun(runId: number): Promise<ChatMessage | undefined> {
+  const [row] = await db
+    .select()
+    .from(messages)
+    .where(and(eq(messages.runId, runId), eq(messages.role, "assistant")))
+    .orderBy(desc(messages.id))
+    .limit(1);
+  return row ? toChatMessage(row) : undefined;
 }

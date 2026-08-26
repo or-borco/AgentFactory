@@ -4,7 +4,7 @@ import "../setup.js";
 import { db } from "../../client.js";
 import { events } from "../../schema.js";
 import { createEvent, listEventsForSession } from "../../repositories/events.js";
-import { createMessage, getMessage, listMessages } from "../../repositories/messages.js";
+import { createMessage, getFinalAssistantMessageForRun, getMessage, listMessages } from "../../repositories/messages.js";
 import { createRun, getLatestProviderSessionRef, getRun, getRunPrompt, updateRunStatus } from "../../repositories/runs.js";
 import { insertAgent, insertOrg, insertSession } from "../fixtures.js";
 import type { Session } from "@agentfactory/core";
@@ -32,6 +32,23 @@ describe("messages repository", () => {
 
     expect(assistantMessage.runId).toBe(run.id);
     await expect(listMessages(session.id)).resolves.toHaveLength(2);
+  });
+
+  it("returns the final assistant message for a run", async () => {
+    const session = await setupSession();
+    const userMessage = await createMessage(session.id, "user", "Do the thing");
+    const run = await createRun(session.id, userMessage.id);
+    await createMessage(session.id, "assistant", "First draft", run.id);
+    const final = await createMessage(session.id, "assistant", "Final answer", run.id);
+    await createMessage(session.id, "user", "Unrelated follow-up");
+
+    await expect(getFinalAssistantMessageForRun(run.id)).resolves.toEqual(final);
+  });
+
+  it("returns undefined when the run produced no assistant message", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+    await expect(getFinalAssistantMessageForRun(run.id)).resolves.toBeUndefined();
   });
 });
 
