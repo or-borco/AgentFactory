@@ -45,8 +45,13 @@ actually stated. No model judgement:
 
 "Fully compliant" means one response passing **all** checks.
 
-Harnesses: `run-experiment.mjs` (single-turn) and `run-agentic.mjs` (long transcript), 5 trials
-per variant.
+Two harnesses were used — one single-turn, one replaying a long tool transcript — 5 trials per
+variant. They are not kept in the repo: their checks were hardcoded to instructions planted for
+this test (`ZEBRA-CHECK`, a `#platform-releases` footer, `(no-issue)` tags) rather than to real
+house style, so re-running them unchanged against a later prompt would score against rules that
+no longer exist and quietly return meaningless numbers. The method above is enough to rebuild
+one around whatever instructions actually apply at the time; the originals are in git history on
+the commits that landed #115 and #116.
 
 ## Experiment 1 — single turn
 
