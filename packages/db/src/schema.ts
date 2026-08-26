@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   doublePrecision,
+  index,
   integer,
   jsonb,
   pgEnum,
@@ -250,24 +251,32 @@ export const evalStatusEnum = pgEnum("eval_status", ["queued", "running", "done"
 // runs: a run can be evaluated repeatedly, and the task page polls runs on a ~1.5s timer
 // (the workspaceSnapshot over-fetch lesson). org_id is denormalized so list queries are
 // org-scoped without the runs → sessions → agents join.
-export const runEvals = pgTable("run_evals", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  orgId: integer("org_id")
-    .notNull()
-    .references(() => orgs.id, { onDelete: "cascade" }),
-  runId: integer("run_id")
-    .notNull()
-    .references(() => runs.id, { onDelete: "cascade" }),
-  status: evalStatusEnum("status").notNull().default("queued"),
-  // RunEvalResult from @agentfactory/core; null until the eval reaches "done".
-  result: jsonb("result").$type<RunEvalResult>(),
-  // Which model graded — scores from different judges are not comparable, so every card says.
-  judgeModelId: text("judge_model_id"),
-  // Machine-readable failure reason (e.g. "artefact_unavailable"); null unless failed.
-  error: text("error"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
-});
+export const runEvals = pgTable(
+  "run_evals",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    runId: integer("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    status: evalStatusEnum("status").notNull().default("queued"),
+    // RunEvalResult from @agentfactory/core; null until the eval reaches "done".
+    result: jsonb("result").$type<RunEvalResult>(),
+    // Which model graded — scores from different judges are not comparable, so every card says.
+    judgeModelId: text("judge_model_id"),
+    // Machine-readable failure reason (e.g. "artefact_unavailable"); null unless failed.
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (table) => [
+    // listEvalsForRun filters WHERE run_id = ? AND org_id = ? — without this, every task-page
+    // eval-history fetch is a sequential scan over the whole table.
+    index("run_evals_run_id_idx").on(table.runId),
+  ],
+);
 
 // ── Tasks ───────────────────────────────────────────────────────────────────────
 // A Task is a human-authored unit of work (title, description, acceptance criteria) that
