@@ -95,15 +95,42 @@ reference material sits in the middle, and **human-authored instructions go last
 layer should be placed by that rule — retrieved context items and a skills index are both
 generated bulk and belong before `team_context`, not after it.
 
+## Confirmation in a real run
+
+Run #38 (task T-075, same agent, same repo, same model) executed through the full worker
+pipeline against the new ordering. Its stored `prompt_segments` confirm the arrangement that
+actually shipped to the model:
+
+```
+1 platform_preamble     444 b
+2 environment         1,092 b
+3 repo_map            4,460 b
+4 team_context          488 b
+5 agent_system_prompt   571 b
+```
+
+Its deliverable — `RELEASE_NOTES_v0.1.0.md`, written and committed inside the sandbox — honoured
+**7 of 7** stated instructions, including all three that run #37 dropped: the opening rocket, the
+`Questions? Ping #platform-releases.` line, and the `Compiled by the release desk.` footer
+(present exactly once, as specified).
+
+One thing this surfaced that the offline experiments could not: **the agent's chat reply is not
+the deliverable.** Run #38's final message is a summary that itself contains no rocket and no
+footers; the compliant artefact is the committed file. Run #37 answered inline instead, so its
+chat message *was* the deliverable and its omissions were real. Anyone scoring compliance — a
+future eval harness especially — has to score the artefact the run produced, not the summary
+text, or it will report false failures.
+
 ## What this does not establish
 
 - **Single model, single task.** Only `claude-haiku-4-5` on one release-notes task. The
   mechanism (distance between instruction and generation) is general, but the magnitude is not
   measured elsewhere.
 - **The two footers were never reproduced as failing.** They passed 5/5 in every variant of both
-  experiments, yet failed in the real run #37. Something about the real run — a much longer
-  transcript, or many genuine tool results — is not captured here. The reordering is strictly
-  better and never worse, so it was still adopted, but the footer failure is not fully explained
-  and may recur.
-- **No end-to-end confirmation through the app.** The change is covered by unit tests; a real
-  run against the new order should be checked in the Context tab.
+  offline experiments, yet failed in run #37. Whatever caused that — a longer transcript, many
+  genuine tool results, or answering inline rather than into a file — is not captured here. Run
+  #38 honoured them, but one passing run is not proof the mode is gone.
+- **One run is not a rate.** The end-to-end confirmation is a single production run at 7/7. The
+  10/10-vs-1/10 figures come from the offline harness, not from repeated real runs.
+- **Single model, single task shape.** Release notes on one repo with `claude-haiku-4-5`. The
+  mechanism generalises; the magnitude is unmeasured elsewhere.
