@@ -13,7 +13,13 @@ import {
   timestamp,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import type { AcceptanceCriterion, ModelSpec, PromptSegment, ToolPolicy } from "@agentfactory/core";
+import type {
+  AcceptanceCriterion,
+  ModelSpec,
+  PromptSegment,
+  RunEvalResult,
+  ToolPolicy,
+} from "@agentfactory/core";
 
 // `generatedByDefaultAsIdentity` (not `generatedAlways`) so seed.ts can still assign explicit,
 // stable ids for its fixture rows via `.overridingSystemValue()`, while app-created rows omit
@@ -236,6 +242,31 @@ export const runs = pgTable("runs", {
   model: jsonb("model").$type<ModelSpec>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
+});
+
+export const evalStatusEnum = pgEnum("eval_status", ["queued", "running", "done", "failed"]);
+
+// One row per judge invocation against a run — deliberately its own table, never columns on
+// runs: a run can be evaluated repeatedly, and the task page polls runs on a ~1.5s timer
+// (the workspaceSnapshot over-fetch lesson). org_id is denormalized so list queries are
+// org-scoped without the runs → sessions → agents join.
+export const runEvals = pgTable("run_evals", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  orgId: integer("org_id")
+    .notNull()
+    .references(() => orgs.id, { onDelete: "cascade" }),
+  runId: integer("run_id")
+    .notNull()
+    .references(() => runs.id, { onDelete: "cascade" }),
+  status: evalStatusEnum("status").notNull().default("queued"),
+  // RunEvalResult from @agentfactory/core; null until the eval reaches "done".
+  result: jsonb("result").$type<RunEvalResult>(),
+  // Which model graded — scores from different judges are not comparable, so every card says.
+  judgeModelId: text("judge_model_id"),
+  // Machine-readable failure reason (e.g. "artefact_unavailable"); null unless failed.
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
 // ── Tasks ───────────────────────────────────────────────────────────────────────

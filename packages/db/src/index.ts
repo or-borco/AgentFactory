@@ -11,6 +11,7 @@ export * from "./repositories/connections";
 export * from "./repositories/sessions";
 export * from "./repositories/messages";
 export * from "./repositories/runs";
+export * from "./repositories/run-evals";
 export * from "./repositories/events";
 export * from "./repositories/tasks";
 export * from "./repositories/team-context-items";
