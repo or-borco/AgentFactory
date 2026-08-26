@@ -118,6 +118,16 @@ export default function TaskDetailPage() {
         setActiveTab("files");
       }
       setRawEvents(events);
+      // The most recent run may still be in flight (e.g. the user started it, navigated away,
+      // and came back) — runs is ordered newest-first, and nothing else ever re-derives
+      // runStatus from a fresh fetch, so without this the transcript freezes at whatever this
+      // one-shot fetch captured and never resumes polling for the rest of the run.
+      const latest = runs[0];
+      if (latest && !["done", "failed", "cancelled"].includes(latest.status)) {
+        setRunStatus(latest.status);
+        setRunStartedAt(new Date(latest.createdAt).getTime());
+        pollRun(latest.id, session.id);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id]);
