@@ -1,10 +1,12 @@
 import "dotenv/config";
 import { Worker } from "bullmq";
 import {
+  EVAL_QUEUE_NAME,
   RUN_QUEUE_NAME,
   REPO_MAP_WARM_QUEUE_NAME,
   SANDBOX_TEARDOWN_QUEUE_NAME,
   queueConnection,
+  type EvalJobData,
   type RepoMapWarmJobData,
   type RunJobData,
   type SandboxTeardownJobData,
@@ -48,6 +50,7 @@ import {
 } from "./scm-provider";
 import { resolveEscalation } from "./model-escalation";
 import { ensureRepoMap, warmRepoMap } from "./repo-map";
+import { processEvalJob } from "./eval-runner";
 
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
@@ -364,6 +367,21 @@ repoMapWarmWorker.on("failed", (job, err) => {
   console.error(`Repo map warm job ${job?.id} failed:`, err);
 });
 
+// Triggered by the task page's Evaluate button (apps/web's /api/runs/[runId]/evals route) —
+// grades a finished run's artefact against the human-authored prompt layers. Own queue so
+// grading starts when the user clicks instead of waiting behind ~60s agent runs.
+const evalWorker = new Worker<EvalJobData>(
+  EVAL_QUEUE_NAME,
+  async (job) => {
+    await processEvalJob(job.data.evalId);
+  },
+  { connection: queueConnection },
+);
+
+evalWorker.on("failed", (job, err) => {
+  console.error(`Eval job ${job?.id} failed:`, err);
+});
+
 console.log(
-  `apps/worker listening on queues "${RUN_QUEUE_NAME}", "${SANDBOX_TEARDOWN_QUEUE_NAME}", "${REPO_MAP_WARM_QUEUE_NAME}"`,
+  `apps/worker listening on queues "${RUN_QUEUE_NAME}", "${SANDBOX_TEARDOWN_QUEUE_NAME}", "${REPO_MAP_WARM_QUEUE_NAME}", "${EVAL_QUEUE_NAME}"`,
 );
