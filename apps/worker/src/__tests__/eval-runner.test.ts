@@ -107,4 +107,21 @@ describe("processEvalJob", () => {
     expect(deps.markEvalRunning).not.toHaveBeenCalled();
     expect(deps.failEval).not.toHaveBeenCalled();
   });
+
+  // Once the eval row is loaded, every path must end as a terminal row and processEvalJob
+  // must never reject — a thrown DB write here would leave the row stuck "running" forever
+  // AND crash the BullMQ job handler.
+  it("resolves (never rejects) and fails the row when the markEvalRunning write itself fails", async () => {
+    const deps = makeDeps({ markEvalRunning: vi.fn().mockRejectedValue(new Error("connection refused")) });
+    await expect(processEvalJob(1, deps)).resolves.toBeUndefined();
+    expect(deps.failEval).toHaveBeenCalledWith(1, "judge_error");
+  });
+
+  // Pins classifyJudgeError's `String(err)` branch — a rejection that isn't an Error
+  // instance (a bare string, as some providers/mocks throw) must still be classified.
+  it("classifies a non-Error judge rejection via its stringified message", async () => {
+    const deps = makeDeps({ judge: vi.fn().mockRejectedValue("credit balance is too low") });
+    await expect(processEvalJob(1, deps)).resolves.toBeUndefined();
+    expect(deps.failEval).toHaveBeenCalledWith(1, "insufficient_credit");
+  });
 });

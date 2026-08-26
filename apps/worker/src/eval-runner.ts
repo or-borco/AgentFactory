@@ -47,10 +47,12 @@ function classifyJudgeError(err: unknown): string {
   return message.toLowerCase().includes("credit balance") ? "insufficient_credit" : "judge_error";
 }
 
-// The spec's five steps, in order. Every failure ends as a `failed` row with one
-// machine-readable reason — the row IS the failure record, so this never rethrows into
-// BullMQ retries: the user re-triggers manually, and auto-retrying a judge call would
-// only double-bill.
+// The spec's five steps, in order. Once the eval row is loaded below, every path ends in a
+// terminal row — `done`, or `failed` with a machine-readable reason — and this function
+// itself never throws or rejects. It never rethrows into BullMQ retries: the user
+// re-triggers manually, and auto-retrying a judge call would only double-bill. The read at
+// the very top (deps.getRunEval) is the one step outside that guarantee: if there is no row,
+// there is nothing to record a failure on, so a failure there can only be logged and dropped.
 export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defaultDeps): Promise<void> {
   const evalRow = await deps.getRunEval(evalId);
   if (!evalRow) {
@@ -60,8 +62,11 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
     return;
   }
 
-  await deps.markEvalRunning(evalId);
   try {
+    // Inside the try: markEvalRunning is itself a DB write and can fail. Once we're past the
+    // row-existence check above, every subsequent failure — including this one — must land on
+    // a terminal row rather than escape and leave it stuck "running" with no reason code.
+    await deps.markEvalRunning(evalId);
     const run = await deps.getRun(evalRow.runId);
     if (!run) {
       await deps.failEval(evalId, "artefact_unavailable");
@@ -107,6 +112,12 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
     await deps.completeEval(evalId, result, judgeModelId);
   } catch (err) {
     console.error(`Eval ${evalId} failed:`, err);
-    await deps.failEval(evalId, classifyJudgeError(err));
+    try {
+      await deps.failEval(evalId, classifyJudgeError(err));
+    } catch (writeErr) {
+      // The failure write itself failed — nothing left to record it on. Log and stop; this
+      // function must not reject regardless of what broke.
+      console.error(`Eval ${evalId}: failed to record failure:`, writeErr);
+    }
   }
 }
