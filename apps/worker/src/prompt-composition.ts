@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { PromptSegment } from "@agentfactory/core";
 
 // ARCHITECTURE.md §3: the platform, not the SDK, owns prompt assembly so team context and
 // (eventually) skills behave identically across runtimes. Deliberately short — this is not the
@@ -78,19 +79,50 @@ export function formatEnvironmentForPrompt(env: SandboxEnvironment): string {
   return `## Environment (platform-authored, authoritative)\n\n${lines.join("\n")}\n\n---\n\n`;
 }
 
+export interface ComposedPrompt {
+  segments: PromptSegment[];
+  prompt: string; // invariant: segments.map((s) => s.text).join("")
+}
+
+// Team-context segment for a run. The worker is the only place that knows WHY the
+// layer is empty — no team at all vs. a team whose shared context is blank — and
+// those are different bugs, so the reason is recorded here, not inferred in the UI.
+export function buildTeamContextSegment(hasTeam: boolean, formatted: string): PromptSegment {
+  if (formatted) return { id: "team_context", text: formatted };
+  return { id: "team_context", text: "", omittedReason: hasTeam ? "empty_shared_context" : "no_team" };
+}
+
+// Repo-map segment: chat-only session (no codebase) vs. cache miss with
+// generation deferred to a background job (see repo-map.ts).
+export function buildRepoMapSegment(hasCodebase: boolean, wrapped: string): PromptSegment {
+  if (wrapped) return { id: "repo_map", text: wrapped };
+  return { id: "repo_map", text: "", omittedReason: hasCodebase ? "repo_map_pending" : "no_codebase" };
+}
+
 // Order per ARCHITECTURE.md §3, extended with the repo map (docs/superpowers/specs/
 // 2026-08-23-repo-map-indexing-design.md) between team context and the agent's own prompt —
 // narrowed to this repo's actual scope: no retrieved context items, no skills index yet. The
 // environment brief sits directly after the preamble: like the preamble it is platform-authored
 // and describes hard constraints, so it must not be readable as something team context or the
 // agent's own prompt could override.
+//
+// Returns the segments alongside the joined prompt so the caller can persist exactly what was
+// sent (runs.prompt_segments) — `prompt` is derived from `segments`, never built separately, so
+// the stored record cannot drift from the sent string.
 export function composeSystemPrompt(
   environment: string,
-  teamContextPrefix: string,
-  repoMap: string,
+  teamContext: PromptSegment,
+  repoMap: PromptSegment,
   agentSystemPrompt: string,
-): string {
-  return PLATFORM_PREAMBLE + environment + teamContextPrefix + repoMap + agentSystemPrompt;
+): ComposedPrompt {
+  const segments: PromptSegment[] = [
+    { id: "platform_preamble", text: PLATFORM_PREAMBLE },
+    { id: "environment", text: environment },
+    teamContext,
+    repoMap,
+    { id: "agent_system_prompt", text: agentSystemPrompt },
+  ];
+  return { segments, prompt: segments.map((s) => s.text).join("") };
 }
 
 export function hashPrompt(prompt: string): string {

@@ -1,21 +1,32 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { PLATFORM_PREAMBLE, composeSystemPrompt, formatEnvironmentForPrompt, hashPrompt } from "../prompt-composition";
+import type { PromptSegment } from "@agentfactory/core";
+import {
+  PLATFORM_PREAMBLE,
+  buildRepoMapSegment,
+  buildTeamContextSegment,
+  composeSystemPrompt,
+  formatEnvironmentForPrompt,
+  hashPrompt,
+} from "../prompt-composition";
+
+const teamSeg = (text: string): PromptSegment => ({ id: "team_context", text });
+const repoSeg = (text: string): PromptSegment => ({ id: "repo_map", text });
 
 describe("composeSystemPrompt", () => {
-  it("orders platform preamble, then team context, then repo map, then agent system prompt", () => {
-    const result = composeSystemPrompt(
+  it("orders platform preamble, then environment, then team context, then repo map, then agent system prompt", () => {
+    const { prompt } = composeSystemPrompt(
       "## Environment\n\nCheckout is at /workspace.\n\n---\n\n",
-      "## Team Context\n\nUse pnpm.\n\n---\n\n",
-      "## Repo Map\n\nThis is a monorepo.",
+      teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
+      repoSeg("## Repo Map\n\nThis is a monorepo.\n\n---\n\n"),
       "You are a reviewer.",
     );
 
-    const preambleIndex = result.indexOf(PLATFORM_PREAMBLE);
-    const environmentIndex = result.indexOf("Checkout is at /workspace.");
-    const teamIndex = result.indexOf("Use pnpm.");
-    const repoMapIndex = result.indexOf("This is a monorepo.");
-    const agentIndex = result.indexOf("You are a reviewer.");
+    const preambleIndex = prompt.indexOf(PLATFORM_PREAMBLE);
+    const environmentIndex = prompt.indexOf("Checkout is at /workspace.");
+    const teamIndex = prompt.indexOf("Use pnpm.");
+    const repoMapIndex = prompt.indexOf("This is a monorepo.");
+    const agentIndex = prompt.indexOf("You are a reviewer.");
 
     expect(preambleIndex).toBe(0);
     expect(environmentIndex).toBeGreaterThan(preambleIndex);
@@ -25,13 +36,74 @@ describe("composeSystemPrompt", () => {
   });
 
   it("still leads with the platform preamble when every optional section is empty", () => {
-    const result = composeSystemPrompt("", "", "", "You are a reviewer.");
-    expect(result).toBe(PLATFORM_PREAMBLE + "You are a reviewer.");
+    const { prompt } = composeSystemPrompt("", teamSeg(""), repoSeg(""), "You are a reviewer.");
+    expect(prompt).toBe(PLATFORM_PREAMBLE + "You are a reviewer.");
   });
 
   it("omits the repo map cleanly when empty, without changing prior behavior", () => {
-    const result = composeSystemPrompt("", "## Team Context\n\nUse pnpm.\n\n---\n\n", "", "You are a reviewer.");
-    expect(result).toBe(PLATFORM_PREAMBLE + "## Team Context\n\nUse pnpm.\n\n---\n\n" + "You are a reviewer.");
+    const { prompt } = composeSystemPrompt(
+      "",
+      teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
+      repoSeg(""),
+      "You are a reviewer.",
+    );
+    expect(prompt).toBe(PLATFORM_PREAMBLE + "## Team Context\n\nUse pnpm.\n\n---\n\n" + "You are a reviewer.");
+  });
+
+  // The core guarantee of the whole feature: the stored record IS the sent prompt.
+  it("returns segments whose joined texts are byte-identical to the prompt, for every omission combination", () => {
+    const cases = [
+      { team: teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"), repo: repoSeg("## Repo Map\n\nMonorepo.\n\n---\n\n") },
+      { team: { id: "team_context", text: "", omittedReason: "no_team" as const }, repo: repoSeg("## Repo Map\n\nMonorepo.\n\n---\n\n") },
+      { team: teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"), repo: { id: "repo_map", text: "", omittedReason: "no_codebase" as const } },
+      { team: { id: "team_context", text: "", omittedReason: "empty_shared_context" as const }, repo: { id: "repo_map", text: "", omittedReason: "repo_map_pending" as const } },
+    ];
+    for (const c of cases) {
+      const { segments, prompt } = composeSystemPrompt("## Environment\n\n---\n\n", c.team, c.repo, "You are a reviewer.");
+      expect(segments.map((s) => s.text).join("")).toBe(prompt);
+      expect(segments.map((s) => s.id)).toEqual([
+        "platform_preamble",
+        "environment",
+        "team_context",
+        "repo_map",
+        "agent_system_prompt",
+      ]);
+    }
+  });
+
+  it("passes the caller's omission reasons through and never marks unconditional segments omitted", () => {
+    const { segments } = composeSystemPrompt(
+      "",
+      { id: "team_context", text: "", omittedReason: "no_team" },
+      { id: "repo_map", text: "", omittedReason: "no_codebase" },
+      "You are a reviewer.",
+    );
+    const byId = new Map(segments.map((s) => [s.id, s]));
+    expect(byId.get("team_context")?.omittedReason).toBe("no_team");
+    expect(byId.get("repo_map")?.omittedReason).toBe("no_codebase");
+    expect(byId.get("platform_preamble")?.omittedReason).toBeUndefined();
+    expect(byId.get("environment")?.omittedReason).toBeUndefined();
+    expect(byId.get("agent_system_prompt")?.omittedReason).toBeUndefined();
+  });
+});
+
+describe("segment builders", () => {
+  it("buildTeamContextSegment distinguishes no-team from empty shared context", () => {
+    expect(buildTeamContextSegment(false, "")).toEqual({ id: "team_context", text: "", omittedReason: "no_team" });
+    expect(buildTeamContextSegment(true, "")).toEqual({ id: "team_context", text: "", omittedReason: "empty_shared_context" });
+    expect(buildTeamContextSegment(true, "## Team Context\n\nUse pnpm.\n\n---\n\n")).toEqual({
+      id: "team_context",
+      text: "## Team Context\n\nUse pnpm.\n\n---\n\n",
+    });
+  });
+
+  it("buildRepoMapSegment distinguishes chat-only sessions from a pending map", () => {
+    expect(buildRepoMapSegment(false, "")).toEqual({ id: "repo_map", text: "", omittedReason: "no_codebase" });
+    expect(buildRepoMapSegment(true, "")).toEqual({ id: "repo_map", text: "", omittedReason: "repo_map_pending" });
+    expect(buildRepoMapSegment(true, "## Repo Map\n\nMonorepo.\n\n---\n\n")).toEqual({
+      id: "repo_map",
+      text: "## Repo Map\n\nMonorepo.\n\n---\n\n",
+    });
   });
 });
 

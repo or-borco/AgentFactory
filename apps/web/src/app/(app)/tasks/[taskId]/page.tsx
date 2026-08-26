@@ -11,6 +11,7 @@ import { AssigneeSelect } from "@/components/AssigneeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CheckIcon, TrashIcon, EditIcon, XIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
+import { RunContextPanel } from "@/components/RunContextPanel";
 import type { Run, TaskStatus } from "@agentfactory/core";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
 import { groupErrorsByRun, unattachedRunErrors } from "@/lib/run-errors";
@@ -57,7 +58,8 @@ export default function TaskDetailPage() {
   const [nowTick, setNowTick] = useState(() => Date.now());
   const [workspace, setWorkspace] = useState<WorkspaceSnapshot | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"transcript" | "files">("transcript");
+  const [activeTab, setActiveTab] = useState<"transcript" | "files" | "context">("transcript");
+  const [sessionRuns, setSessionRuns] = useState<Run[]>([]);
   const [reply, setReply] = useState("");
   const [replying, setReplying] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
@@ -108,6 +110,7 @@ export default function TaskDetailPage() {
         apiFetch<Run[]>(`/api/sessions/${session.id}/runs`).catch(() => [] as Run[]),
         apiFetch<RawEvent[]>(`/api/sessions/${session.id}/events`).catch(() => [] as RawEvent[]),
       ]);
+      setSessionRuns(runs);
       const done = runs.find((r) => r.status === "done" && r.workspaceSnapshot);
       if (done?.workspaceSnapshot) {
         setWorkspace(done.workspaceSnapshot);
@@ -129,6 +132,7 @@ export default function TaskDetailPage() {
           ]);
           setRunStatus(run.status);
           setRawEvents(events);
+          setSessionRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]));
           if (run.status === "done") {
             await loadMessages(sessionId);
             if (run.workspaceSnapshot && Object.keys(run.workspaceSnapshot).length > 0) {
@@ -155,6 +159,7 @@ export default function TaskDetailPage() {
         ]);
         setRunStatus(run.status);
         setRawEvents(events);
+        setSessionRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]));
         if (run.status !== "done" && run.status !== "failed" && run.status !== "cancelled") {
           tick();
         }
@@ -708,6 +713,11 @@ export default function TaskDetailPage() {
               {`Files (${Object.keys(workspace).length})`}
             </TabBtn>
           )}
+          {session && (
+            <TabBtn active={activeTab === "context"} onClick={() => setActiveTab("context")}>
+              {t("taskDetail.contextTab")}
+            </TabBtn>
+          )}
           {/* Agent working indicator in tab bar */}
           {isRunning && (
             <div
@@ -1021,6 +1031,8 @@ export default function TaskDetailPage() {
             )}
           </div>
         )}
+
+        {activeTab === "context" && <RunContextPanel runs={sessionRuns} />}
       </div>
 
       <style>{`

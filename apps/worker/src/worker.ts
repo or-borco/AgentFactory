@@ -29,7 +29,13 @@ import {
 } from "@agentfactory/db";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { type AgentTurnResult, InsufficientCreditError, PromptTooLongError, runAgentTurn } from "./agent-runtime";
-import { composeSystemPrompt, formatEnvironmentForPrompt, hashPrompt } from "./prompt-composition";
+import {
+  buildRepoMapSegment,
+  buildTeamContextSegment,
+  composeSystemPrompt,
+  formatEnvironmentForPrompt,
+  hashPrompt,
+} from "./prompt-composition";
 import {
   buildPullRequestBody,
   cloneIntoSandbox,
@@ -181,8 +187,19 @@ const runWorker = new Worker<RunJobData>(
         branch: workspace?.branch,
         hasIssueContext: issueContext.length > 0,
       });
-      const systemPrompt = composeSystemPrompt(environment, teamContextPrefix, repoMap, agent.systemPrompt);
-      await updateRunStatus(runId, "running", { promptHash: hashPrompt(systemPrompt) });
+      const composed = composeSystemPrompt(
+        environment,
+        buildTeamContextSegment(Boolean(team), teamContextPrefix),
+        buildRepoMapSegment(Boolean(task?.codebase), repoMap),
+        agent.systemPrompt,
+      );
+      const systemPrompt = composed.prompt;
+      // Segments and hash describe the same string and are computed at the same moment;
+      // storing them in one statement means they can never describe different prompts.
+      await updateRunStatus(runId, "running", {
+        promptHash: hashPrompt(composed.prompt),
+        promptSegments: composed.segments,
+      });
       mark("prompt composed - handing off to model");
 
       attemptModel = task?.model ?? agent.model;
