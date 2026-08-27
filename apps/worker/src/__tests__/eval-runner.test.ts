@@ -18,6 +18,7 @@ vi.mock("@agentfactory/db", () => ({
   completeEval: vi.fn(),
   failEval: vi.fn(),
   getFinalAssistantMessageForRun: vi.fn(),
+  getMessage: vi.fn(),
   listConnections: vi.fn(),
 }));
 
@@ -34,10 +35,11 @@ const RESULT: RunEvalResult = { artefactKind: "diff", layers: [], score: 0 };
 function makeDeps(overrides: Partial<EvalRunnerDeps> = {}): EvalRunnerDeps {
   return {
     getRunEval: vi.fn().mockResolvedValue(EVAL),
-    getRun: vi.fn().mockResolvedValue({ id: 7, sessionId: 12, status: "done" }),
+    getRun: vi.fn().mockResolvedValue({ id: 7, sessionId: 12, status: "done", triggeringMessageId: 55 }),
     getRunPrompt: vi.fn().mockResolvedValue({ runId: 7, segments: SEGMENTS }),
     getSession: vi.fn().mockResolvedValue({ id: 12, orgId: 2, agentId: 3 }),
     getTaskBySessionId: vi.fn().mockResolvedValue({ id: 5, codebase: "acme/backend" }),
+    getTriggeringMessage: vi.fn().mockResolvedValue({ content: "write the release notes for the last 5 PRs" }),
     markEvalRunning: vi.fn().mockResolvedValue(undefined),
     completeEval: vi.fn().mockResolvedValue(EVAL),
     failEval: vi.fn().mockResolvedValue(EVAL),
@@ -53,15 +55,18 @@ describe("processEvalJob", () => {
     await processEvalJob(1, deps);
 
     expect(deps.markEvalRunning).toHaveBeenCalledWith(1);
-    // Only the human-authored layer reaches the judge.
+    // Only the human-authored layer reaches the judge — together with what the user actually
+    // asked for, without which an agent that obeyed a narrower request reads as disobedient.
     expect(deps.judge).toHaveBeenCalledWith(
       [{ id: "agent_system_prompt", text: "You are a reviewer." }],
       { kind: "diff", text: "+line" },
+      "write the release notes for the last 5 PRs",
     );
+    expect(deps.getTriggeringMessage).toHaveBeenCalledWith(55);
     // The whole Run, not just its id: the artefact rule reads the run's recorded commit range
     // to decide what this run — as opposed to its siblings on the same branch — is graded on.
     expect(deps.resolveArtefact).toHaveBeenCalledWith(
-      { id: 7, sessionId: 12, status: "done" },
+      { id: 7, sessionId: 12, status: "done", triggeringMessageId: 55 },
       { id: 12, orgId: 2, agentId: 3 },
       { id: 5, codebase: "acme/backend" },
       2,
@@ -147,5 +152,38 @@ describe("processEvalJob", () => {
     const deps = makeDeps({ judge: vi.fn().mockRejectedValue("credit balance is too low") });
     await expect(processEvalJob(1, deps)).resolves.toBeUndefined();
     expect(deps.failEval).toHaveBeenCalledWith(1, "insufficient_credit");
+  });
+
+  // Runs started by task assignment rather than chat have no triggering message. That is a
+  // normal outcome — the eval is graded against the instructions alone. NOT a sixth failure
+  // code (the set is closed at five; see the parent spec).
+  it("judges with an undefined request when the run has no triggering message", async () => {
+    const deps = makeDeps({ getRun: vi.fn().mockResolvedValue({ id: 7, sessionId: 12, status: "done" }) });
+    await processEvalJob(1, deps);
+
+    expect(deps.getTriggeringMessage).not.toHaveBeenCalled();
+    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+    expect(deps.completeEval).toHaveBeenCalledWith(1, RESULT, "claude-sonnet-5");
+    expect(deps.failEval).not.toHaveBeenCalled();
+  });
+
+  it("completes normally when the triggering message row is gone", async () => {
+    const deps = makeDeps({ getTriggeringMessage: vi.fn().mockResolvedValue(undefined) });
+    await processEvalJob(1, deps);
+
+    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+    expect(deps.completeEval).toHaveBeenCalledWith(1, RESULT, "claude-sonnet-5");
+    expect(deps.failEval).not.toHaveBeenCalled();
+  });
+
+  // A failed message lookup degrades to "no request" — it must never cost the user a graded
+  // eval, and must never become a failure code of its own.
+  it("completes normally when the triggering message lookup throws", async () => {
+    const deps = makeDeps({ getTriggeringMessage: vi.fn().mockRejectedValue(new Error("connection refused")) });
+    await expect(processEvalJob(1, deps)).resolves.toBeUndefined();
+
+    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+    expect(deps.completeEval).toHaveBeenCalledWith(1, RESULT, "claude-sonnet-5");
+    expect(deps.failEval).not.toHaveBeenCalled();
   });
 });

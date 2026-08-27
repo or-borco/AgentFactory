@@ -2,6 +2,7 @@ import type { PromptSegment, Run, RunEval, RunEvalResult, Session, Task } from "
 import {
   completeEval,
   failEval,
+  getMessage,
   getRun,
   getRunEval,
   getRunPrompt,
@@ -20,11 +21,18 @@ export interface EvalRunnerDeps {
   getRunPrompt: (id: number) => Promise<{ segments: PromptSegment[] } | undefined>;
   getSession: (id: number) => Promise<Session | undefined>;
   getTaskBySessionId: (sessionId: number) => Promise<Task | undefined>;
+  // Narrowed to the one field the judge needs. `getMessage` returns a full ChatMessage, which
+  // is structurally compatible; keeping the seam this small keeps the stub in tests honest.
+  getTriggeringMessage: (messageId: number) => Promise<{ content: string } | undefined>;
   markEvalRunning: (id: number) => Promise<void>;
   completeEval: (id: number, result: RunEvalResult, judgeModelId: string) => Promise<RunEval>;
   failEval: (id: number, error: string) => Promise<RunEval>;
   resolveArtefact: (run: Run, session: Session, task: Task | undefined, orgId: number) => Promise<EvalArtefact>;
-  judge: (segments: PromptSegment[], artefact: EvalArtefact) => Promise<{ result: RunEvalResult; judgeModelId: string }>;
+  judge: (
+    segments: PromptSegment[],
+    artefact: EvalArtefact,
+    request: string | undefined,
+  ) => Promise<{ result: RunEvalResult; judgeModelId: string }>;
 }
 
 const defaultDeps: EvalRunnerDeps = {
@@ -33,6 +41,7 @@ const defaultDeps: EvalRunnerDeps = {
   getRunPrompt,
   getSession,
   getTaskBySessionId,
+  getTriggeringMessage: getMessage,
   markEvalRunning,
   completeEval,
   failEval,
@@ -45,6 +54,24 @@ function classifyJudgeError(err: unknown): string {
   // Same account-out-of-credits surface the run path classifies (#99) — the provider says
   // "credit balance is too low"; everything else is a generic judge failure.
   return message.toLowerCase().includes("credit balance") ? "insufficient_credit" : "judge_error";
+}
+
+// The judge grades the artefact against the instructions AND against what the user actually
+// asked for: without the request, an agent that obeyed a user asking for something narrower
+// than its configured default reads as disobedient. Two paths land on `undefined` and both are
+// normal, not failures — a run started by task assignment has no triggering message at all,
+// and a lookup that returns nothing or throws leaves the eval graded on the instructions alone
+// rather than costing the user a graded result over one missing row.
+async function resolveRequest(run: Run, deps: EvalRunnerDeps): Promise<string | undefined> {
+  const messageId = run.triggeringMessageId;
+  if (!messageId) return undefined;
+  try {
+    const message = await deps.getTriggeringMessage(messageId);
+    return message?.content;
+  } catch (err) {
+    console.error(`Eval: triggering message ${messageId} lookup failed:`, err);
+    return undefined;
+  }
 }
 
 // The spec's five steps, in order. Once the eval row is loaded below, every path ends in a
@@ -117,7 +144,8 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
     }
 
     // 4-5. One structured-output judge call; store result + judge model, mark done.
-    const { result, judgeModelId } = await deps.judge(humanSegments, artefact);
+    const request = await resolveRequest(run, deps);
+    const { result, judgeModelId } = await deps.judge(humanSegments, artefact, request);
     await deps.completeEval(evalId, result, judgeModelId);
   } catch (err) {
     console.error(`Eval ${evalId} failed:`, err);
