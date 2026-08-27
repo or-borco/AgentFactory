@@ -286,7 +286,11 @@ export interface RunPrompt {
 // see the workspaceSnapshot over-fetch lesson).
 
 export type EvalStatus = "queued" | "running" | "done" | "failed";
-export type EvalVerdict = "pass" | "fail" | "unclear";
+// "overridden": the instruction genuinely did not govern this run, because the user's own
+// request contradicted it. Distinct from "pass" (which claims compliance) and from "fail"
+// (which blames the agent for obeying the person operating it) — and, like "unclear", it
+// does not score. See 2026-08-27-eval-request-aware-judging-design.md.
+export type EvalVerdict = "pass" | "fail" | "unclear" | "overridden";
 // What the judge graded: the branch's diff when the run committed, otherwise the
 // run's final assistant message. Stored so no score is ambiguous about its input.
 export type EvalArtefactKind = "diff" | "final_message";
@@ -307,8 +311,8 @@ export interface EvalLayerResult {
 export interface RunEvalResult {
   artefactKind: EvalArtefactKind;
   layers: EvalLayerResult[];
-  // passed / decided requirements, 0..1; "unclear" verdicts are excluded from both sides,
-  // and the score is 0 when nothing was decided.
+  // passed / decided requirements, 0..1; "unclear" and "overridden" verdicts are excluded
+  // from both sides, and the score is 0 when nothing was decided.
   score: number;
   // True when the artefact exceeded the judge's size cap and was cut before grading. Optional
   // so rows stored before this field existed keep parsing as undefined (falsy); a truncated

@@ -309,6 +309,8 @@ const en = {
     evalVerdictPass: "Followed",
     evalVerdictFail: "Not followed",
     evalVerdictUnclear: "Unclear",
+    evalVerdictOverridden: "Overridden by request",
+    evalOverriddenCount: "{count} overridden by the user's request",
     evalEvidenceLabel: "Evidence",
     evalHistoryLabel: "Previous evaluations",
     evalLoadError: "Couldn't load evaluations for this run.",

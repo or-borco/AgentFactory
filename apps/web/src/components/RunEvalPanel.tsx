@@ -25,16 +25,21 @@ const ERROR_LABEL_KEYS: Record<string, TranslationKey> = {
   judge_error: "taskDetail.evalErrorGeneric",
 };
 
+// Keyed on the verdict union so a new verdict is a compile error here, never a blank mark.
 const VERDICT_LABEL_KEYS: Record<EvalRequirement["verdict"], TranslationKey> = {
   pass: "taskDetail.evalVerdictPass",
   fail: "taskDetail.evalVerdictFail",
   unclear: "taskDetail.evalVerdictUnclear",
+  overridden: "taskDetail.evalVerdictOverridden",
 };
 
+// "overridden" takes the neutral colour deliberately: nobody did anything wrong, so it must
+// not read as a miss at a glance.
 const VERDICT_MARKS: Record<EvalRequirement["verdict"], { mark: string; color: string }> = {
   pass: { mark: "✓", color: "var(--color-success, #22c55e)" },
   fail: { mark: "✗", color: "var(--color-danger, #ef4444)" },
   unclear: { mark: "?", color: "var(--color-neutral-500)" },
+  overridden: { mark: "↷", color: "var(--color-neutral-500)" },
 };
 
 // Same three statuses RunContextPanel treats as final — the POST guard mirrors this server-side
@@ -45,9 +50,13 @@ const POLL_MS = 3000;
 
 type EvalFetchState = { status: "error" } | { status: "loaded"; evals: RunEval[] };
 
-function countVerdicts(runEval: RunEval): { passed: number; total: number } {
+function countVerdicts(runEval: RunEval): { passed: number; total: number; overridden: number } {
   const requirements = runEval.result?.layers.flatMap((layer) => layer.requirements) ?? [];
-  return { passed: requirements.filter((r) => r.verdict === "pass").length, total: requirements.length };
+  return {
+    passed: requirements.filter((r) => r.verdict === "pass").length,
+    total: requirements.length,
+    overridden: requirements.filter((r) => r.verdict === "overridden").length,
+  };
 }
 
 export function RunEvalPanel({ runs }: { runs: Run[] }) {
@@ -227,7 +236,7 @@ function EvalCard({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(!collapsed);
-  const { passed, total } = countVerdicts(runEval);
+  const { passed, total, overridden } = countVerdicts(runEval);
 
   const headline =
     runEval.status === "queued" || runEval.status === "running"
@@ -261,6 +270,14 @@ function EvalCard({
 
       {open && (
         <p style={{ fontWeight: 600, fontSize: 13, color: "var(--color-text)", margin: "8px 0 0" }}>{headline}</p>
+      )}
+
+      {/* An override is the one verdict a reader needs to see without expanding a layer: it
+          says the score is measuring less than the headline's denominator implies. */}
+      {open && overridden > 0 && (
+        <p style={{ color: "var(--color-neutral-500)", margin: "4px 0 0" }}>
+          {t("taskDetail.evalOverriddenCount", { count: overridden })}
+        </p>
       )}
 
       {open && runEval.status === "failed" && (

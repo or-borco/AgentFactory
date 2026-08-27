@@ -44,6 +44,32 @@ const DONE_EVAL: RunEval = {
   },
 };
 
+// An "overridden" requirement — the agent set an instruction aside because the user's own
+// request contradicted it. It is neither a pass nor a fail, and the card has to say so
+// without expanding a layer, which is what the summary count is for.
+const OVERRIDDEN_EVAL: RunEval = {
+  id: 32,
+  orgId: 1,
+  runId: 7,
+  status: "done",
+  judgeModelId: "claude-sonnet-5",
+  createdAt: "2026-08-26T12:00:00.000Z",
+  completedAt: "2026-08-26T12:00:20.000Z",
+  result: {
+    artefactKind: "final_message",
+    score: 1,
+    layers: [
+      {
+        segmentId: "agent_system_prompt",
+        requirements: [
+          { text: "Summarize merged PRs since the last tag", verdict: "overridden", evidence: '"the last 5 PRs"' },
+          { text: "Write in past tense", verdict: "pass", evidence: "Added support for…" },
+        ],
+      },
+    ],
+  },
+};
+
 function renderPanel(runs: Run[] = DONE_RUN) {
   return render(
     <I18nProvider>
@@ -89,6 +115,26 @@ describe("RunEvalPanel", () => {
     expect(screen.getByText("Not followed")).toBeInTheDocument();
     expect(screen.getByText(/No CHANGELOG edit in the diff/)).toBeInTheDocument();
     expect(screen.getByText("Judged by claude-sonnet-5")).toBeInTheDocument();
+  });
+
+  it("labels an overridden requirement and shows its evidence quote", async () => {
+    apiFetchMock.mockResolvedValueOnce([OVERRIDDEN_EVAL]);
+    renderPanel();
+    expect(await screen.findByText("Summarize merged PRs since the last tag")).toBeInTheDocument();
+    expect(screen.getByText("Overridden by request")).toBeInTheDocument();
+    expect(screen.getByText(/the last 5 PRs/)).toBeInTheDocument();
+  });
+
+  it("counts overrides on the card, and shows no count when there are none", async () => {
+    apiFetchMock.mockResolvedValueOnce([OVERRIDDEN_EVAL]);
+    const { unmount } = renderPanel();
+    expect(await screen.findByText("1 overridden by the user's request")).toBeInTheDocument();
+    unmount();
+
+    apiFetchMock.mockResolvedValueOnce([DONE_EVAL]);
+    renderPanel();
+    await screen.findByText("1 of 2 instructions followed");
+    expect(screen.queryByText(/overridden by the user's request/)).not.toBeInTheDocument();
   });
 
   it("shows a truncation notice when the artefact was cut for size before grading", async () => {
