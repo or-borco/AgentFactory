@@ -4,8 +4,15 @@ import "../setup.js";
 import { db } from "../../client.js";
 import { events } from "../../schema.js";
 import { createEvent, listEventsForSession } from "../../repositories/events.js";
-import { createMessage, getMessage, listMessages } from "../../repositories/messages.js";
-import { createRun, getLatestProviderSessionRef, getRun, getRunPrompt, updateRunStatus } from "../../repositories/runs.js";
+import { createMessage, getFinalAssistantMessageForRun, getMessage, listMessages } from "../../repositories/messages.js";
+import {
+  createRun,
+  getLatestProviderSessionRef,
+  getRun,
+  getRunPrompt,
+  updateRunCommitRange,
+  updateRunStatus,
+} from "../../repositories/runs.js";
 import { insertAgent, insertOrg, insertSession } from "../fixtures.js";
 import type { Session } from "@agentfactory/core";
 
@@ -32,6 +39,23 @@ describe("messages repository", () => {
 
     expect(assistantMessage.runId).toBe(run.id);
     await expect(listMessages(session.id)).resolves.toHaveLength(2);
+  });
+
+  it("returns the final assistant message for a run", async () => {
+    const session = await setupSession();
+    const userMessage = await createMessage(session.id, "user", "Do the thing");
+    const run = await createRun(session.id, userMessage.id);
+    await createMessage(session.id, "assistant", "First draft", run.id);
+    const final = await createMessage(session.id, "assistant", "Final answer", run.id);
+    await createMessage(session.id, "user", "Unrelated follow-up");
+
+    await expect(getFinalAssistantMessageForRun(run.id)).resolves.toEqual(final);
+  });
+
+  it("returns undefined when the run produced no assistant message", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+    await expect(getFinalAssistantMessageForRun(run.id)).resolves.toBeUndefined();
   });
 });
 
@@ -63,6 +87,26 @@ describe("runs repository", () => {
     const session = await setupSession();
     const run = await createRun(session.id);
     await expect(getLatestProviderSessionRef(session.id, run.id)).resolves.toBeUndefined();
+  });
+
+  it("round-trips the commit range a run pushed", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+    expect(run.commitRange).toBeUndefined();
+
+    await updateRunCommitRange(run.id, { baseSha: "a".repeat(40), headSha: "b".repeat(40) });
+
+    await expect(getRun(run.id)).resolves.toMatchObject({
+      commitRange: { baseSha: "a".repeat(40), headSha: "b".repeat(40) },
+    });
+  });
+
+  it("leaves the commit range unset for a run that pushed nothing", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+    await updateRunStatus(run.id, "done", { finishedAt: new Date() });
+
+    await expect(getRun(run.id)).resolves.toMatchObject({ commitRange: undefined });
   });
 
   it("persists the model that actually executed the run", async () => {
