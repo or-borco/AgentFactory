@@ -72,11 +72,28 @@ silent pass.
   accepted: a user who set direction in an earlier turn ("from now on, skip chores") gets a
   `fail` the judge cannot explain away.
 
-- **A run without a triggering message is graded exactly as today.** Runs started by task
-  assignment rather than chat have `triggering_message_id` null. The `<request>` block is
+- **A run without a triggering message is graded exactly as today.** The `<request>` block is
   omitted entirely — not sent empty — and every requirement is judged against the instructions
   alone. This is a normal outcome, not a failure: **no sixth failure code**, per the parent
   spec's closed set.
+
+  Corrected 2026-08-27, after the final review: this spec originally claimed the null case was
+  the task-assignment path. It is not. Both run-creation routes set `triggering_message_id`
+  unconditionally, and the task route synthesizes a user message from the task brief
+  (`formatTaskBrief`) precisely so one exists. `triggering_message_id` is nullable in the
+  schema, so the runner still handles null defensively and the behaviour above is what happens
+  when it occurs — but no production path produces it today.
+
+- **A task brief counts as a request.** Decided 2026-08-27, after the final review surfaced the
+  correction above. A task-triggered run's synthesized message — description, acceptance
+  criteria, code area, codebase — reaches the judge as the `<request>` block, exactly as a
+  typed chat message does. The consequence is deliberate and worth stating plainly: acceptance
+  criteria are themselves instructions, and one that narrows the agent's configured prompt
+  ("fix the parser only" against a standing "always update the changelog") will mark that
+  instruction `overridden` and drop it from the score. The task really is what directed the
+  run, so the eval reports it as such; the alternative — grading a task run against
+  instructions the task itself set aside — reproduces the exact bug this spec was written to
+  fix. It does mean overrides are routine on task runs rather than rare.
 
 - **`overridden`, not `pass`.** A `pass` says "nothing to see here," which is the wrong report:
   the instruction genuinely did not govern the run, and that is exactly the signal the parent

@@ -154,9 +154,11 @@ describe("processEvalJob", () => {
     expect(deps.failEval).toHaveBeenCalledWith(1, "insufficient_credit");
   });
 
-  // Runs started by task assignment rather than chat have no triggering message. That is a
-  // normal outcome — the eval is graded against the instructions alone. NOT a sixth failure
-  // code (the set is closed at five; see the parent spec).
+  // `runs.triggering_message_id` is nullable, so the runner must handle null even though no
+  // production path currently produces it — both createRun call sites set it, and the task
+  // route synthesizes a message from the task brief so that one exists. A null is a normal
+  // outcome, graded against the instructions alone; NOT a sixth failure code (the set is
+  // closed at five; see the parent spec).
   it("judges with an undefined request when the run has no triggering message", async () => {
     const deps = makeDeps({ getRun: vi.fn().mockResolvedValue({ id: 7, sessionId: 12, status: "done" }) });
     await processEvalJob(1, deps);
