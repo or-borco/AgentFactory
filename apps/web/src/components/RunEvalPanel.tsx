@@ -52,9 +52,14 @@ type EvalFetchState = { status: "error" } | { status: "loaded"; evals: RunEval[]
 
 function countVerdicts(runEval: RunEval): { passed: number; total: number; overridden: number } {
   const requirements = runEval.result?.layers.flatMap((layer) => layer.requirements) ?? [];
+  // `total` must match the denominator the stored `score` actually used: "unclear" (the
+  // artefact didn't show enough to decide) and "overridden" (the user's own request
+  // contradicted the instruction, so it never governed the run) are excluded from both sides
+  // of that fraction. Counting either one here would make the headline report a shortfall for
+  // something that was never actually checked against the run.
   return {
     passed: requirements.filter((r) => r.verdict === "pass").length,
-    total: requirements.length,
+    total: requirements.filter((r) => r.verdict === "pass" || r.verdict === "fail").length,
     overridden: requirements.filter((r) => r.verdict === "overridden").length,
   };
 }
@@ -272,8 +277,10 @@ function EvalCard({
         <p style={{ fontWeight: 600, fontSize: 13, color: "var(--color-text)", margin: "8px 0 0" }}>{headline}</p>
       )}
 
-      {/* An override is the one verdict a reader needs to see without expanding a layer: it
-          says the score is measuring less than the headline's denominator implies. */}
+      {/* The headline's own denominator already excludes overridden requirements, so it can't
+          tell a reader that any were set aside. This line is the one place that surfaces it
+          without expanding a layer: an override means the user's own request contradicted the
+          instruction, so it never governed the run and was left out of the count entirely. */}
       {open && overridden > 0 && (
         <p style={{ color: "var(--color-neutral-500)", margin: "4px 0 0" }}>
           {t("taskDetail.evalOverriddenCount", { count: overridden })}

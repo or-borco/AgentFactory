@@ -70,6 +70,31 @@ const OVERRIDDEN_EVAL: RunEval = {
   },
 };
 
+// Every requirement was overridden by the user's own request — nothing scored on either side
+// of the fraction, so the headline must fall back to the same "nothing to grade" copy as the
+// zero-layers case rather than render "0 of 0 instructions followed".
+const ALL_OVERRIDDEN_EVAL: RunEval = {
+  id: 33,
+  orgId: 1,
+  runId: 7,
+  status: "done",
+  judgeModelId: "claude-sonnet-5",
+  createdAt: "2026-08-26T13:00:00.000Z",
+  completedAt: "2026-08-26T13:00:20.000Z",
+  result: {
+    artefactKind: "final_message",
+    score: 1,
+    layers: [
+      {
+        segmentId: "agent_system_prompt",
+        requirements: [
+          { text: "Summarize merged PRs since the last tag", verdict: "overridden", evidence: '"the last 5 PRs"' },
+        ],
+      },
+    ],
+  },
+};
+
 function renderPanel(runs: Run[] = DONE_RUN) {
   return render(
     <I18nProvider>
@@ -129,6 +154,9 @@ describe("RunEvalPanel", () => {
     apiFetchMock.mockResolvedValueOnce([OVERRIDDEN_EVAL]);
     const { unmount } = renderPanel();
     expect(await screen.findByText("1 overridden by the user's request")).toBeInTheDocument();
+    // The overridden requirement is excluded from the headline's denominator, so it doesn't
+    // count against the run — only the one requirement that actually scored (the pass) does.
+    expect(screen.getByText("1 of 1 instructions followed")).toBeInTheDocument();
     unmount();
 
     apiFetchMock.mockResolvedValueOnce([DONE_EVAL]);
@@ -158,6 +186,16 @@ describe("RunEvalPanel", () => {
     ]);
     renderPanel();
     expect(await screen.findByText(/no checkable instructions/)).toBeInTheDocument();
+  });
+
+  it("states plainly when nothing was checkable because every requirement was overridden", async () => {
+    apiFetchMock.mockResolvedValueOnce([ALL_OVERRIDDEN_EVAL]);
+    renderPanel();
+    expect(await screen.findByText(/no checkable instructions/)).toBeInTheDocument();
+    // The overridden note still names the one instruction that was set aside — it just no
+    // longer leaves a "0 of 0" headline sitting above it.
+    expect(screen.getByText("1 overridden by the user's request")).toBeInTheDocument();
+    expect(screen.queryByText(/instructions followed/)).not.toBeInTheDocument();
   });
 
   it("renders a failed card with the mapped reason and the button again", async () => {
