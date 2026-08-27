@@ -204,6 +204,61 @@ export function validateJudgeLayers(input: unknown): EvalLayerResult[] {
   });
 }
 
+// Straight and curly single/double quotes. Judges quote evidence inconsistently — sometimes
+// bare, sometimes wrapped, sometimes with the editor's smart quotes — and none of that changes
+// whether the words came from the request, so the comparison below ignores them entirely.
+const QUOTE_CHARS = /['"\u2018\u2019\u201c\u201d]/g;
+
+// Case, whitespace runs and quote characters are all noise for "did these words come from the
+// request". Anything beyond that (punctuation, ellipsis, paraphrase) is deliberately NOT
+// normalized away: this test decides whether to downgrade a verdict, so it errs toward leaving
+// the model's answer alone.
+function normalizeForQuoteMatch(text: string): string {
+  return text.replace(QUOTE_CHARS, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// The quotation gate — a requirement may be "overridden" only when the contradicting words can
+// be quoted from the request — is what the entire override feature rests on, and until now it
+// lived exclusively in JUDGE_SYSTEM_PROMPT. Live sampling showed the model does not reliably
+// honour it: in real runs a meaningful share of "overridden" verdicts came back with evidence
+// quoting the ARTEFACT instead (the graded agent's own "this repo has no git tags, so that
+// wasn't applicable" note). That is an agent explaining its own deviation, not a user
+// instructing one — precisely the case the prompt spells out and the model still leaked. A
+// prompt is a request, not an enforcement mechanism, so this is the deterministic backstop
+// behind it.
+//
+// It may only ever move a verdict toward "fail", never toward "pass" or "overridden", and
+// "fail" is the spec's own stated default for a deviation whose contradiction cannot be quoted
+// from the request. It is deliberately conservative about false downgrades: the comparison is
+// normalized so ordinary requoting survives, and it runs against the FULL request rather than
+// the possibly-truncated copy the judge was shown, so a legitimate quote is never downgraded
+// on a technicality of where the cap fell.
+export function enforceOverrideEvidence(
+  layers: EvalLayerResult[],
+  request: string | undefined,
+): EvalLayerResult[] {
+  // A run with no triggering message (or a blank one) has no request block in the message at
+  // all, so nothing in it could have been overridden — see JUDGE_SYSTEM_PROMPT's "when there
+  // is no request block, no requirement may be overridden".
+  const normalizedRequest = request === undefined ? "" : normalizeForQuoteMatch(request);
+  return layers.map((layer) => ({
+    ...layer,
+    requirements: layer.requirements.map((requirement) => {
+      if (requirement.verdict !== "overridden") return requirement;
+      const normalizedEvidence = normalizeForQuoteMatch(requirement.evidence);
+      // Empty evidence on either side never establishes a quote: an empty needle trivially
+      // "appears" in any haystack, which would wave through the exact case (b) this guards.
+      const quotesTheRequest =
+        normalizedRequest !== "" &&
+        normalizedEvidence !== "" &&
+        normalizedRequest.includes(normalizedEvidence);
+      // Evidence is left untouched on a downgrade: the card should still show what the judge
+      // offered, so an unjustified override is legible rather than silently rewritten.
+      return quotesTheRequest ? requirement : { ...requirement, verdict: "fail" as const };
+    }),
+  }));
+}
+
 // The score is computed here, never trusted from the model.
 export function computeResult(
   layers: EvalLayerResult[],
@@ -244,7 +299,9 @@ export async function judgeCompliance(
   });
   const toolUse = response.content.find((block) => block.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") throw new Error("judge returned no report_eval tool call");
-  const layers = validateJudgeLayers(toolUse.input);
+  // The backstop runs on the validated layers, before scoring: an "overridden" that cannot be
+  // traced to words in the request becomes a "fail", which is what computeResult must count.
+  const layers = enforceOverrideEvidence(validateJudgeLayers(toolUse.input), request);
   const result = computeResult(layers, artefact.kind, isArtefactTruncated(artefact));
   return { result, judgeModelId: DEFAULT_MODEL_ID };
 }

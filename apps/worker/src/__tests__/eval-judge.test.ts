@@ -5,6 +5,7 @@ import {
   MAX_ARTEFACT_CHARS,
   buildJudgeUserMessage,
   computeResult,
+  enforceOverrideEvidence,
   selectHumanSegments,
   validateJudgeLayers,
 } from "../eval-judge";
@@ -233,6 +234,94 @@ describe("validateJudgeLayers", () => {
       ],
     };
     expect(() => validateJudgeLayers(input)).toThrow(/malformed/);
+  });
+});
+
+// The quotation gate that licenses an "overridden" verdict lived only in the system prompt,
+// and live sampling proved the model leaks it — returning "overridden" with evidence quoted
+// from the artefact rather than the request. These cases pin the deterministic backstop.
+describe("enforceOverrideEvidence", () => {
+  function overridden(evidence: string): EvalLayerResult[] {
+    return [{ segmentId: "agent_system_prompt", requirements: [{ text: "a", verdict: "overridden", evidence }] }];
+  }
+
+  const REQUEST = "write the release notes for the last 5 PRs\nCodebase: erakauf1/Wisdom-of-thai";
+
+  it("keeps an override whose evidence is genuinely quoted from the request", () => {
+    const layers = enforceOverrideEvidence(overridden("write the release notes for the last 5 PRs"), REQUEST);
+    expect(layers[0].requirements[0].verdict).toBe("overridden");
+  });
+
+  // The observed leak: the graded agent's own account of why it deviated, offered as if the
+  // user had instructed the deviation. Nothing in the request says any of this.
+  it("downgrades an override whose evidence was quoted from the artefact instead", () => {
+    const leaked =
+      '\'This repo has no git tags, so "since the last tag" wasn\'t applicable — I used the 5 most recent ' +
+      "PR-associated commits on the default branch instead'";
+    const layers = enforceOverrideEvidence(overridden(leaked), REQUEST);
+    expect(layers[0].requirements[0].verdict).toBe("fail");
+    // The evidence stays on the card so the unjustified override is legible, not rewritten.
+    expect(layers[0].requirements[0].evidence).toBe(leaked);
+  });
+
+  it("downgrades an override when no request was sent at all", () => {
+    const layers = enforceOverrideEvidence(overridden("just show me the patch"), undefined);
+    expect(layers[0].requirements[0].verdict).toBe("fail");
+  });
+
+  it("downgrades an override with empty or whitespace-only evidence", () => {
+    expect(enforceOverrideEvidence(overridden(""), REQUEST)[0].requirements[0].verdict).toBe("fail");
+    expect(enforceOverrideEvidence(overridden("   \n "), REQUEST)[0].requirements[0].verdict).toBe("fail");
+  });
+
+  // An empty needle trivially "appears" in any haystack; evidence that is nothing but quote
+  // marks must not slip through the containment test on that technicality.
+  it("downgrades an override whose evidence is nothing but quote characters", () => {
+    expect(enforceOverrideEvidence(overridden('""'), REQUEST)[0].requirements[0].verdict).toBe("fail");
+  });
+
+  it("tolerates requoting differences — case, whitespace runs and surrounding quotes", () => {
+    const evidence = '  \u201cWrite   the release   notes\nfor the last 5 PRs\u201d  ';
+    expect(enforceOverrideEvidence(overridden(evidence), REQUEST)[0].requirements[0].verdict).toBe("overridden");
+  });
+
+  it("downgrades an override against a blank request", () => {
+    expect(enforceOverrideEvidence(overridden("anything"), "   ")[0].requirements[0].verdict).toBe("fail");
+  });
+
+  // The backstop is one-directional by construction: it may only ever move a verdict toward
+  // "fail". Nothing it touches may become a pass, and no non-override verdict may change.
+  it("leaves pass, fail and unclear verdicts untouched, even with no request", () => {
+    const layers: EvalLayerResult[] = [
+      {
+        segmentId: "team_context",
+        requirements: [
+          { text: "a", verdict: "pass", evidence: "not from the request" },
+          { text: "b", verdict: "fail", evidence: "" },
+          { text: "c", verdict: "unclear", evidence: "" },
+        ],
+      },
+    ];
+    expect(enforceOverrideEvidence(layers, undefined)[0].requirements.map((r) => r.verdict)).toEqual([
+      "pass",
+      "fail",
+      "unclear",
+    ]);
+  });
+
+  it("preserves layer structure and requirement text across every layer", () => {
+    const layers: EvalLayerResult[] = [
+      { segmentId: "team_context", requirements: [{ text: "a", verdict: "overridden", evidence: "nope" }] },
+      {
+        segmentId: "agent_system_prompt",
+        requirements: [{ text: "b", verdict: "overridden", evidence: "the last 5 PRs" }],
+      },
+    ];
+    const out = enforceOverrideEvidence(layers, REQUEST);
+    expect(out.map((l) => l.segmentId)).toEqual(["team_context", "agent_system_prompt"]);
+    expect(out[0].requirements[0].verdict).toBe("fail");
+    expect(out[1].requirements[0].verdict).toBe("overridden");
+    expect(out[1].requirements[0].text).toBe("b");
   });
 });
 
