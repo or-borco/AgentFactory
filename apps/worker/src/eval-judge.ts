@@ -69,7 +69,7 @@ const REPORT_EVAL_TOOL: Anthropic.Tool = {
                 required: ["text", "verdict", "evidence"],
                 properties: {
                   text: { type: "string" },
-                  verdict: { type: "string", enum: ["pass", "fail", "unclear"] },
+                  verdict: { type: "string", enum: ["pass", "fail", "unclear", "overridden"] },
                   evidence: { type: "string" },
                 },
               },
@@ -113,7 +113,13 @@ export function buildJudgeUserMessage(segments: PromptSegment[], artefact: EvalA
   return `Instruction layers:\n\n${layerBlocks}\n\nThe artefact to judge — ${kindLabel}:\n\n<artefact>\n${body}\n</artefact>`;
 }
 
-const VERDICTS: ReadonlySet<string> = new Set(["pass", "fail", "unclear"]);
+const VERDICTS: ReadonlySet<string> = new Set(["pass", "fail", "unclear", "overridden"]);
+
+// The two verdicts that actually measure the agent. "unclear" means the artefact did not show
+// enough to decide; "overridden" means the instruction did not govern this run at all because
+// the user asked for something contradicting it. Neither is a miss, and neither is compliance,
+// so both stay off both sides of the fraction.
+const SCORING_VERDICTS: ReadonlySet<EvalVerdict> = new Set<EvalVerdict>(["pass", "fail"]);
 
 // The API's forced tool_choice already constrains the shape, but the eval fails cleanly on
 // any drift rather than storing garbage — "it parses or the eval fails" (spec).
@@ -151,16 +157,17 @@ export function computeResult(
   truncated = false,
 ): RunEvalResult {
   const requirements = layers.flatMap((layer) => layer.requirements);
-  // Only decided verdicts reach the score. An "unclear" means the artefact did not show enough
-  // to judge the requirement — usually because it never applied to this artefact in the first
-  // place (a "no raw SQL" rule has nothing to say about a release-notes document). Counting
-  // those as misses scores an agent on how broad its team context is rather than on its work.
-  // The unclears are not discarded: they stay in `layers`, verdict and evidence intact, which
-  // is where the spec's "how checkable is this context" signal actually lives.
-  const decided = requirements.filter((requirement) => requirement.verdict !== "unclear");
+  // Only the scoring verdicts reach the fraction (see SCORING_VERDICTS). An "unclear" usually
+  // means the requirement never applied to this artefact in the first place — a "no raw SQL"
+  // rule has nothing to say about a release-notes document — and an "overridden" means the
+  // user asked for something else. Counting either as a miss would score an agent on the
+  // breadth of its team context, or on its obedience to a stale default, rather than on its
+  // work. Neither is discarded: both stay in `layers`, verdict and evidence intact, which is
+  // where the spec's "how checkable is this context" signal actually lives.
+  const decided = requirements.filter((requirement) => SCORING_VERDICTS.has(requirement.verdict));
   const passed = decided.filter((requirement) => requirement.verdict === "pass").length;
   // Nothing decided is a valid result, not an error — score 0 by the spec. This also guards
-  // the divide-by-zero for a run whose every requirement came back unclear.
+  // the divide-by-zero for a run whose every requirement came back unclear or overridden.
   const score = decided.length === 0 ? 0 : passed / decided.length;
   return { artefactKind, layers, score, truncated };
 }

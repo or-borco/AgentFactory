@@ -117,6 +117,30 @@ describe("validateJudgeLayers", () => {
   it("rejects a missing layers array", () => {
     expect(() => validateJudgeLayers({})).toThrow(/layers/);
   });
+
+  it("accepts the overridden verdict", () => {
+    const input = {
+      layers: [
+        {
+          segmentId: "agent_system_prompt",
+          requirements: [{ text: "a", verdict: "overridden", evidence: '"the last 5 PRs"' }],
+        },
+      ],
+    };
+    expect(validateJudgeLayers(input)[0].requirements[0].verdict).toBe("overridden");
+  });
+
+  it("still rejects a verdict outside the closed set", () => {
+    const input = {
+      layers: [
+        {
+          segmentId: "agent_system_prompt",
+          requirements: [{ text: "a", verdict: "probably_fine", evidence: "" }],
+        },
+      ],
+    };
+    expect(() => validateJudgeLayers(input)).toThrow(/malformed/);
+  });
 });
 
 describe("computeResult", () => {
@@ -173,5 +197,32 @@ describe("computeResult", () => {
   it("defaults truncated to false when the caller doesn't say otherwise", () => {
     const layers = [{ segmentId: "team_context", requirements: [] }];
     expect(computeResult(layers, "diff").truncated).toBe(false);
+  });
+
+  it("excludes overridden requirements from both sides of the score", () => {
+    const layers: EvalLayerResult[] = [
+      {
+        segmentId: "agent_system_prompt",
+        requirements: [
+          { text: "a", verdict: "pass", evidence: "" },
+          { text: "b", verdict: "fail", evidence: "" },
+          { text: "c", verdict: "overridden", evidence: '"the last 5 PRs"' },
+        ],
+      },
+    ];
+    // 1 pass / 2 decided — the override is neither a credit nor a penalty.
+    expect(computeResult(layers, "final_message").score).toBeCloseTo(0.5);
+    // …and it is still on the card, verdict and evidence intact.
+    expect(computeResult(layers, "final_message").layers[0].requirements).toHaveLength(3);
+  });
+
+  it("scores 0 when every requirement was overridden", () => {
+    const layers: EvalLayerResult[] = [
+      {
+        segmentId: "agent_system_prompt",
+        requirements: [{ text: "a", verdict: "overridden", evidence: "q" }],
+      },
+    ];
+    expect(computeResult(layers, "final_message").score).toBe(0);
   });
 });
