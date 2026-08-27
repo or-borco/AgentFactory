@@ -50,17 +50,28 @@ const POLL_MS = 3000;
 
 type EvalFetchState = { status: "error" } | { status: "loaded"; evals: RunEval[] };
 
-function countVerdicts(runEval: RunEval): { passed: number; total: number; overridden: number } {
+function countVerdicts(runEval: RunEval): {
+  passed: number;
+  total: number;
+  overridden: number;
+  extracted: number;
+} {
   const requirements = runEval.result?.layers.flatMap((layer) => layer.requirements) ?? [];
   // `total` must match the denominator the stored `score` actually used: "unclear" (the
   // artefact didn't show enough to decide) and "overridden" (the user's own request
   // contradicted the instruction, so it never governed the run) are excluded from both sides
   // of that fraction. Counting either one here would make the headline report a shortfall for
   // something that was never actually checked against the run.
+  //
+  // `extracted` is every requirement the judge found, scoring or not. It exists because
+  // `total === 0` no longer means "the context had nothing checkable in it" — it also happens
+  // when every requirement was overridden or unclear, which is a different thing to tell the
+  // reader. Only `extracted === 0` is the empty-context case.
   return {
     passed: requirements.filter((r) => r.verdict === "pass").length,
     total: requirements.filter((r) => r.verdict === "pass" || r.verdict === "fail").length,
     overridden: requirements.filter((r) => r.verdict === "overridden").length,
+    extracted: requirements.length,
   };
 }
 
@@ -241,16 +252,18 @@ function EvalCard({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(!collapsed);
-  const { passed, total, overridden } = countVerdicts(runEval);
+  const { passed, total, overridden, extracted } = countVerdicts(runEval);
 
   const headline =
     runEval.status === "queued" || runEval.status === "running"
       ? t("taskDetail.evalRunningLabel")
       : runEval.status === "failed"
         ? t("taskDetail.evalFailedTitle")
-        : total === 0
+        : extracted === 0
           ? t("taskDetail.evalNoRequirements")
-          : t("taskDetail.evalHeadline", { passed, total });
+          : total === 0
+            ? t("taskDetail.evalNothingScored", { count: extracted })
+            : t("taskDetail.evalHeadline", { passed, total });
 
   return (
     <div style={{ border: "1px solid var(--color-divider)", borderRadius: 8, padding: 16, marginBottom: 12 }}>

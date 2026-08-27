@@ -71,8 +71,9 @@ const OVERRIDDEN_EVAL: RunEval = {
 };
 
 // Every requirement was overridden by the user's own request — nothing scored on either side
-// of the fraction, so the headline must fall back to the same "nothing to grade" copy as the
-// zero-layers case rather than render "0 of 0 instructions followed".
+// of the fraction. This is NOT the same state as a context with nothing checkable in it: the
+// judge did extract an instruction, it just never governed this run. The headline has to say
+// so rather than render "0 of 0" or claim the context was empty.
 const ALL_OVERRIDDEN_EVAL: RunEval = {
   id: 33,
   orgId: 1,
@@ -188,14 +189,27 @@ describe("RunEvalPanel", () => {
     expect(await screen.findByText(/no checkable instructions/)).toBeInTheDocument();
   });
 
-  it("states plainly when nothing was checkable because every requirement was overridden", async () => {
+  it("separates 'nothing scored' from 'nothing checkable' when every requirement was overridden", async () => {
     apiFetchMock.mockResolvedValueOnce([ALL_OVERRIDDEN_EVAL]);
     renderPanel();
-    expect(await screen.findByText(/no checkable instructions/)).toBeInTheDocument();
+    expect(
+      await screen.findByText("None of the 1 instructions could be scored on this run."),
+    ).toBeInTheDocument();
+    // The empty-context copy would be a false statement here: the judge found an instruction.
+    expect(screen.queryByText(/no checkable instructions/)).not.toBeInTheDocument();
     // The overridden note still names the one instruction that was set aside — it just no
     // longer leaves a "0 of 0" headline sitting above it.
     expect(screen.getByText("1 overridden by the user's request")).toBeInTheDocument();
     expect(screen.queryByText(/instructions followed/)).not.toBeInTheDocument();
+  });
+
+  it("keeps the empty-context copy for an eval whose judge extracted no requirements at all", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      { ...ALL_OVERRIDDEN_EVAL, result: { artefactKind: "final_message", score: 0, layers: [] } },
+    ]);
+    renderPanel();
+    expect(await screen.findByText(/no checkable instructions/)).toBeInTheDocument();
+    expect(screen.queryByText(/could be scored/)).not.toBeInTheDocument();
   });
 
   it("renders a failed card with the mapped reason and the button again", async () => {

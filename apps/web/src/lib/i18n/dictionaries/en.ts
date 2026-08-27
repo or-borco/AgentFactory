@@ -296,6 +296,7 @@ const en = {
     evalRunningLabel: "Evaluating…",
     evalHeadline: "{passed} of {total} instructions followed",
     evalNoRequirements: "The context contains no checkable instructions — nothing to grade.",
+    evalNothingScored: "None of the {count} instructions could be scored on this run.",
     evalArtefactDiff: "Graded the code this run committed",
     evalArtefactFinalMessage: "Graded the final reply (this run committed no code)",
     evalTruncated: "The artefact was too large and was cut before grading — this score may not reflect the full deliverable.",
