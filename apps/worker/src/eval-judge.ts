@@ -23,6 +23,14 @@ export function selectHumanSegments(segments: PromptSegment[]): PromptSegment[] 
 // The cap is generous — a truncated verdict on a real diff beats a clean failure on size.
 export const MAX_ARTEFACT_CHARS = 120_000;
 
+// The request is a chat message, not a diff, so it gets a far tighter cap than the artefact —
+// but it needs one all the same: messages.content is unbounded text and the chat POST does not
+// validate length, so a pasted 500 KB build log would otherwise blow the judge call's context.
+// That is unrecoverable in a way an oversized artefact is not: the API 400 becomes a
+// judge_error and every re-trigger re-bills identically. Truncated and labelled beats a
+// permanently ungradeable run, and anything a user actually typed as an instruction fits.
+export const MAX_REQUEST_CHARS = 8_000;
+
 export const JUDGE_MAX_TOKENS = 8_192;
 
 export const JUDGE_SYSTEM_PROMPT = [
@@ -136,6 +144,12 @@ function escapeDelimiters(text: string): string {
   });
 }
 
+function capRequest(request: string): string {
+  return request.length > MAX_REQUEST_CHARS
+    ? `${request.slice(0, MAX_REQUEST_CHARS)}\n…[request truncated]`
+    : request;
+}
+
 function isArtefactTruncated(artefact: EvalArtefact): boolean {
   return artefact.text.length > MAX_ARTEFACT_CHARS;
 }
@@ -159,11 +173,15 @@ export function buildJudgeUserMessage(
       : "the agent's final reply message (it committed no code)";
   // The request goes first so the judge reads what was asked before what was configured. It is
   // omitted entirely — never sent empty — when the run had no triggering message: an empty
-  // block invites the model to infer an intent nobody expressed.
+  // block invites the model to infer an intent nobody expressed, and worse, its mere presence
+  // re-opens the override gate that "no request block ⇒ no override" is supposed to close.
+  // resolveRequest already normalizes a blank message to undefined; the whitespace check here
+  // is a second, independent guard so neither call site is load-bearing on its own.
+  const sendable = request !== undefined && request.trim() !== "" ? request : undefined;
   const requestBlock =
-    request === undefined
+    sendable === undefined
       ? ""
-      : `What the user asked for on this turn:\n\n<request>\n${escapeDelimiters(request)}\n</request>\n\n`;
+      : `What the user asked for on this turn:\n\n<request>\n${escapeDelimiters(capRequest(sendable))}\n</request>\n\n`;
   return `${requestBlock}Instruction layers:\n\n${layerBlocks}\n\nThe artefact to judge — ${kindLabel}:\n\n<artefact>\n${body}\n</artefact>`;
 }
 

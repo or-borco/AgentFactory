@@ -176,14 +176,35 @@ describe("processEvalJob", () => {
     expect(deps.failEval).not.toHaveBeenCalled();
   });
 
+  // An empty or whitespace-only chat message is no request at all. Passing it through would
+  // emit an empty <request> block, and a block that exists — however empty — re-opens the
+  // override gate that "no request block ⇒ no requirement may be overridden" holds shut.
+  it.each(["", "   ", "\n\t \n"])("judges with an undefined request for a blank message (%j)", async (blank) => {
+    const deps = makeDeps({ getTriggeringMessage: vi.fn().mockResolvedValue({ content: blank }) });
+    await processEvalJob(1, deps);
+
+    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+    expect(deps.completeEval).toHaveBeenCalledWith(1, RESULT, "claude-sonnet-5");
+    expect(deps.failEval).not.toHaveBeenCalled();
+  });
+
   // A failed message lookup degrades to "no request" — it must never cost the user a graded
   // eval, and must never become a failure code of its own.
   it("completes normally when the triggering message lookup throws", async () => {
     const deps = makeDeps({ getTriggeringMessage: vi.fn().mockRejectedValue(new Error("connection refused")) });
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(processEvalJob(1, deps)).resolves.toBeUndefined();
 
     expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
     expect(deps.completeEval).toHaveBeenCalledWith(1, RESULT, "claude-sonnet-5");
     expect(deps.failEval).not.toHaveBeenCalled();
+
+    // Every other log in this file is keyed "Eval <id>: …"; a degraded eval that does not
+    // carry its own row id cannot be tied back to the row it degraded.
+    expect(logged).toHaveBeenCalledWith(
+      "Eval 1: triggering message 55 lookup failed:",
+      expect.any(Error),
+    );
+    logged.mockRestore();
   });
 });

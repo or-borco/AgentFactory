@@ -58,18 +58,21 @@ function classifyJudgeError(err: unknown): string {
 
 // The judge grades the artefact against the instructions AND against what the user actually
 // asked for: without the request, an agent that obeyed a user asking for something narrower
-// than its configured default reads as disobedient. Two paths land on `undefined` and both are
-// normal, not failures — a run started by task assignment has no triggering message at all,
-// and a lookup that returns nothing or throws leaves the eval graded on the instructions alone
-// rather than costing the user a graded result over one missing row.
-async function resolveRequest(run: Run, deps: EvalRunnerDeps): Promise<string | undefined> {
+// than its configured default reads as disobedient. Several paths land on `undefined` and all
+// are normal, not failures — a run started by task assignment has no triggering message at
+// all, a lookup that returns nothing or throws leaves the eval graded on the instructions
+// alone rather than costing the user a graded result over one missing row, and a message whose
+// content is empty or nothing but whitespace is no request either. That last case matters
+// beyond tidiness: an empty <request> block is still a block, which would re-open the override
+// gate that "no request block ⇒ no requirement may be overridden" is meant to hold shut.
+async function resolveRequest(evalId: number, run: Run, deps: EvalRunnerDeps): Promise<string | undefined> {
   const messageId = run.triggeringMessageId;
   if (!messageId) return undefined;
   try {
     const message = await deps.getTriggeringMessage(messageId);
-    return message?.content;
+    return message?.content?.trim() ? message.content : undefined;
   } catch (err) {
-    console.error(`Eval: triggering message ${messageId} lookup failed:`, err);
+    console.error(`Eval ${evalId}: triggering message ${messageId} lookup failed:`, err);
     return undefined;
   }
 }
@@ -144,7 +147,7 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
     }
 
     // 4-5. One structured-output judge call; store result + judge model, mark done.
-    const request = await resolveRequest(run, deps);
+    const request = await resolveRequest(evalId, run, deps);
     const { result, judgeModelId } = await deps.judge(humanSegments, artefact, request);
     await deps.completeEval(evalId, result, judgeModelId);
   } catch (err) {
