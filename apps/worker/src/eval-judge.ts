@@ -162,6 +162,18 @@ function escapeDelimiters(text: string): string {
   //
   // Now: one leading gap run, then an OPTIONAL slash that carries its own trailing gaps, then
   // the tag, then at most one attribute run. Nothing overlaps, so there is nothing to permute.
+  //
+  // That removes the permutation blowup, NOT all superlinearity, and the difference matters
+  // for anyone bounding a call site. The attribute run is still a greedy `[^>]*`, so each
+  // "<tag<gap>" start rescans to end-of-string looking for a ">" that may not exist: text made
+  // of "<request " repeated is quadratic — 0.9s at 120,000 characters, 15s at 500,000 —
+  // and identical on the old pattern, so this restructure buys nothing on that shape.
+  // Narrowing the class to `[^<>]*` would make it linear but would stop escaping
+  // `<layer id="a<b">`, leaving a raw "<layer id=" in the output — trading a slow path for an
+  // open one, which is the wrong trade in this function. The cost is bounded by input length
+  // instead: both call sites cap before calling, at MAX_ARTEFACT_CHARS and MAX_REQUEST_CHARS.
+  // The artefact cap leaves a ~0.9s worst case on deliberately hostile input, which is a
+  // bounded stall on one queued job rather than a hang.
   const pattern = new RegExp(
     `<${TAG_GAP}*(/${TAG_GAP}*)?(${DELIMITER_TAGS.join("|")})(${TAG_GAP}[^>]*)?>`,
     "gi",
@@ -320,18 +332,22 @@ function isWordChar(char: string | undefined): boolean {
   return char !== undefined && /[\p{L}\p{N}_]/u.test(char);
 }
 
-// Containment alone is not quotation: "generate the changelog" sits inside "regenerate the
-// changelogs" while quoting nothing anybody wrote. The span has to start and end where a word
-// does (a span whose own edge is punctuation has nothing to check on that side).
 // Whether a character sits in a script where "start of a word" is a question with an answer.
 // A Han or Kana character never does: it is a word character by every classifier, and so is
-// every character next to it, so demanding a boundary there rejects every correct quote. The
-// test is applied per EDGE rather than per span, so "東京deploy" is still held to a boundary on
-// its Latin end and would not be accepted inside "東京deployment".
+// every character next to it, so demanding a boundary there rejects every correct quote.
 function needsBoundary(char: string | undefined): boolean {
   return isWordChar(char) && !SPACELESS_SCRIPT.test(char as string);
 }
 
+// Containment alone is not quotation: "generate the changelog" sits inside "regenerate the
+// changelogs" while quoting nothing anybody wrote. The span has to start and end where a word
+// does (a span whose own edge is punctuation has nothing to check on that side).
+//
+// The test is per EDGE, not per span, and that is the whole of what makes a mixed-script span
+// safe: "deploy東京" is waived on its Han end and still held to a boundary on its Latin one, so
+// it is rejected inside "redeploy東京" while a wholly-Han span is accepted anywhere. An earlier
+// spelling waived the check for the entire span whenever any character was spaceless, which
+// reopened the ordinary substring hole for exactly those mixed spans.
 function containsOnWordBoundary(haystack: string, needle: string): boolean {
   for (let from = 0; from <= haystack.length; ) {
     const at = haystack.indexOf(needle, from);
@@ -349,19 +365,23 @@ function containsOnWordBoundary(haystack: string, needle: string): boolean {
 // override quoting one was downgraded. Character count is the honest proxy there: eight
 // unspaced Han characters is a longer phrase than the two English words the floor asks for, so
 // waiving the word floor for them is not a loosening — MIN_SPAN_CHARS still has to be cleared.
-const SPACELESS_SCRIPT_CLASS =
-  "\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}\\p{sc=Thai}\\p{sc=Lao}\\p{sc=Khmer}\\p{sc=Myanmar}";
-const SPACELESS_SCRIPT = new RegExp(`[${SPACELESS_SCRIPT_CLASS}]`, "u");
-// A letter from a script that DOES separate words — Latin, Cyrillic, Greek, Arabic, and the
-// rest. Its presence is what disqualifies a span from the spaceless treatment.
-const BOUNDED_LETTER = new RegExp(`(?![${SPACELESS_SCRIPT_CLASS}])\\p{L}`, "u");
+const SPACELESS_SCRIPT = new RegExp(
+  "[\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}\\p{sc=Thai}\\p{sc=Lao}\\p{sc=Khmer}\\p{sc=Myanmar}]",
+  "u",
+);
 
-// A span with no space that is written ENTIRELY in those scripts. "Entirely" is the load-
-// bearing word: a span merely CONTAINING one such character — "deploy東京" — still has Latin
-// words in it, and waiving the word rules for it let "deploy東京" match inside the request's
-// "redeploy東京", which is precisely the false positive the word-boundary test exists to stop.
+// A span with no space that reaches into one of those scripts. Deliberately "reaches into"
+// rather than "is written entirely in": requiring purity here disqualifies most real CJK
+// quotations, because they are full of characters that are not Han or Kana. Developer requests
+// carry Latin tokens inline ("PRを開かないでください", "请不要push到main分支上面"), and Japanese
+// long vowels are written with U+30FC, which Unicode gives script Common rather than Katakana —
+// so サーバー, ユーザー, データ and every other loanword with one would fail a purity test. Those
+// are perfect verbatim quotes, and a purity test downgrades all of them.
+//
+// This predicate feeds only the WORD floor. It is not what keeps a mixed span honest — the
+// per-edge boundary test in containsOnWordBoundary does that, and does it whatever this says.
 function isSpacelessSpan(span: string): boolean {
-  return !span.includes(" ") && SPACELESS_SCRIPT.test(span) && !BOUNDED_LETTER.test(span);
+  return !span.includes(" ") && SPACELESS_SCRIPT.test(span);
 }
 
 function clearsSpanFloors(span: string): boolean {
@@ -369,8 +389,6 @@ function clearsSpanFloors(span: string): boolean {
   if (isSpacelessSpan(span)) return true;
   return span.split(" ").filter(Boolean).length >= MIN_SPAN_WORDS;
 }
-
-
 
 // The quotation gate — a requirement may be "overridden" only when the contradicting words can
 // be quoted from the request — is what the entire override feature rests on, and until now it
@@ -414,9 +432,14 @@ export function enforceOverrideEvidence(
   // which is the same class of false downgrade the quote-aware fix was written to end. Escaping
   // is idempotent for the requests that contain no tags at all, i.e. nearly all of them.
   //
-  // It is escaped but NOT capped: capRequest shortens the copy the judge is shown, and matching
-  // the capped copy would downgrade a correctly quoted override from late in a long request.
-  const normalizedRequest = request === undefined ? "" : normalizeForQuoteMatch(escapeDelimiters(request));
+  // Capped as well as escaped, by the same capRequest the message builder uses. The judge is
+  // shown a head slice, so it cannot legitimately quote anything past the cap; matching the
+  // full request only ever admits spans the judge could not have sourced, which loosens a gate
+  // whose entire job is tightening. It also bounds the escaping cost: escapeDelimiters is
+  // superlinear in its input (see its comment) and messages.content has no length limit, so
+  // handing it a raw request let a pasted megabyte block the worker for half a minute.
+  const normalizedRequest =
+    request === undefined ? "" : normalizeForQuoteMatch(escapeDelimiters(capRequest(request)));
   return layers.map((layer) => ({
     ...layer,
     requirements: layer.requirements.map((requirement) => {

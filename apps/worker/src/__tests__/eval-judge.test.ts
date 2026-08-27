@@ -141,7 +141,11 @@ describe("buildJudgeUserMessage", () => {
   // so no two runs can match the same character brings the full-cap input in under a
   // millisecond; the bound below is generous by three orders of magnitude and still fails by
   // never returning against the old pattern.
-  it("escapes a full-cap artefact of pathological padding in linear time", () => {
+  //
+  // This pins the permutation blowup specifically, not linearity in general — the greedy
+  // attribute scan is still quadratic on repeated unclosed openings, which the artefact cap
+  // bounds at roughly a second rather than eliminates. See escapeDelimiters' own comment.
+  it("escapes a full-cap artefact of padding without the permutation blowup", () => {
     const padding = " ".repeat(MAX_ARTEFACT_CHARS / 2);
     // No closing ">" anywhere — the shape that forces the engine to exhaust every split of the
     // padding between the gap runs before it can conclude there is no match.
@@ -559,6 +563,35 @@ describe("enforceOverrideEvidence", () => {
       expect(enforceOverrideEvidence(overridden("补丁"), request)[0].requirements[0].verdict).toBe("fail");
     });
 
+    // Real CJK requests are not pure CJK. Developers write Latin tokens inline, and Japanese
+    // long vowels use U+30FC, which Unicode scripts as Common rather than Katakana. Requiring
+    // a span to be written ENTIRELY in a spaceless script therefore downgrades most genuine
+    // quotations from those requests — the exact false-negative class this whole branch of the
+    // gate was added to end. Reaching into a spaceless script is enough; the per-edge boundary
+    // test below is what keeps such a span from matching mid-word.
+    it("keeps an override quoting a CJK request that carries a Latin token", () => {
+      const request = "パッチだけ見せて、PRを開かないでください";
+      expect(enforceOverrideEvidence(overridden("PRを開かないでください"), request)[0].requirements[0].verdict).toBe(
+        "overridden",
+      );
+    });
+
+    it("keeps an override quoting a Chinese request that carries Latin words", () => {
+      const request = "这次请不要push到main分支上面，只给我补丁";
+      expect(enforceOverrideEvidence(overridden("请不要push到main分支上面"), request)[0].requirements[0].verdict).toBe(
+        "overridden",
+      );
+    });
+
+    it("keeps an override quoting a Japanese request through a long-vowel mark", () => {
+      // U+30FC is script Common, so a purity test disqualifies every katakana loanword
+      // spelled with one — サーバー, ユーザー, データ and the rest.
+      const request = "今回はデータベースを変更しないでください。";
+      expect(enforceOverrideEvidence(overridden("データベースを変更しないでください"), request)[0].requirements[0].verdict).toBe(
+        "overridden",
+      );
+    });
+
     // A span that mixes scripts has boundaries wherever its Latin part meets other Latin, so
     // waiving the boundary check for the whole span because SOME character is spaceless opens
     // the ordinary substring hole back up: "deploy東京" would match inside "redeploy東京".
@@ -574,6 +607,17 @@ describe("enforceOverrideEvidence", () => {
       expect(enforceOverrideEvidence(overridden("東京deploy"), request)[0].requirements[0].verdict).toBe("fail");
     });
 
+    // The waiver cuts both ways and that is intended: a span whose edge is Han has no boundary
+    // to be held to, so it matches even where a Latin equivalent would not. Accepted rather
+    // than overlooked — the alternative is demanding a boundary that the script does not have,
+    // which is what rejected every correct CJK quote in the first place.
+    it("accepts a span abutting other spaceless text, which Latin would not be", () => {
+      const request = "北京東京deploy now please, nothing else";
+      expect(enforceOverrideEvidence(overridden("東京deploy now"), request)[0].requirements[0].verdict).toBe(
+        "overridden",
+      );
+    });
+
     it("keeps a mixed-script span that stands on its own word boundaries", () => {
       const request = "run 東京deploy now please, nothing else";
       expect(enforceOverrideEvidence(overridden("東京deploy now"), request)[0].requirements[0].verdict).toBe(
@@ -587,20 +631,40 @@ describe("enforceOverrideEvidence", () => {
     });
   });
 
-  // The judge is shown a request capped at MAX_REQUEST_CHARS while the backstop is handed the
-  // full one. judgeCompliance holds its Anthropic client at module scope, so the call site
-  // itself cannot be driven from a unit test; what this pins is the consequence that makes the
-  // call site load-bearing — the two requests produce OPPOSITE verdicts on identical evidence.
-  // Passing the capped copy would silently downgrade a correctly quoted override from late in
-  // a long request, on exactly the inputs nobody checks by hand.
-  it("gives opposite verdicts for the full request and the copy capped for the judge", () => {
+  // The judge is shown a head slice capped at MAX_REQUEST_CHARS, so it cannot have read — let
+  // alone quoted — anything past the cap. Honouring such a "quote" would admit a span whose
+  // provenance is coincidence, in a gate that exists to reject exactly that. The backstop
+  // therefore caps before matching, and evidence sourced beyond the cap is a downgrade however
+  // verbatim it looks against the full text.
+  it("rejects a quote from beyond the cap the judge was shown", () => {
     const tail = "and do not open a pull request for this one";
     const request = `${"pad this request out. ".repeat(600)}${tail}`;
     expect(request.length).toBeGreaterThan(MAX_REQUEST_CHARS);
-    expect(enforceOverrideEvidence(overridden(tail), request)[0].requirements[0].verdict).toBe("overridden");
-    expect(
-      enforceOverrideEvidence(overridden(tail), request.slice(0, MAX_REQUEST_CHARS))[0].requirements[0].verdict,
-    ).toBe("fail");
+    expect(request).toContain(tail);
+    expect(enforceOverrideEvidence(overridden(tail), request)[0].requirements[0].verdict).toBe("fail");
+  });
+
+  // The other half of the same rule: a quote from inside the visible slice is honoured, so the
+  // cap is not just refusing everything long.
+  it("keeps a quote from within the cap in an over-long request", () => {
+    const head = "do not open a pull request for this one";
+    const request = `${head}. ${"pad this request out. ".repeat(600)}`;
+    expect(request.length).toBeGreaterThan(MAX_REQUEST_CHARS);
+    expect(enforceOverrideEvidence(overridden(head), request)[0].requirements[0].verdict).toBe("overridden");
+  });
+
+  // Capping is also what bounds the escaping cost. escapeDelimiters is quadratic on text made
+  // of unclosed tag openings, and messages.content has no length limit anywhere in the chat
+  // path — so before the cap moved here, a pasted megabyte of "<request " blocked the worker's
+  // event loop for tens of seconds. The bound below is ~1000x the capped cost and fails by
+  // hanging, not by returning late.
+  it("stays bounded on a megabyte request built of unclosed tag openings", () => {
+    const request = "<request ".repeat(120_000);
+    const started = performance.now();
+    expect(enforceOverrideEvidence(overridden("do not push anything"), request)[0].requirements[0].verdict).toBe(
+      "fail",
+    );
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 
   it("preserves layer structure and requirement text across every layer", () => {
