@@ -133,6 +133,28 @@ describe("buildJudgeUserMessage", () => {
     }
   });
 
+  // The escaping pattern runs over untrusted text up to MAX_ARTEFACT_CHARS long, so its cost
+  // has to be linear in that length, not merely correct. The earlier spelling let two separate
+  // gap runs compete for the same padding characters, which is catastrophic backtracking: it
+  // took ~4.5s on 2,000 padding characters and grew cubically from there, so an artefact
+  // holding an unclosed "<" and a tag name could hang the judge worker outright. Restructuring
+  // so no two runs can match the same character brings the full-cap input in under a
+  // millisecond; the bound below is generous by three orders of magnitude and still fails by
+  // never returning against the old pattern.
+  it("escapes a full-cap artefact of pathological padding in linear time", () => {
+    const padding = " ".repeat(MAX_ARTEFACT_CHARS / 2);
+    // No closing ">" anywhere — the shape that forces the engine to exhaust every split of the
+    // padding between the gap runs before it can conclude there is no match.
+    const malicious = `<${padding}request${padding}`;
+
+    const started = performance.now();
+    const message = buildJudgeUserMessage([], { kind: "final_message", text: malicious });
+    expect(performance.now() - started).toBeLessThan(1_000);
+
+    // Still correct, not merely fast: nothing was minted, and the wrapper still closes.
+    expect(message.endsWith("</artefact>")).toBe(true);
+  });
+
   // The slash of a closing tag does not have to sit flush against the "<": "< /artefact >" and
   // a newline-separated "<\n/request>" are the same structural token to a reader, and the
   // model reading this message is a reader. An artefact that can appear to close its own block
@@ -535,6 +557,28 @@ describe("enforceOverrideEvidence", () => {
     it("still downgrades a span under the character floor", () => {
       const request = "请不要推送任何内容也不要开启拉取请求，只给我补丁";
       expect(enforceOverrideEvidence(overridden("补丁"), request)[0].requirements[0].verdict).toBe("fail");
+    });
+
+    // A span that mixes scripts has boundaries wherever its Latin part meets other Latin, so
+    // waiving the boundary check for the whole span because SOME character is spaceless opens
+    // the ordinary substring hole back up: "deploy東京" would match inside "redeploy東京".
+    // The check is per-edge — each end of the span is tested only if that end is a letter from
+    // a script that separates words.
+    it("still downgrades a mixed-script span that continues a longer word to its left", () => {
+      const request = "please redeploy東京 today, do not touch anything else";
+      expect(enforceOverrideEvidence(overridden("deploy東京"), request)[0].requirements[0].verdict).toBe("fail");
+    });
+
+    it("still downgrades a mixed-script span that continues a longer word to its right", () => {
+      const request = "the 東京deployment is fine, leave it alone";
+      expect(enforceOverrideEvidence(overridden("東京deploy"), request)[0].requirements[0].verdict).toBe("fail");
+    });
+
+    it("keeps a mixed-script span that stands on its own word boundaries", () => {
+      const request = "run 東京deploy now please, nothing else";
+      expect(enforceOverrideEvidence(overridden("東京deploy now"), request)[0].requirements[0].verdict).toBe(
+        "overridden",
+      );
     });
 
     it("still downgrades a long span that is absent from the request", () => {

@@ -151,13 +151,24 @@ function escapeDelimiters(text: string): string {
   // only so the set reads as complete. Characters inside the tag NAME are deliberately not
   // tolerated: "<re\u200Bquest>" is far less likely to parse as a tag to the reader, and
   // admitting interior gaps would make the pattern match ordinary prose.
+  // The gap runs are arranged so no two of them can match the same characters. An earlier
+  // spelling put `GAP*` on both sides of an optional slash and `GAP*` after a lazy `[^>]*?`;
+  // each of those pairs can divide the same run of padding between them in every possible way,
+  // and on input that never supplies the closing ">" the engine tries all of them. That is a
+  // denial of service on text an attacker controls: "<" + 3,000 spaces + "request" took ~12s,
+  // against a 120,000-character artefact cap. It predates this branch — the original `\s`-only
+  // pattern blows up identically on plain spaces — but this function is the one place the input
+  // is untrusted by definition, so it is fixed here rather than left for later.
+  //
+  // Now: one leading gap run, then an OPTIONAL slash that carries its own trailing gaps, then
+  // the tag, then at most one attribute run. Nothing overlaps, so there is nothing to permute.
   const pattern = new RegExp(
-    `<${TAG_GAP}*(/?)${TAG_GAP}*(${DELIMITER_TAGS.join("|")})(${TAG_GAP}[^>]*?)?${TAG_GAP}*>`,
+    `<${TAG_GAP}*(/${TAG_GAP}*)?(${DELIMITER_TAGS.join("|")})(${TAG_GAP}[^>]*)?>`,
     "gi",
   );
-  return text.replace(pattern, (_match, slash: string, tag: string, attrs?: string) => {
+  return text.replace(pattern, (_match, slash: string | undefined, tag: string, attrs?: string) => {
     const suffix = attrs?.trim() ? ` ${attrs.trim()}` : "";
-    return `&lt;${slash}${tag.toLowerCase()}${suffix}&gt;`;
+    return `&lt;${slash ? "/" : ""}${tag.toLowerCase()}${suffix}&gt;`;
   });
 }
 
@@ -312,12 +323,21 @@ function isWordChar(char: string | undefined): boolean {
 // Containment alone is not quotation: "generate the changelog" sits inside "regenerate the
 // changelogs" while quoting nothing anybody wrote. The span has to start and end where a word
 // does (a span whose own edge is punctuation has nothing to check on that side).
+// Whether a character sits in a script where "start of a word" is a question with an answer.
+// A Han or Kana character never does: it is a word character by every classifier, and so is
+// every character next to it, so demanding a boundary there rejects every correct quote. The
+// test is applied per EDGE rather than per span, so "東京deploy" is still held to a boundary on
+// its Latin end and would not be accepted inside "東京deployment".
+function needsBoundary(char: string | undefined): boolean {
+  return isWordChar(char) && !SPACELESS_SCRIPT.test(char as string);
+}
+
 function containsOnWordBoundary(haystack: string, needle: string): boolean {
   for (let from = 0; from <= haystack.length; ) {
     const at = haystack.indexOf(needle, from);
     if (at === -1) return false;
-    const startOk = !isWordChar(needle[0]) || !isWordChar(haystack[at - 1]);
-    const endOk = !isWordChar(needle[needle.length - 1]) || !isWordChar(haystack[at + needle.length]);
+    const startOk = !needsBoundary(needle[0]) || !isWordChar(haystack[at - 1]);
+    const endOk = !needsBoundary(needle[needle.length - 1]) || !isWordChar(haystack[at + needle.length]);
     if (startOk && endOk) return true;
     from = at + 1;
   }
@@ -329,14 +349,19 @@ function containsOnWordBoundary(haystack: string, needle: string): boolean {
 // override quoting one was downgraded. Character count is the honest proxy there: eight
 // unspaced Han characters is a longer phrase than the two English words the floor asks for, so
 // waiving the word floor for them is not a loosening — MIN_SPAN_CHARS still has to be cleared.
-const SPACELESS_SCRIPT =
-  /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}]/u;
+const SPACELESS_SCRIPT_CLASS =
+  "\\p{sc=Han}\\p{sc=Hiragana}\\p{sc=Katakana}\\p{sc=Thai}\\p{sc=Lao}\\p{sc=Khmer}\\p{sc=Myanmar}";
+const SPACELESS_SCRIPT = new RegExp(`[${SPACELESS_SCRIPT_CLASS}]`, "u");
+// A letter from a script that DOES separate words — Latin, Cyrillic, Greek, Arabic, and the
+// rest. Its presence is what disqualifies a span from the spaceless treatment.
+const BOUNDED_LETTER = new RegExp(`(?![${SPACELESS_SCRIPT_CLASS}])\\p{L}`, "u");
 
-// A span written in one of those scripts with no space in it at all. Both floors below treat
-// these differently, and for the same reason: rules that count words or look for word
-// boundaries are asking a question the writing system does not answer.
+// A span with no space that is written ENTIRELY in those scripts. "Entirely" is the load-
+// bearing word: a span merely CONTAINING one such character — "deploy東京" — still has Latin
+// words in it, and waiving the word rules for it let "deploy東京" match inside the request's
+// "redeploy東京", which is precisely the false positive the word-boundary test exists to stop.
 function isSpacelessSpan(span: string): boolean {
-  return !span.includes(" ") && SPACELESS_SCRIPT.test(span);
+  return !span.includes(" ") && SPACELESS_SCRIPT.test(span) && !BOUNDED_LETTER.test(span);
 }
 
 function clearsSpanFloors(span: string): boolean {
@@ -345,14 +370,7 @@ function clearsSpanFloors(span: string): boolean {
   return span.split(" ").filter(Boolean).length >= MIN_SPAN_WORDS;
 }
 
-// Containment, with the boundary rule that suits the span. The word-boundary test exists to
-// stop "generate the changelog" from matching inside "regenerate the changelog"; in a script
-// with no word boundaries there is nothing for it to test, and every character adjacent to a
-// correct quote is a letter, so it rejected every quote it was given. MIN_SPAN_CHARS carries
-// the weight there instead — eight unspaced Han characters cannot be matched by chance.
-function spanAppearsIn(request: string, span: string): boolean {
-  return isSpacelessSpan(span) ? request.includes(span) : containsOnWordBoundary(request, span);
-}
+
 
 // The quotation gate — a requirement may be "overridden" only when the contradicting words can
 // be quoted from the request — is what the entire override feature rests on, and until now it
@@ -409,7 +427,7 @@ export function enforceOverrideEvidence(
       const quotesTheRequest =
         normalizedRequest !== "" &&
         extractCandidateSpans(requirement.evidence).some(
-          (span) => clearsSpanFloors(span) && spanAppearsIn(normalizedRequest, span),
+          (span) => clearsSpanFloors(span) && containsOnWordBoundary(normalizedRequest, span),
         );
       // Evidence is left untouched on a downgrade: the card should still show what the judge
       // offered, so an unjustified override is legible rather than silently rewritten.
