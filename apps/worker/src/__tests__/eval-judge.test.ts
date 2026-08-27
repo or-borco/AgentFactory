@@ -466,6 +466,38 @@ describe("enforceOverrideEvidence", () => {
     });
   });
 
+  // A quoted segment inside the evidence used to REPLACE the whole string as the candidate to
+  // test, so evidence lifted verbatim from the request that happened to contain one short
+  // quoted phrase was reduced to that phrase, failed the two-word floor, and was downgraded.
+  // The whole string is now a candidate alongside the segments it contains.
+  it("keeps an override whose verbatim evidence contains an incidental short quote", () => {
+    const request = 'skip the <layer id="team_context"> rule for this one, it does not apply here';
+    const evidence = 'skip the <layer id="team_context"> rule for this one';
+    expect(enforceOverrideEvidence(overridden(evidence), request)[0].requirements[0].verdict).toBe("overridden");
+  });
+
+  it("still downgrades when only the incidental quote is traceable to the request", () => {
+    const request = 'the <layer id="team_context"> block is fine, leave it alone';
+    const evidence = 'the agent decided to skip <layer id="team_context"> on its own';
+    expect(enforceOverrideEvidence(overridden(evidence), request)[0].requirements[0].verdict).toBe("fail");
+  });
+
+  // The judge is shown a request capped at MAX_REQUEST_CHARS while the backstop is handed the
+  // full one. judgeCompliance holds its Anthropic client at module scope, so the call site
+  // itself cannot be driven from a unit test; what this pins is the consequence that makes the
+  // call site load-bearing — the two requests produce OPPOSITE verdicts on identical evidence.
+  // Passing the capped copy would silently downgrade a correctly quoted override from late in
+  // a long request, on exactly the inputs nobody checks by hand.
+  it("gives opposite verdicts for the full request and the copy capped for the judge", () => {
+    const tail = "and do not open a pull request for this one";
+    const request = `${"pad this request out. ".repeat(600)}${tail}`;
+    expect(request.length).toBeGreaterThan(MAX_REQUEST_CHARS);
+    expect(enforceOverrideEvidence(overridden(tail), request)[0].requirements[0].verdict).toBe("overridden");
+    expect(
+      enforceOverrideEvidence(overridden(tail), request.slice(0, MAX_REQUEST_CHARS))[0].requirements[0].verdict,
+    ).toBe("fail");
+  });
+
   it("preserves layer structure and requirement text across every layer", () => {
     const layers: EvalLayerResult[] = [
       { segmentId: "team_context", requirements: [{ text: "a", verdict: "overridden", evidence: "nope" }] },

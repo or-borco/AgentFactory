@@ -269,16 +269,23 @@ const MIN_SPAN_WORDS = 2;
 const MIN_SPAN_CHARS = 8;
 
 // The evidence is the judge's prose, not a verbatim slice of the request, so the whole string
-// is the wrong unit to test. Pull the candidate quotations out of it: each quoted segment if
-// any are present, otherwise the whole string; then split each on an ellipsis and shave the
-// punctuation off the ends. Any one of the resulting spans being traceable to the request is
-// enough — a judge that quotes correctly and then adds "user said" around it has still quoted.
+// is the wrong unit to test on its own. Pull the candidate quotations out of it: the whole
+// string AND each quoted segment; then split each on an ellipsis and shave the punctuation off
+// the ends. Any one of the resulting spans being traceable to the request is enough — a judge
+// that quotes correctly and then adds "user said" around it has still quoted.
+//
+// The whole string stays in the set rather than being displaced by the quoted segments,
+// because evidence can be verbatim from the request and still contain an incidental short
+// quote — `skip the <layer id="team_context"> rule` would otherwise be reduced to
+// `team_context`, fail the word floor, and downgrade an override the request plainly
+// justifies. Adding candidates cannot make the gate leak: every span, the whole string
+// included, must still clear the floors and appear in the request on word boundaries.
 function extractCandidateSpans(evidence: string): string[] {
   const quoted: string[] = [];
   for (const pattern of QUOTED_SEGMENT_PATTERNS) {
     for (const match of evidence.matchAll(pattern)) quoted.push(match[1]);
   }
-  const candidates = quoted.length > 0 ? quoted : [evidence];
+  const candidates = [evidence, ...quoted];
   return candidates
     .flatMap((candidate) => candidate.split(ELLIPSIS))
     .map((span) => normalizeForQuoteMatch(span).replace(EDGE_PUNCTUATION, ""))
