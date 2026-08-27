@@ -1,0 +1,696 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>*,*::before,*::after{box-sizing:border-box}body,h1,h2,h3,h4,p,ul,ol,figure,blockquote,dl,dd{margin:0}ul[class],ol[class]{padding:0;list-style:none}img,picture{max-width:100%;display:block}</style>
+<title>Document Context Retrieval</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@400;500;600&display=swap">
+</head>
+<body>
+<style>
+  :root {
+    --paper:      #F4F6F4;
+    --surface:    #FFFFFF;
+    --sunk:       #EBEEEC;
+    --ink:        #131A1D;
+    --muted:      #5B6A6C;
+    --faint:      #869596;
+    --line:       #D8DEDB;
+    --line-soft:  #E6EAE7;
+    --accent:     #0E6B63;
+    --accent-dim: #CFE3E0;
+    --signal:     #A2542A;
+    --signal-dim: #F0E1D6;
+    --code-bg:    #EFF2F0;
+
+    --f-display: "IBM Plex Serif", Georgia, "Times New Roman", serif;
+    --f-body:    "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --f-mono:    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+    --measure: 68ch;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #101514;
+      --surface:    #161C1B;
+      --sunk:       #1B2221;
+      --ink:        #E4EAE7;
+      --muted:      #9BAAA8;
+      --faint:      #708080;
+      --line:       #2A3432;
+      --line-soft:  #212926;
+      --accent:     #56B7AA;
+      --accent-dim: #1E3936;
+      --signal:     #D18A57;
+      --signal-dim: #33251A;
+      --code-bg:    #1A2120;
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #101514;
+    --surface:    #161C1B;
+    --sunk:       #1B2221;
+    --ink:        #E4EAE7;
+    --muted:      #9BAAA8;
+    --faint:      #708080;
+    --line:       #2A3432;
+    --line-soft:  #212926;
+    --accent:     #56B7AA;
+    --accent-dim: #1E3936;
+    --signal:     #D18A57;
+    --signal-dim: #33251A;
+    --code-bg:    #1A2120;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--f-body);
+    font-size: 16px;
+    line-height: 1.62;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 0 28px 120px;
+  }
+
+  /* ── masthead ────────────────────────────────────────────── */
+
+  .masthead {
+    padding: 72px 0 34px;
+    border-bottom: 2px solid var(--ink);
+  }
+
+  .eyebrow {
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 18px;
+  }
+
+  h1 {
+    font-family: var(--f-display);
+    font-weight: 600;
+    font-size: clamp(32px, 5.2vw, 47px);
+    line-height: 1.1;
+    letter-spacing: -0.018em;
+    text-wrap: balance;
+    margin: 0 0 20px;
+  }
+
+  .standfirst {
+    font-size: 18px;
+    line-height: 1.55;
+    color: var(--muted);
+    max-width: 60ch;
+    margin: 0 0 30px;
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 26px;
+    font-family: var(--f-mono);
+    font-size: 12px;
+    color: var(--faint);
+  }
+  .meta b {
+    color: var(--ink);
+    font-weight: 500;
+  }
+
+  /* ── table of contents ───────────────────────────────────── */
+
+  .toc {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 2px 24px;
+    padding: 22px 0 4px;
+    border-bottom: 1px solid var(--line);
+    margin-bottom: 8px;
+  }
+  .toc a {
+    font-family: var(--f-mono);
+    font-size: 12px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 5px 0;
+    border-bottom: 1px solid transparent;
+  }
+  .toc a:hover { color: var(--accent); border-bottom-color: var(--accent-dim); }
+  .toc a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  /* ── sections ────────────────────────────────────────────── */
+
+  section { padding-top: 56px; }
+
+  h2 {
+    font-family: var(--f-display);
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -0.012em;
+    line-height: 1.2;
+    margin: 0 0 6px;
+    scroll-margin-top: 20px;
+  }
+
+  .rule {
+    height: 1px;
+    background: var(--line);
+    margin: 0 0 26px;
+  }
+
+  h3 {
+    font-family: var(--f-mono);
+    font-size: 12.5px;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 38px 0 12px;
+  }
+
+  p { max-width: var(--measure); margin: 0 0 18px; }
+
+  ul { max-width: var(--measure); margin: 0 0 18px; padding-left: 0; list-style: none; }
+  ul li {
+    position: relative;
+    padding-left: 20px;
+    margin-bottom: 13px;
+  }
+  ul li::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 0.66em;
+    width: 7px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  strong { font-weight: 600; }
+  em { font-style: italic; }
+
+  code {
+    font-family: var(--f-mono);
+    font-size: 0.855em;
+    background: var(--code-bg);
+    padding: 0.12em 0.36em;
+    border-radius: 2px;
+    word-break: break-word;
+  }
+
+  pre {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    padding: 18px 20px;
+    overflow-x: auto;
+    margin: 0 0 22px;
+    font-size: 13px;
+    line-height: 1.62;
+  }
+  pre code { background: none; padding: 0; font-size: 13px; }
+
+  /* ── verified-claim list (ground truth) ──────────────────── */
+
+  .truth { max-width: 74ch; }
+  .truth li { padding-left: 22px; }
+  .truth li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.52em;
+    width: 9px;
+    height: 9px;
+    background: none;
+    border: 1.5px solid var(--accent);
+    border-radius: 50%;
+  }
+  .truth li.deviation::before {
+    border-color: var(--signal);
+    background: var(--signal);
+  }
+
+  /* ── callouts ────────────────────────────────────────────── */
+
+  .measured {
+    background: var(--signal-dim);
+    border-left: 3px solid var(--signal);
+    padding: 18px 22px;
+    margin: 0 0 24px;
+    max-width: 74ch;
+  }
+  .measured p { margin: 0; }
+  .measured p + p { margin-top: 12px; }
+  .measured .tag {
+    display: block;
+    font-family: var(--f-mono);
+    font-size: 10.5px;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--signal);
+    margin-bottom: 9px;
+  }
+  .measured pre {
+    background: transparent;
+    border: none;
+    border-left: none;
+    padding: 12px 0 4px;
+    margin: 10px 0 0;
+    font-size: 12.5px;
+  }
+
+  /* ── prompt layer stack ──────────────────────────────────── */
+
+  .stack {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    max-width: 500px;
+    margin: 0 0 14px;
+  }
+  .layer {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    font-family: var(--f-mono);
+    font-size: 12.5px;
+    padding: 10px 14px;
+    background: var(--sunk);
+    border-left: 3px solid var(--line);
+    color: var(--muted);
+  }
+  .layer .who {
+    font-size: 10.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--faint);
+    white-space: nowrap;
+  }
+  .layer.new {
+    background: var(--accent-dim);
+    border-left-color: var(--accent);
+    color: var(--ink);
+    font-weight: 500;
+  }
+  .layer.new .who { color: var(--accent); }
+  .caption {
+    font-size: 13.5px;
+    color: var(--muted);
+    max-width: 62ch;
+    margin: 0 0 22px;
+  }
+
+  /* ── tables ──────────────────────────────────────────────── */
+
+  .table-scroll { overflow-x: auto; margin: 0 0 22px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 640px;
+    font-size: 14px;
+  }
+  th, td {
+    text-align: left;
+    vertical-align: top;
+    padding: 13px 16px 13px 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  th {
+    font-family: var(--f-mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--faint);
+    font-weight: 500;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 9px;
+  }
+  td.num {
+    font-family: var(--f-mono);
+    font-variant-numeric: tabular-nums;
+    color: var(--accent);
+    font-weight: 600;
+    width: 34px;
+    padding-right: 12px;
+  }
+  td.pr-name { font-weight: 600; width: 168px; padding-right: 20px; }
+  td.ship { width: 200px; color: var(--muted); font-size: 13px; }
+  .ship .no { color: var(--faint); }
+
+  /* ── footer ──────────────────────────────────────────────── */
+
+  footer {
+    margin-top: 72px;
+    padding-top: 22px;
+    border-top: 1px solid var(--line);
+    font-family: var(--f-mono);
+    font-size: 11.5px;
+    color: var(--faint);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+  }
+
+  @media (max-width: 620px) {
+    .wrap { padding: 0 18px 80px; }
+    .masthead { padding-top: 44px; }
+    section { padding-top: 42px; }
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">Design spec · AgentFactory</p>
+    <h1>Uploaded-document context retrieval</h1>
+    <p class="standfirst">Let a team upload documents and have an agent automatically receive the parts relevant to the task it was given — retrieved per run, budget-capped, and visible after the fact.</p>
+    <div class="meta">
+      <span><b>Date</b> 2026-08-27</span>
+      <span><b>Status</b> Approved</span>
+      <span><b>Commit</b> 7c36043</span>
+      <span><b>Sequence</b> 7 PRs</span>
+    </div>
+  </header>
+
+  <nav class="toc">
+    <a href="#problem">Problem</a>
+    <a href="#truth">Ground truth</a>
+    <a href="#scope">Scope</a>
+    <a href="#decisions">Design decisions</a>
+    <a href="#mechanism">Mechanism</a>
+    <a href="#testing">Testing</a>
+    <a href="#prs">PR sequence</a>
+    <a href="#risks">Risks</a>
+  </nav>
+
+  <section id="problem">
+    <h2>Problem</h2>
+    <div class="rule"></div>
+    <p>A team's knowledge lives in documents — specs, handbooks, runbooks, design notes — and none of it can reach an agent today. <code>teams.shared_context</code> is the only path, and it is deliberately the wrong shape for this: 64 KB, always injected into every prompt, hand-typed into a textarea.</p>
+    <p>The intended second half of that design — ARCHITECTURE.md §2.3's <em>"shared_context = small, hot, always injected; context_items = large, cold, retrieved"</em> — does not exist. <code>team_context_items</code> holds <code>id, team_id, title, size_bytes, created_at</code> and nothing else. There is no file content anywhere in the system: no blob store, no S3, no <code>bytea</code>. <code>POST /api/teams/[teamId]/context-items</code> accepts a JSON <code>title</code> and a claimed <code>sizeBytes</code>, and a repo-wide grep shows <strong>zero callers</strong>. It is a metadata stub for a feature that was never built, and the seed populates three rows describing files that do not exist.</p>
+
+    <h3>Goal</h3>
+    <p>Documents a team uploads reach the agent as retrieved excerpts, chosen per run against the task at hand, capped by a byte budget, and inspectable afterwards — without any of it passing through the always-injected <code>shared_context</code> layer.</p>
+  </section>
+
+  <section id="truth">
+    <h2>Ground truth this design relies on</h2>
+    <div class="rule"></div>
+    <p>Every claim below was verified against the repo or against a running container. The two <span style="color:var(--signal);font-weight:600">filled markers</span> are deliberate deviations from ARCHITECTURE.md.</p>
+    <ul class="truth">
+      <li><strong>The platform, not the SDK, composes the prompt, and layers are already first-class.</strong> <code>composeSystemPrompt</code> returns <code>PromptSegment[]</code> alongside the joined string, with the invariant that joining the segments reproduces exactly what the model received. <code>runs.prompt_segments</code> persists it.</li>
+      <li><strong><code>PromptOmissionReason</code> is a closed union in core, but adding a code is explicitly non-breaking</strong> — <code>RunContextPanel</code> maps ids and reasons through two lookup tables with a generic fallback for unknown values.</li>
+      <li><strong>Everything retrieval needs is already in scope at the composition call site.</strong> <code>worker.ts</code> has <code>team</code>, <code>task</code>, <code>triggeringMessage</code>, and <code>agent</code> loaded before <code>composeSystemPrompt</code> is called.</li>
+      <li><strong>The repo map is the precedent for a machine-generated, budget-capped, injected layer that fails soft</strong> — a 16 KB cap enforced at three layers, failure degrading to <code>""</code> plus an omission reason, and an explicit untrusted-content wrapper because the text comes from an agent reading an arbitrary repo.</li>
+      <li><strong><code>postgres:16-alpine</code> cannot run <code>CREATE EXTENSION vector</code> at all.</strong> Against the running container: <code>ERROR: extension "vector" is not available</code>. There is no out-of-band workaround; the image change <em>is</em> the fix. <code>pgvector/pgvector:pg16</code> was run and verified: PostgreSQL 16.15, pgvector 0.8.6, superuser role.</li>
+      <li><strong>Drizzle 0.45.2 already has native pgvector support</strong>, verified by generating and applying real migrations — the <code>vector(384)</code> column and the HNSW opclass both survive <code>generate</code> intact.</li>
+      <li><strong>drizzle-kit never emits <code>CREATE EXTENSION</code>, but there is a sanctioned escape hatch:</strong> <code>generate --custom</code> writes an empty, journalled migration for hand-written SQL, and a later normal <code>generate</code> diffs correctly from its snapshot.</li>
+      <li><strong>The extension migration and the image swap cannot be separate PRs.</strong> The db-integration harness runs <code>migrate()</code> in <code>beforeAll</code>, and CI runs <code>db:migrate</code> before e2e. Three image references across two files.</li>
+      <li><strong>The repo has never opened a database transaction.</strong> Zero hits for <code>db.transaction(</code>, and the client is a pooled <code>postgres()</code> with no <code>max</code> — a bare <code>SET</code> would land on an arbitrary connection and leak.</li>
+      <li><strong>Next.js 16 Route Handlers have no request body size limit.</strong> <code>bodySizeLimit</code> is enforced only on the Server Actions path. No middleware, no proxy. <code>request.formData()</code> is unbounded and buffers the whole body into memory.</li>
+      <li><strong><code>apiFetch</code> is JSON-only and cannot be bypassed at the call site</strong> — it spreads the JSON content-type into a plain object, so the key cannot be removed by passing <code>undefined</code>.</li>
+      <li><strong>The existing context-items routes are not org-scoped.</strong> <code>GET</code>/<code>POST</code> call through on an attacker-supplied <code>teamId</code> behind only an auth check, while the sibling delete path does scope. <code>team_context_items</code> has no <code>org_id</code> of its own.</li>
+      <li><strong><code>agents.team_id</code> is settable across orgs today.</strong> The PATCH route is unscoped by acknowledged design debt, <code>updateAgent</code> writes <code>teamId</code> unchecked, and <code>getTeam</code> has no org filter — so an agent in org A can already point at a team in org B and have that team's <code>shared_context</code> injected into a prompt its owner controls end to end.</li>
+      <li><strong><code>capSharedContext</code> is a live byte-test/character-slice bug.</strong> A 40 000-character string of 3-byte codepoints measures 120 000 bytes, survives <code>slice(0, 65536)</code> unchanged, then violates the <code>octet_length</code> CHECK — a 500, not a 400. Precedent to avoid, not to copy.</li>
+      <li><strong><code>pnpm-workspace.yaml</code> uses an explicit <code>allowBuilds</code> allowlist.</strong> <code>onnxruntime-node</code>'s postinstall fetches its native binding; unlisted, it installs silently and fails at the first inference call.</li>
+      <li><strong>The worker runs on the host</strong> via <code>tsx watch</code>; the only Dockerfile is the sandbox image. All four BullMQ Workers register with <code>{ connection }</code> alone — concurrency 1, no <code>attempts</code>/<code>backoff</code> anywhere, no SIGTERM handler.</li>
+      <li><strong>The unit test project has no database and no Redis, and <code>.husky/pre-push</code> runs it.</strong> <code>packages/queue</code> throws at import when <code>REDIS_URL</code> is unset.</li>
+      <li><strong>The e2e suite stubs nothing.</strong> It seeds through the app's own HTTP API and asserts real responses, and no worker runs during e2e. Grading quality is explicitly not asserted in CI.</li>
+      <li><strong>pgvector stores <code>real</code> (float32).</strong> <code>0.8414709848078965</code> reads back as <code>0.84147096</code>.</li>
+      <li class="deviation"><strong>Deviation — the vector is 384 dimensions, not ARCHITECTURE.md §2.4's 1536.</strong> The doc's number assumed an OpenAI model; the dimension follows the chosen embedder.</li>
+      <li class="deviation"><strong>Deviation — the retrieved layer sits before <code>team_context</code>, not after (§3).</strong> Argued under Design decisions.</li>
+    </ul>
+  </section>
+
+  <section id="scope">
+    <h2>Scope and non-scope</h2>
+    <div class="rule"></div>
+
+    <h3>Touched</h3>
+    <ul>
+      <li><code>docker-compose.yml</code>, <code>.github/workflows/test.yml</code> (×2) — Postgres image → <code>pgvector/pgvector:pg16</code>.</li>
+      <li><code>pnpm-workspace.yaml</code> — <code>allowBuilds: onnxruntime-node: true</code>.</li>
+      <li><code>packages/db</code> — a <code>--custom</code> extension migration, then generated migrations for <code>content_blobs</code>, the <code>team_context_items</code> columns, <code>context_chunks</code>, <code>run_context_retrievals</code>; four new repositories plus an org-scoped <code>getTeamForOrg</code>; seed and test-harness updates.</li>
+      <li><code>packages/storage</code> (new) — <code>BlobStore</code> port, <code>FsBlobStore</code>, <code>S3BlobStore</code>.</li>
+      <li><code>packages/core</code> — <code>TeamContextItem</code> fields, <code>ContextItemStatus</code>, three new <code>PromptOmissionReason</code> codes, <code>RunContextRetrieval</code>.</li>
+      <li><code>packages/queue</code> — the <code>context-ingest</code> queue and its enqueue function.</li>
+      <li><code>apps/worker</code> — <code>embedder</code>, <code>text-extract</code>, <code>chunker</code>, <code>context-ingest</code>, <code>context-retrieval</code> (all new), plus <code>prompt-composition.ts</code> and <code>worker.ts</code>.</li>
+      <li><code>apps/web</code> — the context-items routes, a new <code>GET /api/runs/[runId]/retrievals</code>, <code>api-client.ts</code>, the team page, a new <code>ContextDocumentsPanel</code>, <code>RunContextPanel</code>, and <code>en.ts</code>.</li>
+      <li>Both <code>.env.example</code> files and README setup — <code>BLOB_STORE</code> / <code>BLOB_DIR</code>, the same value in each.</li>
+    </ul>
+
+    <h3>Explicitly out</h3>
+    <ul>
+      <li><strong>Connectors</strong> (Drive, Notion, Monday, URLs). <code>source</code> is added and always <code>'upload'</code>; other sources become adapters later.</li>
+      <li><strong>PDF and .docx.</strong> Ingestion accepts <code>text/markdown</code> and <code>text/plain</code> only. <code>TextExtractor</code> is a seam from day one precisely so each format is a later, isolated PR.</li>
+      <li><strong>Manual pinning, per-agent toggles, and user-tunable <code>k</code>/floor.</strong> The right defaults are not known yet; tuning waits on the PR 7 numbers.</li>
+      <li><strong>A <code>search_context</code> agent tool.</strong> This layer is pre-injected text, like the repo map — the agent has no awareness a retrieval step exists.</li>
+      <li><strong>Re-embedding on a model change.</strong> The <code>embedding_model</code> stamp makes a mixed state detectable; the backfill command that acts on it is not built here.</li>
+      <li><strong>Blob garbage collection.</strong> Deleting an item leaves its blob; blobs may be shared between items within an org, and nothing reclaims them yet.</li>
+      <li><strong>Fixing <code>capSharedContext</code>, and fixing the unscoped agents PATCH route.</strong> Named as precedent and as context, not repaired here.</li>
+    </ul>
+  </section>
+
+  <section id="decisions">
+    <h2>Design decisions</h2>
+    <div class="rule"></div>
+
+    <h3>Embedding</h3>
+    <ul>
+      <li><strong>A local embedding model is the default in dev <em>and</em> production, behind an <code>Embedder</code> port.</strong> <code>bge-small-en-v1.5</code> via <code>@huggingface/transformers</code>, 384 dimensions, no API key, no per-token cost, no data leaving the host. The alternative — local in dev, hosted in prod — was rejected outright: a pgvector column is typed with a fixed dimension and an HNSW index needs that dimension, so two environments would mean two schemas and a dev setup that never exercises the production retrieval path.</li>
+      <li><strong>Queries are embedded with the model's instruction prefix, documents are not.</strong> <code>bge-*</code> is asymmetric. Getting this wrong costs real retrieval quality and is invisible without evals, so it belongs in the <code>Embedder</code> contract (<code>embedQuery</code> vs <code>embedDocuments</code>), not at call sites.</li>
+      <li><strong>The embedder is an injected dependency, lazily initialised, cached at module scope.</strong> <code>.husky/pre-push</code> runs <code>test:unit</code> — a module-scope <code>pipeline()</code> would make the first push after a clone download a model from the hub. Lazy init also protects <code>tsx watch</code>, which would otherwise reload the model on every save.</li>
+      <li><strong>Embedding runs in batches with yields between them.</strong> The ingest worker shares a process with the run worker at concurrency 1. Batches of 32 bound the damage. A known tradeoff, not a solved problem — if ingest latency starts delaying runs, the fix is a separate process, driven by measurement.</li>
+    </ul>
+
+    <h3>Retrieval</h3>
+    <div class="measured">
+      <span class="tag">Measured, not assumed</span>
+      <p>HNSW plus a tenant filter silently under-returns. On a realistic table (5 teams × 2 000 chunks, 384-dim, analyzed), the exact query shape this design needs returned <strong>4 rows out of a requested 10</strong>:</p>
+      <pre><code>Limit (actual rows=4 loops=1)
+  -&gt;  Index Scan using cc_hnsw on cc (actual rows=4 loops=1)
+        Filter: (team_id = 3)
+        Rows Removed by Filter: 36</code></pre>
+      <p><code>hnsw.ef_search</code> defaults to 40, the index yields ~40 candidates <em>globally</em>, and the tenant filter applies afterwards. A similarity floor does not rescue it — it becomes another post-index filter. <code>SET LOCAL hnsw.iterative_scan = relaxed_order</code> returned the full 10.</p>
+    </div>
+    <ul>
+      <li><strong>The HNSW index ships, and every retrieval query runs inside a transaction with <code>SET LOCAL hnsw.iterative_scan = 'relaxed_order'</code>.</strong> Without it the layer silently degrades in a way no error surfaces. <code>SET LOCAL</code> requires a transaction because the client is pooled. Because <code>relaxed_order</code> may return candidates slightly out of order, the top-k select is wrapped in a subquery with an outer <code>ORDER BY</code> so the persisted <code>rank</code> is deterministic. A db-integration test asserting "k eligible chunks ⇒ exactly k rows" is the regression guard.</li>
+      <li><strong>A similarity floor, not just top-k.</strong> Top-k alone always returns something; with no relevant documents that something is noise injected into every prompt, which is exactly how context pollution starts. Below the floor the layer is omitted entirely.</li>
+      <li><strong>The byte budget is enforced by dropping whole chunks, never by slicing text.</strong> Measured with <code>TextEncoder().encode(...).length</code>, accumulated chunk by chunk. A half-sentence adds nothing, and <code>String.slice</code> on a byte budget is the <code>capSharedContext</code> bug.</li>
+      <li><strong>Retrieval never fails a run.</strong> Any error — embedder unavailable, query timeout, extension missing — degrades to an omitted segment with a reason and a logged error, exactly as <code>ensureRepoMap</code> returns <code>""</code>.</li>
+    </ul>
+
+    <h3>Tenancy and safety</h3>
+    <ul>
+      <li><strong>Retrieval resolves the team org-scoped, because <code>agents.team_id</code> is attacker-settable across orgs.</strong> For <code>shared_context</code> that leaks one fixed 64 KB blob; a retrieval layer over it would be a repeatable query interface over an arbitrary corpus, since the query is built from the attacker's own task text. So this design does not inherit the gap: the worker replaces <code>getTeam</code> with <code>getTeamForOrg</code>, a cross-org pointer yields <code>undefined</code>, the layer is omitted under the existing <code>no_team</code> reason, and the pre-existing <code>shared_context</code> leak closes on the same line.</li>
+      <li><strong>Blobs are partitioned by org: the key is <code>(org_id, sha256)</code>, not <code>sha256</code> alone.</strong> A bare content key partitions nothing. Two orgs uploading the same bytes contend for one row, and every conflict action is wrong: <code>DO NOTHING</code> leaves org B's item pointing at a row org A owns, <code>DO UPDATE</code> silently transfers ownership, and deleting org A then cascades that row out from under org B's still-referencing item. Cross-org dedup of files capped at 2 MB of text saves nothing worth that.</li>
+      <li><strong>The unscoped context-items routes are fixed in this work, not left for later.</strong> Once those rows become chunks injected into another org's prompts, an unscoped write stops being a data-integrity bug and becomes cross-tenant prompt injection.</li>
+      <li><strong>Retrieved text is wrapped and labelled as untrusted reference material.</strong> Uploaded documents are the most directly attacker-controllable text in the whole prompt.</li>
+      <li><strong>Upload size is capped by the route, and <code>Content-Length</code> is a gate, not the cap.</strong> The header is client-supplied and absent entirely under chunked encoding, so the rule is "no trustworthy declared length ⇒ no upload": missing or unparseable is a 413, not a pass, because <code>request.formData()</code> would otherwise buffer an unbounded body into the single web process that serves every org.</li>
+      <li><strong>Duplicate uploads are rejected, not deduplicated into two items.</strong> A unique index on <code>(team_id, sha256)</code> returns 409 — two items over one blob would both match retrieval and spend the budget twice on identical text.</li>
+    </ul>
+
+    <h3>Plumbing</h3>
+    <ul>
+      <li><strong><code>apiFetch</code> gains a FormData branch rather than being bypassed.</strong> "One call site for all client→API traffic" is a stated invariant of that file; an upload calling raw <code>fetch</code> quietly ends it.</li>
+      <li><strong>Ingestion retries; runs do not.</strong> The no-retry rule exists because a run may already have pushed a commit or commented on a PR. Ingestion touches nothing outside our own tables and is idempotent, so <code>attempts: 3</code> is safe — this is the first retry configuration in the repo, so PR 4 introduces the pattern rather than following one.</li>
+      <li><strong>A crashed ingest is recoverable by design rather than by a shutdown handler.</strong> There is no SIGTERM handling in this process; instead the job is idempotent and <code>indexing</code> is an accepted entry state, so a stalled redelivery re-runs cleanly.</li>
+      <li><strong>What was retrieved gets its own table, served by a lazy route.</strong> <code>RUN_COLUMNS</code> exists to keep large per-run blobs off a 1.5 s poll.</li>
+      <li><strong>Provenance survives document deletion.</strong> <code>run_context_retrievals</code> stores an <code>item_title</code> snapshot and nulls <code>item_id</code> on delete. The retrieved text itself is already preserved verbatim in <code>runs.prompt_segments</code>.</li>
+      <li><strong>The three placeholder rows leave the seed.</strong> They describe files that do not exist and cannot be ingested; with a real documents list rendering status, they would sit at <code>pending</code> forever.</li>
+    </ul>
+  </section>
+
+  <section id="mechanism">
+    <h2>Mechanism</h2>
+    <div class="rule"></div>
+
+    <h3>Schema</h3>
+<pre><code>export const contentBlobs = pgTable("content_blobs", {
+  sha256:    text("sha256").notNull(),
+  orgId:     integer("org_id").notNull().references(() =&gt; orgs.id, { onDelete: "cascade" }),
+  sizeBytes: integer("size_bytes").notNull(),
+  mime:      text("mime").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) =&gt; [primaryKey({ columns: [t.orgId, t.sha256] })]);
+
+export const contextChunks = pgTable("context_chunks", {
+  id:     integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  itemId: integer("item_id").notNull().references(() =&gt; teamContextItems.id, { onDelete: "cascade" }),
+  // Denormalized from the item: retrieval always filters on it, and a filtered
+  // HNSW scan wants the predicate on the indexed table rather than behind a join.
+  teamId:   integer("team_id").notNull().references(() =&gt; teams.id, { onDelete: "cascade" }),
+  chunkIdx: integer("chunk_idx").notNull(),
+  text:     text("text").notNull(),
+  embedding:      vector("embedding", { dimensions: 384 }).notNull(),
+  embeddingModel: text("embedding_model").notNull(),
+}, (t) =&gt; [
+  index("context_chunks_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
+  index("context_chunks_team_id_idx").on(t.teamId),
+]);</code></pre>
+    <p><code>team_context_items</code> gains <code>org_id</code>, <code>sha256</code>, <code>mime</code>, <code>source</code>, <code>status</code>, <code>error</code>, <code>indexed_at</code>, <code>uploaded_by</code>, a composite FK to <code>content_blobs</code>, and a unique index on <code>(team_id, sha256)</code>. <code>run_context_retrievals</code> mirrors <code>run_evals</code>: own table, <code>run_id</code> index, <code>item_title</code> snapshot, <code>rank</code>, <code>score</code>.</p>
+    <p>Migration order: <code>db:generate --custom --name enable_pgvector</code> → paste <code>CREATE EXTENSION IF NOT EXISTS vector;</code> → <code>db:generate</code> for the tables. The new <code>NOT NULL</code> columns require an empty table, which it always is — nothing has ever written to it outside the seed — so PR 2 leads with a second <code>--custom</code> migration clearing the placeholder rows.</p>
+
+    <h3>Blob storage</h3>
+<pre><code>export interface BlobStore {
+  put(orgId: number, bytes: Uint8Array, mime: string): Promise&lt;{ sha256: string; sizeBytes: number }&gt;;
+  get(orgId: number, sha256: string): Promise&lt;Uint8Array | undefined&gt;;
+}</code></pre>
+    <p><code>FsBlobStore</code> writes <code>&lt;root&gt;/&lt;orgId&gt;/&lt;sha[0:2]&gt;/&lt;sha&gt;</code>; <code>S3BlobStore</code> puts at the same key. <code>apps/web</code> writes the blob and <code>apps/worker</code> reads it, as two host processes started from their own package directories — so <code>BLOB_DIR</code> is never resolved against <code>process.cwd()</code>. An absolute value is used as-is; a relative one resolves against the repo root derived from the package's own location, so the same string means the same directory in both processes.</p>
+
+    <h3>Upload</h3>
+<pre><code>POST /api/teams/[teamId]/context-items   (multipart/form-data)
+  → requireAuthContext, and assert the team belongs to the caller's org
+  → reject unless Content-Length parses to a number ≤ 2 MB —
+    a missing or NaN value is a 413, not a pass — before touching the body
+  → reject a mime outside { text/markdown, text/plain }
+  → bytes = await file.arrayBuffer(); re-check size
+  → BlobStore.put(orgId, …) → insert content_blobs on conflict (org_id, sha256) do nothing
+  → insert team_context_items { orgId, status: 'pending', … }   409 on (team, sha) conflict
+  → enqueueContextIngestJob(itemId)   →   201</code></pre>
+
+    <h3>Ingestion</h3>
+<pre><code>load item → refuse unless status is 'pending' | 'indexing'   (stalled-redelivery guard)
+markIndexing → BlobStore.get → TextExtractor(mime) → chunk()
+deleteChunksForItem(itemId)                                  (idempotent re-run)
+for each batch of 32: Embedder.embedDocuments(batch) → insert
+markIndexed | markFailed(message)</code></pre>
+    <p><code>chunk()</code> is pure: split on markdown headings, then ~1 000-character windows with ~150 characters of overlap, each chunk prefixed with <code>&lt;document title&gt; › &lt;heading path&gt;</code>. The prefix is embedded along with the body — a bare paragraph pulled out of a 40-page document is often uninterpretable, and the agent cannot ask where it came from.</p>
+
+    <h3>Retrieval</h3>
+<pre><code>query   = [task.title, task.description, triggeringMessage.content].filter(Boolean).join("\n\n")
+vector  = Embedder.embedQuery(query)                 // instruction-prefixed
+rows    = db.transaction(tx =&gt; {
+            tx.execute(sql`set local hnsw.iterative_scan = 'relaxed_order'`)
+            return tx.select(...)                     // subquery: team filter + &lt;=&gt; order + limit K
+                     .orderBy(distance)               // outer re-sort → deterministic rank
+          })
+kept    = rows.filter(r =&gt; 1 - r.distance &gt;= FLOOR)   // FLOOR = 0.35
+          .reduce(byteBudget(8192))                   // whole chunks only</code></pre>
+    <p><code>K = 12</code>, floor <code>0.35</code>, budget 8 192 bytes. On success the worker writes <code>run_context_retrievals</code> rows. No run event is emitted — reusing <code>context_included</code> would silently overwrite the shared-context indicator on the task page, which keys that event by <code>runId</code> with last-write-wins.</p>
+
+    <h3>Prompt composition</h3>
+    <div class="stack">
+      <div class="layer"><span>platform_preamble</span><span class="who">platform</span></div>
+      <div class="layer"><span>environment</span><span class="who">platform</span></div>
+      <div class="layer"><span>repo_map</span><span class="who">machine</span></div>
+      <div class="layer new"><span>retrieved_context</span><span class="who">new</span></div>
+      <div class="layer"><span>team_context</span><span class="who">human</span></div>
+      <div class="layer"><span>agent_system_prompt</span><span class="who">human</span></div>
+    </div>
+    <p class="caption">Platform-authored constraints lead; human-authored instructions go last, with machine-generated reference material before them.</p>
+    <p>ARCHITECTURE.md §3 puts retrieved items <em>after</em> <code>shared_context</code>, but that ordering predates the measured layer-ordering experiment — 10/10 vs 1/10 on instruction compliance when machine bulk moves ahead of human instructions. Retrieved excerpts are human-written prose but machine-<em>selected</em> bulk, and they are more task-specific than the repo map, so they go after the map and before team context. <strong>This ordering is a hypothesis, not a measurement</strong> — re-running the experiment once real documents exist is a PR 7 concern.</p>
+    <p>Three new omission reasons: <code>no_indexed_documents</code>, <code>no_relevant_chunks</code>, <code>retrieval_failed</code> (<code>no_team</code> is reused). An 8 KB layer is small next to the 16 KB repo map, and overflow is already handled by the existing <code>PromptTooLongError</code> escalation path.</p>
+
+    <h3>UI</h3>
+    <p><strong>Team documents</strong> — a <code>ContextDocumentsPanel</code> beside the shared-context panels: drop zone, list of title / size / uploaded-by / status, delete. Polling only while an item is non-terminal.</p>
+    <p><strong>Run context</strong> — the <code>retrieved_context</code> segment additionally renders a provenance group from <code>GET /api/runs/[runId]/retrievals</code>: document title, chunk index, score, expandable text. Unknown ids and reasons already fall back gracefully, so an older client renders the new layer without a core bump.</p>
+  </section>
+
+  <section id="testing">
+    <h2>Testing</h2>
+    <div class="rule"></div>
+    <ul>
+      <li><strong>Unit</strong> (no DB, no Redis — this is the pre-push suite). Chunker: heading splits, overlap, an oversized single paragraph, empty file, prefix construction. Byte budget: stops before the chunk that would exceed it, measured in bytes not characters, never slices mid-chunk. Segment builders: each omission reason, and ordering. <code>FsBlobStore</code>: round-trip, SHA determinism, idempotent <code>put</code> within an org. Upload gate: a <code>ReadableStream</code> body carries no <code>Content-Length</code> ⇒ 413 with the blob store never touched.</li>
+      <li><strong>DB integration.</strong> Repository lifecycles and org scoping for all four new tables. <strong>The filtered-recall guard:</strong> k eligible chunks in the team ⇒ exactly k rows — this is the test that fails if the <code>iterative_scan</code> setting is ever dropped. <strong>The cross-org retrieval guard:</strong> an org A agent pointed at an org B team retrieves zero rows, never an injected excerpt. <strong>The blob partitioning guard:</strong> two orgs, identical bytes, independent rows. Embedding round-trip asserted with a float32 tolerance, never equality.</li>
+      <li><strong>Component.</strong> <code>ContextDocumentsPanel</code> in each status state; <code>RunContextPanel</code> with a retrieved layer present, and with each omission reason.</li>
+      <li><strong>E2E.</strong> The suite stubs nothing and runs no worker, so the honest assertions are: upload returns 201 and the document appears with <code>pending</code>; a cross-org <code>teamId</code> is rejected; an oversized upload with an honest header is rejected; a duplicate returns 409. Anything requiring <code>indexed</code> belongs to component and db tests.</li>
+      <li><strong>Not asserted in CI:</strong> retrieval quality, following the existing convention for judge quality. PR 7 measures it out-of-band.</li>
+    </ul>
+  </section>
+
+  <section id="prs">
+    <h2>PR sequence</h2>
+    <div class="rule"></div>
+    <p>Each is independently mergeable, and the order is load-bearing — PR 1's image swap and extension migration cannot be separated, and PR 5 stays small only because everything it needs has already landed.</p>
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr><th></th><th>PR</th><th>Contents</th><th>Demoable</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="num">1</td>
+            <td class="pr-name">pgvector + blob storage foundation</td>
+            <td>Image swap in all three references, <code>--custom</code> extension migration, <code>content_blobs</code> keyed <code>(org_id, sha256)</code>, <code>packages/storage</code>, <code>.gitignore</code>, README + both <code>.env.example</code> files carrying the same <code>BLOB_DIR</code></td>
+            <td class="ship"><span class="no">No — pure infrastructure</span></td>
+          </tr>
+          <tr>
+            <td class="num">2</td>
+            <td class="pr-name">Real document upload</td>
+            <td>Row-clearing migration, then <code>team_context_items</code> columns + status enum, org-scoping fix on all context-items routes, multipart POST with the <code>Content-Length</code> gate, <code>apiFetch</code> FormData branch, <code>ContextDocumentsPanel</code>, seed cleanup, i18n</td>
+            <td class="ship">Yes — files persist, status sits at <code>pending</code></td>
+          </tr>
+          <tr>
+            <td class="num">3</td>
+            <td class="pr-name">Chunking + embedding primitives</td>
+            <td><code>context_chunks</code> + HNSW migration, chunker, <code>TextExtractor</code> seam, <code>Embedder</code> port + local adapter, <code>onnxruntime-node</code> in <code>allowBuilds</code>, chunks repository — then closes on a <strong>throwaway retrieval-quality spike</strong> that embeds this repo's own docs and runs ten real queries against them</td>
+            <td class="ship"><span class="no">No — pure, unwired</span></td>
+          </tr>
+          <tr>
+            <td class="num">4</td>
+            <td class="pr-name">Ingestion worker</td>
+            <td><code>context-ingest</code> queue + handler, enqueue on upload, idempotency, retries, stalled-job guard, batch yielding, failure states surfaced in the UI</td>
+            <td class="ship">Yes — status reaches <code>indexed</code></td>
+          </tr>
+          <tr>
+            <td class="num">5</td>
+            <td class="pr-name">Retrieval + prompt injection</td>
+            <td>Org-scoped team resolution, query builder, transactional top-k with <code>iterative_scan</code>, floor + byte budget, <code>retrieved_context</code> segment + ordering + untrusted wrapper, new omission reasons, <code>run_context_retrievals</code></td>
+            <td class="ship">Yes — agents use documents</td>
+          </tr>
+          <tr>
+            <td class="num">6</td>
+            <td class="pr-name">Run-time transparency</td>
+            <td><code>GET /api/runs/[runId]/retrievals</code>, provenance group in <code>RunContextPanel</code>, omission reasons in words, component + e2e tests</td>
+            <td class="ship">Yes</td>
+          </tr>
+          <tr>
+            <td class="num">7</td>
+            <td class="pr-name">Retrieval precision eval</td>
+            <td>Judge question: were the injected chunks relevant to the request? Re-run the layer-ordering experiment with a retrieved layer present; tune <code>K</code>, floor, and budget on the numbers</td>
+            <td class="ship">Yes</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p>PDF and .docx are one follow-on PR each behind <code>TextExtractor</code>, after the pipeline is proven on text.</p>
+    <p>PR 3 ends on a <strong>gate rather than a deliverable</strong>. Everything in PRs 4–7 is plumbing around the assumption that a 384-dimension embedding over 1000-character chunks finds the right passage, and none of those PRs test it — by the time PR 5 could disprove it, four PRs have been built on it. The spike costs an hour, and both levers it can move (the chunk constants, the model id) live in PR 3. If its numbers are bad, the instruction is to stop there rather than start PR 4.</p>
+  </section>
+
+  <section id="risks">
+    <h2>Risks</h2>
+    <div class="rule"></div>
+    <ul>
+      <li><strong>Local embedding quality is only spot-checked before PR 7.</strong> PR 3's spike is a gate, not a measurement — ten queries against one corpus. If <code>bge-small</code> proves too weak later, the swap is a <code>vector(N)</code> migration plus a full re-embed — cheap in wall-clock, because originals are kept, but not a config flip.</li>
+      <li><strong>The layer ordering is reasoned, not measured.</strong> It follows the rule the ordering experiment established, but that experiment had no retrieved layer in it.</li>
+      <li><strong>Ingest and runs share one process at concurrency 1.</strong> Batch yielding bounds the interference; if ingest latency starts delaying runs, the answer is a separate worker process, decided on measurement.</li>
+      <li><strong><code>hnsw.iterative_scan</code> is load-bearing and invisible when wrong.</strong> Its failure mode is fewer chunks, not an error. The db-integration recall test is the only thing standing between a dropped <code>SET LOCAL</code> and quietly degraded context.</li>
+    </ul>
+  </section>
+
+  <footer>
+    <span>docs/superpowers/specs/2026-08-27-context-retrieval-design.md</span>
+    <span>AgentFactory · design spec</span>
+  </footer>
+
+</div>
+
+</body>
+</html>
