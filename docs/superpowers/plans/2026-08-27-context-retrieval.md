@@ -2701,7 +2701,9 @@ git commit -m "feat(web): show team documents on the team page"
 
 ## PR 3 — Chunking + embedding primitives
 
-Everything retrieval needs, none of it wired up. This PR adds the `context_chunks` table with its HNSW cosine index and its `team_id` btree index, the chunks repository (insert / delete / count — `searchContextChunks` waits for PR 5), the pure `chunkDocument`, the `extractText` seam that PDF and .docx will later slot behind, and the `Embedder` port with its local `@huggingface/transformers` adapter. **Done** means: `pnpm test:unit`, `pnpm test:db`, and `pnpm typecheck` all pass; the generated migration creates `vector(384)` with `USING hnsw (... vector_cosine_ops)` intact; `onnxruntime-node` is in `allowBuilds` and its native binding is on disk; and nothing in `apps/worker` imports any of the new modules yet. There is no product behaviour to demo — that is the point, and it is what makes this the fast review in the sequence.
+Everything retrieval needs, none of it wired up. This PR adds the `context_chunks` table with its HNSW cosine index and its `team_id` btree index, the chunks repository (insert / delete / count — `searchContextChunks` waits for PR 5), the pure `chunkDocument`, the `extractText` seam that PDF and .docx will later slot behind, and the `Embedder` port with its local `@huggingface/transformers` adapter. **Done** means: `pnpm test:unit`, `pnpm test:db`, and `pnpm typecheck` all pass; the generated migration creates `vector(384)` with `USING hnsw (... vector_cosine_ops)` intact; `onnxruntime-node` is in `allowBuilds` and its native binding is on disk; and `worker.ts` imports none of the new modules yet. There is no product behaviour to demo — that is the point, and it is what makes this the fast review in the sequence.
+
+It also ends on a gate rather than a deliverable. Task 7 is a throwaway spike, written and deleted inside this PR, that embeds this repo's own documentation and runs ten real queries against it. Everything in PRs 4-7 is plumbing around the assumption that a 384-dimension `bge-small` embedding over 1000-character chunks finds the right passage; nothing in those PRs tests that assumption, and by the time PR 5 could disprove it, four PRs have been built on it. The spike costs an hour and both of its levers — the chunk constants and the model id — live in this PR.
 
 Two things carry the weight here. The chunker is pure and is where the real test density goes, because every downstream retrieval quality question resolves to "was the text cut sensibly". The embedder must never be instantiated at import: `.husky/pre-push` runs `pnpm test:unit`, and a module-scope `pipeline()` call would make the first push after a clone download a model from the Hugging Face hub.
 
@@ -3750,6 +3752,208 @@ Expected: PASS, and no model download — the run should finish in the same few 
 git add apps/worker/src/embedder.ts apps/worker/src/__tests__/embedder.test.ts apps/worker/src/__tests__/embedder-dimensions.test.ts
 git commit -m "feat(worker): add the Embedder port and its local bge-small adapter"
 ```
+
+
+---
+
+### Task 7: The retrieval-quality spike — a gate, not a deliverable
+
+**Files:**
+- Create: `apps/worker/src/scripts/retrieval-spike.ts` (throwaway — deleted in Step 6)
+- Modify: `apps/worker/package.json` (a `spike:retrieval` script, removed in Step 6)
+
+**Interfaces:**
+- Consumes: Tasks 3-6's `chunkDocument`, `getEmbedder`, and `insertContextChunks`, plus PR 1's `insertContentBlob` and PR 2's `createTeamContextItem`. It does **not** go through `extractText` — these files are read as UTF-8 directly, because the seam being exercised here is retrieval quality, not mime dispatch.
+- Produces: **nothing any later task imports.** Its output is a decision and a paragraph in the PR description.
+
+**This task deliberately breaks the plan's pattern.** There is no failing test, no minimal implementation, and the code is deleted before the PR merges. That is the point: it exists to answer one question before four more PRs are built on the assumption that the answer is yes.
+
+The question is whether a 384-dimension `bge-small` embedding over 1000-character chunks actually surfaces the right passage for a realistic query. Every later PR — the ingest worker, the retrieval step, the prompt layer, the transparency panel — is plumbing around that assumption, and none of them test it. If the answer is no, the fix is confined to two files in *this* PR (`chunker.ts` and `embedder.ts`), and finding out here costs an hour instead of four PRs.
+
+It runs on this repo's own documentation because that corpus is already on disk, is genuinely the kind of thing a team would upload, and — unlike synthetic fixtures — you know the right answer for each query without having to construct it.
+
+- [ ] **Step 1: Add the throwaway script entry**
+
+In `apps/worker/package.json`, beside `"start"`:
+
+```json
+    "spike:retrieval": "tsx src/scripts/retrieval-spike.ts",
+```
+
+- [ ] **Step 2: Write the spike**
+
+`apps/worker/src/scripts/retrieval-spike.ts`:
+
+```ts
+// THROWAWAY. Deleted in this same PR — see Task 7. This is not production code and is not
+// imported by anything; it exists to answer "does retrieval actually work" before PRs 4-7 are
+// built on the assumption that it does.
+import "dotenv/config";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { asc, eq, cosineDistance, sql } from "drizzle-orm";
+import {
+  contextChunks,
+  createTeamContextItem,
+  db,
+  insertContentBlob,
+  insertContextChunks,
+  teamContextItems,
+} from "@agentfactory/db";
+import { chunkDocument } from "../chunker";
+import { getEmbedder } from "../embedder";
+
+// Local to the spike: PR 4 introduces the real EMBED_BATCH_SIZE in context-ingest.ts, which
+// does not exist yet at this point in the sequence.
+const BATCH = 32;
+
+// Seeded org 1 / team 1. If your seed differs, change these two numbers.
+const ORG_ID = 1;
+const TEAM_ID = 1;
+
+const DOCS = [
+  "ARCHITECTURE.md",
+  "CLAUDE.md",
+  "docs/PRODUCT-DEFINITION.md",
+  "docs/ALPHA-SCOPE.md",
+  "docs/superpowers/specs/2026-08-27-context-retrieval-design.md",
+];
+
+// Ten queries phrased the way a task title or a chat message would be, not the way the document
+// is written — lexical overlap is exactly what an embedding is supposed to make unnecessary.
+// The first eight have a right answer; the last two have none, and are the floor's test.
+const QUERIES = [
+  "where does run state live and why",
+  "what happens when an agent wants to use a tool it isn't allowed to use",
+  "how big can the team context be before it's rejected",
+  "which package owns the shared domain types",
+  "are we allowed to pause a run and wait for a human to approve something",
+  "how do we keep the backend from depending on a specific agent SDK",
+  "what goes in Postgres versus object storage",
+  "how are skills versioned when an agent pins one",
+  "what's the recommended tire pressure for a 2019 Corolla",
+  "summarise last quarter's revenue by region",
+];
+
+async function main() {
+  const embedder = getEmbedder();
+
+  for (const path of DOCS) {
+    const source = readFileSync(path, "utf8");
+    const bytes = new TextEncoder().encode(source);
+    // Inlined rather than importing PR 1's sha256Hex: apps/worker does not depend on
+    // @agentfactory/storage until PR 4, and a throwaway script must not add a dependency
+    // that this PR would then have to remove.
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    await insertContentBlob(ORG_ID, sha256, bytes.byteLength, "text/markdown");
+    const item = await createTeamContextItem({
+      teamId: TEAM_ID,
+      orgId: ORG_ID,
+      title: path,
+      sizeBytes: bytes.byteLength,
+      sha256,
+      mime: "text/markdown",
+    });
+    if (!item) throw new Error(`could not create item for ${path}`);
+
+    const chunks = chunkDocument(path, source);
+    for (let i = 0; i < chunks.length; i += BATCH) {
+      const batch = chunks.slice(i, i + BATCH);
+      const vectors = await embedder.embedDocuments(batch.map((c) => c.text));
+      await insertContextChunks(
+        batch.map((c, j) => ({
+          itemId: item.id,
+          teamId: TEAM_ID,
+          chunkIdx: c.chunkIdx,
+          text: c.text,
+          embedding: vectors[j],
+          embeddingModel: embedder.modelId,
+        })),
+      );
+    }
+    console.log(`${path}: ${chunks.length} chunks`);
+  }
+
+  // The HNSW index is only built once there are rows; without this the planner may not use it
+  // and the numbers below would not reflect what PR 5 will actually see.
+  await db.execute(sql`analyze context_chunks`);
+
+  for (const query of QUERIES) {
+    const vector = await embedder.embedQuery(query);
+    const rows = await db.transaction(async (tx) => {
+      // Same SET LOCAL that PR 5 Task 3 will make permanent — without it a team-filtered top-k
+      // silently returns fewer rows than asked for.
+      await tx.execute(sql`set local hnsw.iterative_scan = 'relaxed_order'`);
+      const distance = cosineDistance(contextChunks.embedding, vector);
+      return tx
+        .select({
+          title: teamContextItems.title,
+          chunkIdx: contextChunks.chunkIdx,
+          text: contextChunks.text,
+          distance: sql<number>`${distance}`.as("distance"),
+        })
+        .from(contextChunks)
+        .innerJoin(teamContextItems, eq(contextChunks.itemId, teamContextItems.id))
+        .where(eq(contextChunks.teamId, TEAM_ID))
+        .orderBy(asc(distance))
+        .limit(5);
+    });
+
+    console.log(`\n=== ${query}`);
+    for (const row of rows) {
+      const similarity = (1 - Number(row.distance)).toFixed(3);
+      const head = row.text.replace(/\s+/g, " ").slice(0, 110);
+      console.log(`  ${similarity}  ${row.title} #${row.chunkIdx}  ${head}`);
+    }
+  }
+
+  process.exit(0);
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
+```
+
+- [ ] **Step 3: Run it**
+
+```bash
+pnpm --filter @agentfactory/worker spike:retrieval
+```
+
+The first run downloads the model (~130 MB) — that is expected here and only here; nothing in the test suites ever does it.
+
+- [ ] **Step 4: Read the output and decide**
+
+This is the actual work of the task. Three questions, in order of how much they should change your plans:
+
+1. **Does the top result answer the query, for the eight answerable ones?** Read the 110-character preview. "Related document, wrong section" is a chunking problem; "wrong document entirely" is an embedding problem. Six or more clean top-1 hits out of eight is a pass.
+2. **What do the two unanswerable queries score?** They should land clearly below the answerable ones. If a Corolla question scores 0.5 against `ARCHITECTURE.md`, `SIMILARITY_FLOOR = 0.35` is far too low and PR 5 will inject noise into every prompt. Write down the actual number — it is the first real evidence for the floor, and PR 7 Task 6 will want it.
+3. **Are chunks being cut mid-thought?** The preview shows the head of each chunk. A chunk that starts mid-sentence, or one that is nothing but a heading with no body under it, means `chunkDocument` needs work — and it needs it now, while it is a pure function with no consumers.
+
+**If it fails, stop and fix it here.** Do not proceed to PR 4. The two levers are `CHUNK_TARGET_CHARS` / `CHUNK_OVERLAP_CHARS` and the model id — both live in this PR, both are one-line changes, and re-running the spike is the whole test cycle. This is the cheapest moment in the entire plan to discover the premise is wrong.
+
+- [ ] **Step 5: Write the numbers into the PR description**
+
+Paste the output for two answerable queries and both unanswerable ones, with a sentence on each of the three questions above. This is the only record that the premise was checked rather than assumed, and PR 7 Task 6 starts from it.
+
+- [ ] **Step 6: Delete the spike and reset the database**
+
+```bash
+rm apps/worker/src/scripts/retrieval-spike.ts
+git checkout apps/worker/package.json
+pnpm --filter @agentfactory/db db:seed
+```
+
+The reseed matters: the spike wrote real chunk rows against seeded org 1 / team 1, and leaving them there would make PR 5's first manual test retrieve documents nobody uploaded through the UI.
+
+- [ ] **Step 7: Commit**
+
+Nothing from this task is committed — that is the intended end state. Confirm with `git status` that neither `apps/worker/src/scripts/` nor a modified `package.json` is present, then run the PR 3 gate one last time:
+
+Run: `pnpm test:unit && pnpm typecheck`
+Expected: PASS, and `git status` clean apart from Tasks 1-6's already-committed work.
 
 
 ## PR 4 — Ingestion worker
