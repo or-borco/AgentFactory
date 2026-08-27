@@ -137,7 +137,11 @@ const DELIMITER_TAGS = ["artefact", "request", "layer"] as const;
 // Attribute text is carried through verbatim so the content stays faithful to what was
 // written; only the angle brackets that gave it structural meaning are removed.
 function escapeDelimiters(text: string): string {
-  const pattern = new RegExp(`<(/?)\\s*(${DELIMITER_TAGS.join("|")})(\\s[^>]*?)?\\s*>`, "gi");
+  // Whitespace is tolerated on BOTH sides of the slash. A reader — and the model is the reader
+  // that matters here — sees "< /artefact >" and "<\n/request>" as the same structural token as
+  // "</artefact>"; matching only the flush spelling let an artefact appear to close its own
+  // block early and follow it with prose posing as out-of-band instruction to the judge.
+  const pattern = new RegExp(`<\\s*(/?)\\s*(${DELIMITER_TAGS.join("|")})(\\s[^>]*?)?\\s*>`, "gi");
   return text.replace(pattern, (_match, slash: string, tag: string, attrs?: string) => {
     const suffix = attrs?.trim() ? ` ${attrs.trim()}` : "";
     return `&lt;${slash}${tag.toLowerCase()}${suffix}&gt;`;
@@ -225,14 +229,83 @@ export function validateJudgeLayers(input: unknown): EvalLayerResult[] {
 // Straight and curly single/double quotes. Judges quote evidence inconsistently — sometimes
 // bare, sometimes wrapped, sometimes with the editor's smart quotes — and none of that changes
 // whether the words came from the request, so the comparison below ignores them entirely.
-const QUOTE_CHARS = /['"\u2018\u2019\u201c\u201d]/g;
+const QUOTE_CHARS = /['"‘’“”]/g;
 
 // Case, whitespace runs and quote characters are all noise for "did these words come from the
-// request". Anything beyond that (punctuation, ellipsis, paraphrase) is deliberately NOT
-// normalized away: this test decides whether to downgrade a verdict, so it errs toward leaving
-// the model's answer alone.
+// request", so they are normalized away on both sides before comparing. Normalizing LESS would
+// not be the safe direction: every difference left in shrinks the set of evidence strings that
+// satisfy the containment test, which makes the gate stricter and produces MORE downgrades of
+// legitimate overrides. Punctuation and ellipsis are handled by trimming and splitting the
+// candidate spans (see extractCandidateSpans) rather than here, so that the request side stays
+// a faithful haystack and only the needle is reshaped.
 function normalizeForQuoteMatch(text: string): string {
   return text.replace(QUOTE_CHARS, "").replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+// Paired quote delimiters a judge wraps a quote in. Straight single quotes only count when they
+// sit outside a word, so the apostrophes in "don't push, don't open a PR" are not mistaken for
+// a pair and do not swallow the real quote.
+const QUOTED_SEGMENT_PATTERNS: readonly RegExp[] = [
+  /"([^"]+)"/g,
+  /“([^”]+)”/g,
+  /‘([^’]+)’/g,
+  /(?<![\p{L}\p{N}])'([^']+)'(?![\p{L}\p{N}])/gu,
+];
+
+// An elision marker is a promise that words were left out, so each side of one is its own
+// quotation: "do not push … or open a PR" quotes two spans of the request, not one.
+const ELLIPSIS = /…|\.\.\./;
+
+// Leading/trailing punctuation is the judge's, not the user's — a sentence-final period on a
+// quote lifted from mid-sentence is the single most common way a legitimate override used to
+// be downgraded.
+const EDGE_PUNCTUATION = /^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu;
+
+// A span must be at least this long to count as a quotation rather than an incidental word
+// that happens to appear in the request. Both floors apply: task briefs now arrive as requests
+// (long, structured text), and in a haystack that size a bare "pagination" or "do not" is
+// satisfied by chance rather than by the user having asked for anything.
+const MIN_SPAN_WORDS = 2;
+const MIN_SPAN_CHARS = 8;
+
+// The evidence is the judge's prose, not a verbatim slice of the request, so the whole string
+// is the wrong unit to test. Pull the candidate quotations out of it: each quoted segment if
+// any are present, otherwise the whole string; then split each on an ellipsis and shave the
+// punctuation off the ends. Any one of the resulting spans being traceable to the request is
+// enough — a judge that quotes correctly and then adds "user said" around it has still quoted.
+function extractCandidateSpans(evidence: string): string[] {
+  const quoted: string[] = [];
+  for (const pattern of QUOTED_SEGMENT_PATTERNS) {
+    for (const match of evidence.matchAll(pattern)) quoted.push(match[1]);
+  }
+  const candidates = quoted.length > 0 ? quoted : [evidence];
+  return candidates
+    .flatMap((candidate) => candidate.split(ELLIPSIS))
+    .map((span) => normalizeForQuoteMatch(span).replace(EDGE_PUNCTUATION, ""))
+    .filter((span) => span !== "");
+}
+
+function isWordChar(char: string | undefined): boolean {
+  return char !== undefined && /[\p{L}\p{N}_]/u.test(char);
+}
+
+// Containment alone is not quotation: "generate the changelog" sits inside "regenerate the
+// changelogs" while quoting nothing anybody wrote. The span has to start and end where a word
+// does (a span whose own edge is punctuation has nothing to check on that side).
+function containsOnWordBoundary(haystack: string, needle: string): boolean {
+  for (let from = 0; from <= haystack.length; ) {
+    const at = haystack.indexOf(needle, from);
+    if (at === -1) return false;
+    const startOk = !isWordChar(needle[0]) || !isWordChar(haystack[at - 1]);
+    const endOk = !isWordChar(needle[needle.length - 1]) || !isWordChar(haystack[at + needle.length]);
+    if (startOk && endOk) return true;
+    from = at + 1;
+  }
+  return false;
+}
+
+function clearsSpanFloors(span: string): boolean {
+  return span.length >= MIN_SPAN_CHARS && span.split(" ").filter(Boolean).length >= MIN_SPAN_WORDS;
 }
 
 // The quotation gate — a requirement may be "overridden" only when the contradicting words can
@@ -243,14 +316,24 @@ function normalizeForQuoteMatch(text: string): string {
 // wasn't applicable" note). That is an agent explaining its own deviation, not a user
 // instructing one — precisely the case the prompt spells out and the model still leaked. A
 // prompt is a request, not an enforcement mechanism, so this is the deterministic backstop
-// behind it.
+// behind it. Re-measured at n=10 per case: with no request block present at all the model still
+// attempted an artefact-sourced override 10-20% of the time. The prompt never stops that; this
+// does, every time.
+//
+// This is a PROVENANCE gate and nothing more: it answers "did these words come from the
+// request", never "does the request contradict this requirement". The second question is a
+// judgement only the model can make, and it stays in JUDGE_SYSTEM_PROMPT — code that tried to
+// decide contradiction would be guessing. What code can settle is whether the quote the prompt
+// demands is real, which is the leak that was actually observed.
 //
 // It may only ever move a verdict toward "fail", never toward "pass" or "overridden", and
 // "fail" is the spec's own stated default for a deviation whose contradiction cannot be quoted
-// from the request. It is deliberately conservative about false downgrades: the comparison is
-// normalized so ordinary requoting survives, and it runs against the FULL request rather than
-// the possibly-truncated copy the judge was shown, so a legitimate quote is never downgraded
-// on a technicality of where the cap fell.
+// from the request. Two failure modes were measured and both are guarded: an override the judge
+// invented (caught by the floors and the boundary check) and a legitimate override the judge
+// requoted loosely (caught by testing candidate spans rather than the whole evidence string —
+// 2/10 correct overrides were being downgraded on nothing worse than added prose). It runs
+// against the FULL request rather than the possibly-truncated copy the judge was shown, so a
+// legitimate quote is never downgraded on a technicality of where the cap fell.
 export function enforceOverrideEvidence(
   layers: EvalLayerResult[],
   request: string | undefined,
@@ -263,13 +346,14 @@ export function enforceOverrideEvidence(
     ...layer,
     requirements: layer.requirements.map((requirement) => {
       if (requirement.verdict !== "overridden") return requirement;
-      const normalizedEvidence = normalizeForQuoteMatch(requirement.evidence);
-      // Empty evidence on either side never establishes a quote: an empty needle trivially
-      // "appears" in any haystack, which would wave through the exact case (b) this guards.
+      // Empty evidence never establishes a quote: an empty needle trivially "appears" in any
+      // haystack, which would wave through the exact leak this guards. extractCandidateSpans
+      // drops blank spans, so evidence that is only whitespace or quote marks yields none.
       const quotesTheRequest =
         normalizedRequest !== "" &&
-        normalizedEvidence !== "" &&
-        normalizedRequest.includes(normalizedEvidence);
+        extractCandidateSpans(requirement.evidence).some(
+          (span) => clearsSpanFloors(span) && containsOnWordBoundary(normalizedRequest, span),
+        );
       // Evidence is left untouched on a downgrade: the card should still show what the judge
       // offered, so an unjustified override is legible rather than silently rewritten.
       return quotesTheRequest ? requirement : { ...requirement, verdict: "fail" as const };
