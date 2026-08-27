@@ -123,6 +123,8 @@ const REPORT_EVAL_TOOL: Anthropic.Tool = {
 // of the real one. "layer" is in the list for the same reason: either channel could
 // otherwise fabricate an instruction layer to be graded against.
 const DELIMITER_TAGS = ["artefact", "request", "layer"] as const;
+// See escapeDelimiters: `\s` plus the characters that occupy no visual width.
+const TAG_GAP = "[\\s\\u200B-\\u200D\\u2060\\u00AD\\uFEFF\\u0000]";
 
 // Both blocks this module emits wrap untrusted text: the artefact is a diff from a repo the
 // agent had unrestricted bash access to (or the agent's own prose), and the request is
@@ -141,7 +143,18 @@ function escapeDelimiters(text: string): string {
   // that matters here — sees "< /artefact >" and "<\n/request>" as the same structural token as
   // "</artefact>"; matching only the flush spelling let an artefact appear to close its own
   // block early and follow it with prose posing as out-of-band instruction to the judge.
-  const pattern = new RegExp(`<\\s*(/?)\\s*(${DELIMITER_TAGS.join("|")})(\\s[^>]*?)?\\s*>`, "gi");
+  //
+  // TAG_GAP is `\s` widened with the characters that render as nothing at all. `\s` does not
+  // cover zero-width space/non-joiner/joiner, word joiner, soft hyphen, or NUL, so "<\u200B
+  // request>" survived escaping while still reading to the model as an opening tag — the
+  // minting direction this function exists to close. U+FEFF is already in `\s` and is listed
+  // only so the set reads as complete. Characters inside the tag NAME are deliberately not
+  // tolerated: "<re\u200Bquest>" is far less likely to parse as a tag to the reader, and
+  // admitting interior gaps would make the pattern match ordinary prose.
+  const pattern = new RegExp(
+    `<${TAG_GAP}*(/?)${TAG_GAP}*(${DELIMITER_TAGS.join("|")})(${TAG_GAP}[^>]*?)?${TAG_GAP}*>`,
+    "gi",
+  );
   return text.replace(pattern, (_match, slash: string, tag: string, attrs?: string) => {
     const suffix = attrs?.trim() ? ` ${attrs.trim()}` : "";
     return `&lt;${slash}${tag.toLowerCase()}${suffix}&gt;`;
@@ -311,8 +324,34 @@ function containsOnWordBoundary(haystack: string, needle: string): boolean {
   return false;
 }
 
+// Chinese, Japanese, Thai and their neighbours are written without spaces between words, so a
+// whole verbatim sentence in those scripts is one "word" by any space-counting rule and every
+// override quoting one was downgraded. Character count is the honest proxy there: eight
+// unspaced Han characters is a longer phrase than the two English words the floor asks for, so
+// waiving the word floor for them is not a loosening — MIN_SPAN_CHARS still has to be cleared.
+const SPACELESS_SCRIPT =
+  /[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}\p{sc=Thai}\p{sc=Lao}\p{sc=Khmer}\p{sc=Myanmar}]/u;
+
+// A span written in one of those scripts with no space in it at all. Both floors below treat
+// these differently, and for the same reason: rules that count words or look for word
+// boundaries are asking a question the writing system does not answer.
+function isSpacelessSpan(span: string): boolean {
+  return !span.includes(" ") && SPACELESS_SCRIPT.test(span);
+}
+
 function clearsSpanFloors(span: string): boolean {
-  return span.length >= MIN_SPAN_CHARS && span.split(" ").filter(Boolean).length >= MIN_SPAN_WORDS;
+  if (span.length < MIN_SPAN_CHARS) return false;
+  if (isSpacelessSpan(span)) return true;
+  return span.split(" ").filter(Boolean).length >= MIN_SPAN_WORDS;
+}
+
+// Containment, with the boundary rule that suits the span. The word-boundary test exists to
+// stop "generate the changelog" from matching inside "regenerate the changelog"; in a script
+// with no word boundaries there is nothing for it to test, and every character adjacent to a
+// correct quote is a letter, so it rejected every quote it was given. MIN_SPAN_CHARS carries
+// the weight there instead — eight unspaced Han characters cannot be matched by chance.
+function spanAppearsIn(request: string, span: string): boolean {
+  return isSpacelessSpan(span) ? request.includes(span) : containsOnWordBoundary(request, span);
 }
 
 // The quotation gate — a requirement may be "overridden" only when the contradicting words can
@@ -348,7 +387,18 @@ export function enforceOverrideEvidence(
   // A run with no triggering message (or a blank one) has no request block in the message at
   // all, so nothing in it could have been overridden — see JUDGE_SYSTEM_PROMPT's "when there
   // is no request block, no requirement may be overridden".
-  const normalizedRequest = request === undefined ? "" : normalizeForQuoteMatch(request);
+  //
+  // The haystack is the ESCAPED request, because that is the only spelling the judge ever saw:
+  // buildJudgeUserMessage rewrites every delimiter tag before the block is emitted. A request
+  // containing "<layer id=...>" reaches the judge as "&lt;layer id=...&gt;", so a judge quoting
+  // it correctly quotes the escaped form — which appears nowhere in the raw request. Matching
+  // raw downgraded those overrides on provenance grounds while the provenance was perfect,
+  // which is the same class of false downgrade the quote-aware fix was written to end. Escaping
+  // is idempotent for the requests that contain no tags at all, i.e. nearly all of them.
+  //
+  // It is escaped but NOT capped: capRequest shortens the copy the judge is shown, and matching
+  // the capped copy would downgrade a correctly quoted override from late in a long request.
+  const normalizedRequest = request === undefined ? "" : normalizeForQuoteMatch(escapeDelimiters(request));
   return layers.map((layer) => ({
     ...layer,
     requirements: layer.requirements.map((requirement) => {
@@ -359,7 +409,7 @@ export function enforceOverrideEvidence(
       const quotesTheRequest =
         normalizedRequest !== "" &&
         extractCandidateSpans(requirement.evidence).some(
-          (span) => clearsSpanFloors(span) && containsOnWordBoundary(normalizedRequest, span),
+          (span) => clearsSpanFloors(span) && spanAppearsIn(normalizedRequest, span),
         );
       // Evidence is left untouched on a downgrade: the card should still show what the judge
       // offered, so an unjustified override is legible rather than silently rewritten.
