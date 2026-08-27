@@ -592,6 +592,18 @@ describe("enforceOverrideEvidence", () => {
       );
     });
 
+    // The limit of the per-edge rule, pinned so it is a known quantity rather than a surprise:
+    // a span with Han on BOTH edges has no boundary to be held to at either end, so it matches
+    // mid-word even though its Latin interior would not survive that on its own. Accepted —
+    // demanding a boundary the script does not have is what downgraded every correct CJK quote
+    // to begin with, and a wholly-Han span already carries the same latitude.
+    it("accepts a Han-edged span mid-word, the known limit of the per-edge rule", () => {
+      const request = "重要deploy到达时间はまだ決まっていません";
+      expect(enforceOverrideEvidence(overridden("要deploy到"), request)[0].requirements[0].verdict).toBe(
+        "overridden",
+      );
+    });
+
     // A span that mixes scripts has boundaries wherever its Latin part meets other Latin, so
     // waiving the boundary check for the whole span because SOME character is spaceless opens
     // the ordinary substring hole back up: "deploy東京" would match inside "redeploy東京".
@@ -644,6 +656,22 @@ describe("enforceOverrideEvidence", () => {
     expect(enforceOverrideEvidence(overridden(tail), request)[0].requirements[0].verdict).toBe("fail");
   });
 
+  // capRequest appends "\n…[request truncated]" to the copy the judge reads, so the judge can
+  // legitimately see — and quote — a phrase nobody typed. Platform-authored text establishes no
+  // provenance whatsoever, and this one clears both span floors comfortably (17 characters, two
+  // words, clean boundaries), so the backstop matches against the visible slice WITHOUT it. An
+  // agent that writes "[request truncated]" into its own artefact would otherwise hand the
+  // judge a ready-made override, which is the artefact-sourced leak this gate exists to stop.
+  it("refuses the truncation marker the platform itself appended", () => {
+    const request = `please just show me the patch. ${"z".repeat(MAX_REQUEST_CHARS)}`;
+    const evidence = 'the user said "[request truncated]"';
+    expect(enforceOverrideEvidence(overridden(evidence), request)[0].requirements[0].verdict).toBe("fail");
+    // The same request still honours a real quote, so this is not the cap refusing everything.
+    expect(
+      enforceOverrideEvidence(overridden("just show me the patch"), request)[0].requirements[0].verdict,
+    ).toBe("overridden");
+  });
+
   // The other half of the same rule: a quote from inside the visible slice is honoured, so the
   // cap is not just refusing everything long.
   it("keeps a quote from within the cap in an over-long request", () => {
@@ -656,8 +684,10 @@ describe("enforceOverrideEvidence", () => {
   // Capping is also what bounds the escaping cost. escapeDelimiters is quadratic on text made
   // of unclosed tag openings, and messages.content has no length limit anywhere in the chat
   // path — so before the cap moved here, a pasted megabyte of "<request " blocked the worker's
-  // event loop for tens of seconds. The bound below is ~1000x the capped cost and fails by
-  // hanging, not by returning late.
+  // event loop for tens of seconds. Measured at ~8ms capped against the 1,000ms bound below,
+  // and ~77s uncapped — so a regression does fail this assertion, but only after blocking the
+  // thread for over a minute first: the body is synchronous, so vitest's own timeout cannot
+  // interrupt it. Slow red, not a hang.
   it("stays bounded on a megabyte request built of unclosed tag openings", () => {
     const request = "<request ".repeat(120_000);
     const started = performance.now();

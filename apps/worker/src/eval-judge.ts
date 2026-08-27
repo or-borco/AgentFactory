@@ -184,10 +184,18 @@ function escapeDelimiters(text: string): string {
   });
 }
 
+// The part of an over-long request the judge actually reads — everything capRequest shows it
+// except the truncation marker capRequest itself appends. The backstop matches against THIS,
+// not against capRequest's output: the marker is platform-authored text, so a "quote" of it
+// establishes no provenance at all, and it is long enough and word-shaped enough to clear the
+// span floors. Slicing raw and escaping after keeps the two in step, since capRequest does the
+// same in the same order.
+function visibleRequest(request: string): string {
+  return request.slice(0, MAX_REQUEST_CHARS);
+}
+
 function capRequest(request: string): string {
-  return request.length > MAX_REQUEST_CHARS
-    ? `${request.slice(0, MAX_REQUEST_CHARS)}\n…[request truncated]`
-    : request;
+  return request.length > MAX_REQUEST_CHARS ? `${visibleRequest(request)}\n…[request truncated]` : request;
 }
 
 function isArtefactTruncated(artefact: EvalArtefact): boolean {
@@ -378,8 +386,11 @@ const SPACELESS_SCRIPT = new RegExp(
 // so サーバー, ユーザー, データ and every other loanword with one would fail a purity test. Those
 // are perfect verbatim quotes, and a purity test downgrades all of them.
 //
-// This predicate feeds only the WORD floor. It is not what keeps a mixed span honest — the
-// per-edge boundary test in containsOnWordBoundary does that, and does it whatever this says.
+// This predicate feeds only the WORD floor; the per-edge boundary test in
+// containsOnWordBoundary is what holds a mixed span to its Latin edges, independently of this.
+// Where a span has NO Latin edge — Han on both ends, Latin only inside — neither rule applies
+// and it can match mid-word. That is the accepted cost of grading scripts without boundaries,
+// and it is the same latitude a pure-Han span already has.
 function isSpacelessSpan(span: string): boolean {
   return !span.includes(" ") && SPACELESS_SCRIPT.test(span);
 }
@@ -414,8 +425,8 @@ function clearsSpanFloors(span: string): boolean {
 // invented (caught by the floors and the boundary check) and a legitimate override the judge
 // requoted loosely (caught by testing candidate spans rather than the whole evidence string —
 // 2/10 correct overrides were being downgraded on nothing worse than added prose). It runs
-// against the FULL request rather than the possibly-truncated copy the judge was shown, so a
-// legitimate quote is never downgraded on a technicality of where the cap fell.
+// against exactly the words the judge was shown — the same head slice, escaped the same way —
+// so a span it could not have read cannot satisfy the gate.
 export function enforceOverrideEvidence(
   layers: EvalLayerResult[],
   request: string | undefined,
@@ -432,14 +443,14 @@ export function enforceOverrideEvidence(
   // which is the same class of false downgrade the quote-aware fix was written to end. Escaping
   // is idempotent for the requests that contain no tags at all, i.e. nearly all of them.
   //
-  // Capped as well as escaped, by the same capRequest the message builder uses. The judge is
+  // Capped as well as escaped, to the same head slice the message builder shows. The judge is
   // shown a head slice, so it cannot legitimately quote anything past the cap; matching the
   // full request only ever admits spans the judge could not have sourced, which loosens a gate
   // whose entire job is tightening. It also bounds the escaping cost: escapeDelimiters is
   // superlinear in its input (see its comment) and messages.content has no length limit, so
   // handing it a raw request let a pasted megabyte block the worker for half a minute.
   const normalizedRequest =
-    request === undefined ? "" : normalizeForQuoteMatch(escapeDelimiters(capRequest(request)));
+    request === undefined ? "" : normalizeForQuoteMatch(escapeDelimiters(visibleRequest(request)));
   return layers.map((layer) => ({
     ...layer,
     requirements: layer.requirements.map((requirement) => {
