@@ -307,7 +307,8 @@ export interface EvalLayerResult {
 export interface RunEvalResult {
   artefactKind: EvalArtefactKind;
   layers: EvalLayerResult[];
-  // passed / total checkable requirements, 0..1; 0 when none were checkable.
+  // passed / decided requirements, 0..1; "unclear" verdicts are excluded from both sides,
+  // and the score is 0 when nothing was decided.
   score: number;
   // True when the artefact exceeded the judge's size cap and was cut before grading. Optional
   // so rows stored before this field existed keep parsing as undefined (falsy); a truncated

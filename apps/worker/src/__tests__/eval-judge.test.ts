@@ -120,7 +120,11 @@ describe("validateJudgeLayers", () => {
 });
 
 describe("computeResult", () => {
-  it("scores passed over total checkable requirements", () => {
+  // "unclear" means the artefact did not show enough to decide — most often because the
+  // requirement never applied to this kind of artefact at all (a "no raw SQL" rule against a
+  // release-notes document). Scoring it as a miss punishes an agent for the breadth of its
+  // team context rather than for anything it did, so unclears leave the score entirely.
+  it("scores passes over decided requirements, leaving unclear out of the denominator", () => {
     const layers: EvalLayerResult[] = [
       {
         segmentId: "team_context",
@@ -133,7 +137,7 @@ describe("computeResult", () => {
       },
     ];
     const result = computeResult(layers, "diff");
-    expect(result.score).toBe(0.5);
+    expect(result.score).toBeCloseTo(2 / 3);
     expect(result.artefactKind).toBe("diff");
     expect(result.layers).toBe(layers);
   });
@@ -141,6 +145,21 @@ describe("computeResult", () => {
   it("scores 0 when there are no checkable requirements — a valid result, not an error", () => {
     const result = computeResult([{ segmentId: "team_context", requirements: [] }], "final_message");
     expect(result.score).toBe(0);
+  });
+
+  // Every requirement unclear is the same shape as no requirements at all: nothing was decided,
+  // so there is nothing to average. Guards the divide-by-zero the new denominator introduces.
+  it("scores 0 when every requirement came back unclear", () => {
+    const layers: EvalLayerResult[] = [
+      {
+        segmentId: "team_context",
+        requirements: [
+          { text: "a", verdict: "unclear", evidence: "" },
+          { text: "b", verdict: "unclear", evidence: "" },
+        ],
+      },
+    ];
+    expect(computeResult(layers, "final_message").score).toBe(0);
   });
 
   // Truncation happens outside this function (buildJudgeUserMessage cuts the artefact before

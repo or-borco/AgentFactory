@@ -68,8 +68,12 @@ Manual trigger only — the user decides when a run is worth the judge call.
   failed), then verdicts each against the artefact with a quoted line of evidence. The response
   is forced into the `RunEvalResult` shape by the API's structured-output mode — it parses or
   the eval fails cleanly; there is no hand-rolled parsing of model prose.
-- **`unclear` is a real verdict.** A judge pretending certainty is worse than one admitting it,
-  and the count of unclears is itself a signal about how checkable the context is.
+- **`unclear` is a real verdict, and it does not score.** A judge pretending certainty is worse
+  than one admitting it. An unclear usually means the requirement never applied to this artefact
+  at all — "no raw SQL" has nothing to say about a release-notes document — so counting it as a
+  miss would grade an agent on the breadth of its team context rather than on its work. Unclears
+  are excluded from both sides of the score and stay on the card with their evidence, which is
+  where the signal about how checkable the context is actually belongs.
 - **Zero checkable requirements is a valid result, not an error.** It means the context contains
   nothing enforceable — worth knowing, plainly stated on the card.
 - **The judge model is stamped on every card** (`judge_model_id`): scores from different judges
@@ -93,7 +97,7 @@ interface EvalLayerResult { segmentId: string; requirements: EvalRequirement[] }
 interface RunEvalResult {
   artefactKind: EvalArtefactKind;
   layers: EvalLayerResult[];
-  score: number; // passed / total checkable requirements, 0..1; 0 when none checkable
+  score: number; // passed / decided requirements (unclear excluded), 0..1; 0 when none decided
 }
 ```
 

@@ -151,9 +151,17 @@ export function computeResult(
   truncated = false,
 ): RunEvalResult {
   const requirements = layers.flatMap((layer) => layer.requirements);
-  const passed = requirements.filter((requirement) => requirement.verdict === "pass").length;
-  // Zero checkable requirements is a valid result, not an error — score 0 by the spec.
-  const score = requirements.length === 0 ? 0 : passed / requirements.length;
+  // Only decided verdicts reach the score. An "unclear" means the artefact did not show enough
+  // to judge the requirement — usually because it never applied to this artefact in the first
+  // place (a "no raw SQL" rule has nothing to say about a release-notes document). Counting
+  // those as misses scores an agent on how broad its team context is rather than on its work.
+  // The unclears are not discarded: they stay in `layers`, verdict and evidence intact, which
+  // is where the spec's "how checkable is this context" signal actually lives.
+  const decided = requirements.filter((requirement) => requirement.verdict !== "unclear");
+  const passed = decided.filter((requirement) => requirement.verdict === "pass").length;
+  // Nothing decided is a valid result, not an error — score 0 by the spec. This also guards
+  // the divide-by-zero for a run whose every requirement came back unclear.
+  const score = decided.length === 0 ? 0 : passed / decided.length;
   return { artefactKind, layers, score, truncated };
 }
 
