@@ -54,6 +54,7 @@ function countVerdicts(runEval: RunEval): {
   passed: number;
   total: number;
   overridden: number;
+  unclear: number;
   extracted: number;
 } {
   const requirements = runEval.result?.layers.flatMap((layer) => layer.requirements) ?? [];
@@ -67,10 +68,16 @@ function countVerdicts(runEval: RunEval): {
   // `total === 0` no longer means "the context had nothing checkable in it" — it also happens
   // when every requirement was overridden or unclear, which is a different thing to tell the
   // reader. Only `extracted === 0` is the empty-context case.
+  //
+  // `overridden` and `unclear` are counted separately because each gets its own disclosure
+  // line below. Leaving a verdict out of the fraction is right; leaving it out of the card
+  // is not — "1 of 1 instructions followed" over four unchecked instructions reads as a
+  // clean sweep, which is exactly what the reader must not conclude.
   return {
     passed: requirements.filter((r) => r.verdict === "pass").length,
     total: requirements.filter((r) => r.verdict === "pass" || r.verdict === "fail").length,
     overridden: requirements.filter((r) => r.verdict === "overridden").length,
+    unclear: requirements.filter((r) => r.verdict === "unclear").length,
     extracted: requirements.length,
   };
 }
@@ -252,7 +259,7 @@ function EvalCard({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(!collapsed);
-  const { passed, total, overridden, extracted } = countVerdicts(runEval);
+  const { passed, total, overridden, unclear, extracted } = countVerdicts(runEval);
 
   const headline =
     runEval.status === "queued" || runEval.status === "running"
@@ -290,13 +297,22 @@ function EvalCard({
         <p style={{ fontWeight: 600, fontSize: 13, color: "var(--color-text)", margin: "8px 0 0" }}>{headline}</p>
       )}
 
-      {/* The headline's own denominator already excludes overridden requirements, so it can't
-          tell a reader that any were set aside. This line is the one place that surfaces it
-          without expanding a layer: an override means the user's own request contradicted the
-          instruction, so it never governed the run and was left out of the count entirely. */}
+      {/* The headline's denominator is the stored score's denominator, which excludes both
+          overridden and unclear requirements — so on its own it cannot tell a reader that any
+          were set aside. These two lines are the only place that surfaces them without
+          expanding a layer, and they are separate because the reasons are: an override means
+          the user's own request contradicted the instruction so it never governed the run,
+          while an unclear means the artefact did not show enough to check it either way.
+          Neither is a miss, and neither may be silently absent. Both can appear at once. */}
       {open && overridden > 0 && (
         <p style={{ color: "var(--color-neutral-500)", margin: "4px 0 0" }}>
           {t("taskDetail.evalOverriddenCount", { count: overridden })}
+        </p>
+      )}
+
+      {open && unclear > 0 && (
+        <p style={{ color: "var(--color-neutral-500)", margin: "4px 0 0" }}>
+          {t("taskDetail.evalUncheckedCount", { count: unclear })}
         </p>
       )}
 

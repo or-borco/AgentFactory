@@ -96,6 +96,63 @@ const ALL_OVERRIDDEN_EVAL: RunEval = {
   },
 };
 
+// One pass and four "unclear" — the ordinary case of a broad team context whose rules have
+// nothing to say about this artefact. The headline denominator counts only what scored, so it
+// reads "1 of 1"; without a separate line the card would show a clean sweep for a run where
+// four of five instructions were never checked at all.
+const MOSTLY_UNCLEAR_EVAL: RunEval = {
+  id: 34,
+  orgId: 1,
+  runId: 7,
+  status: "done",
+  judgeModelId: "claude-sonnet-5",
+  createdAt: "2026-08-26T14:00:00.000Z",
+  completedAt: "2026-08-26T14:00:20.000Z",
+  result: {
+    artefactKind: "final_message",
+    score: 1,
+    layers: [
+      {
+        segmentId: "team_context",
+        requirements: [
+          { text: "Write in past tense", verdict: "pass", evidence: "Added support for…" },
+          { text: "No raw SQL", verdict: "unclear", evidence: "The reply contains no code" },
+          { text: "Use conventional commits", verdict: "unclear", evidence: "Nothing was committed" },
+          { text: "Update the changelog", verdict: "unclear", evidence: "Nothing was committed" },
+          { text: "Add tests for new code", verdict: "unclear", evidence: "Nothing was committed" },
+        ],
+      },
+    ],
+  },
+};
+
+// Both disclosure lines at once: one instruction the user's request set aside, one the
+// artefact could not answer for. Neither is on either side of the fraction, and neither may
+// hide the other.
+const MIXED_ASIDE_EVAL: RunEval = {
+  id: 35,
+  orgId: 1,
+  runId: 7,
+  status: "done",
+  judgeModelId: "claude-sonnet-5",
+  createdAt: "2026-08-26T15:00:00.000Z",
+  completedAt: "2026-08-26T15:00:20.000Z",
+  result: {
+    artefactKind: "final_message",
+    score: 1,
+    layers: [
+      {
+        segmentId: "agent_system_prompt",
+        requirements: [
+          { text: "Write in past tense", verdict: "pass", evidence: "Added support for…" },
+          { text: "Summarize merged PRs since the last tag", verdict: "overridden", evidence: '"the last 5 PRs"' },
+          { text: "Update the changelog", verdict: "unclear", evidence: "Nothing was committed" },
+        ],
+      },
+    ],
+  },
+};
+
 function renderPanel(runs: Run[] = DONE_RUN) {
   return render(
     <I18nProvider>
@@ -164,6 +221,30 @@ describe("RunEvalPanel", () => {
     renderPanel();
     await screen.findByText("1 of 2 instructions followed");
     expect(screen.queryByText(/overridden by the user's request/)).not.toBeInTheDocument();
+  });
+
+  // The denominator must keep matching the stored score, so unclear requirements stay out of
+  // it — but a headline of "1 of 1" over four unchecked instructions reads as a clean sweep.
+  it("says how many instructions could not be checked, without touching the denominator", async () => {
+    apiFetchMock.mockResolvedValueOnce([MOSTLY_UNCLEAR_EVAL]);
+    renderPanel();
+    expect(await screen.findByText("1 of 1 instructions followed")).toBeInTheDocument();
+    expect(screen.getByText("4 could not be checked against this run")).toBeInTheDocument();
+  });
+
+  it("shows no unchecked line when every instruction was actually checked", async () => {
+    apiFetchMock.mockResolvedValueOnce([DONE_EVAL]);
+    renderPanel();
+    await screen.findByText("1 of 2 instructions followed");
+    expect(screen.queryByText(/could not be checked/)).not.toBeInTheDocument();
+  });
+
+  it("shows the unchecked count and the override count together", async () => {
+    apiFetchMock.mockResolvedValueOnce([MIXED_ASIDE_EVAL]);
+    renderPanel();
+    expect(await screen.findByText("1 of 1 instructions followed")).toBeInTheDocument();
+    expect(screen.getByText("1 overridden by the user's request")).toBeInTheDocument();
+    expect(screen.getByText("1 could not be checked against this run")).toBeInTheDocument();
   });
 
   it("shows a truncation notice when the artefact was cut for size before grading", async () => {

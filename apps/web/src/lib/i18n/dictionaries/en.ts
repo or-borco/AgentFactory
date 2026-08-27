@@ -312,6 +312,7 @@ const en = {
     evalVerdictUnclear: "Unclear",
     evalVerdictOverridden: "Overridden by request",
     evalOverriddenCount: "{count} overridden by the user's request",
+    evalUncheckedCount: "{count} could not be checked against this run",
     evalEvidenceLabel: "Evidence",
     evalHistoryLabel: "Previous evaluations",
     evalLoadError: "Couldn't load evaluations for this run.",
