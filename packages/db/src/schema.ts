@@ -14,6 +14,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  vector,
 } from "drizzle-orm/pg-core";
 import type {
   AcceptanceCriterion,
@@ -403,6 +404,38 @@ export const teamContextItems = pgTable(
     // Per team, not per org: one org may want the same handbook in two teams, but one team must
     // never hold the same bytes twice — both copies would match retrieval and spend the budget.
     uniqueIndex("team_context_items_team_sha").on(t.teamId, t.sha256),
+  ],
+);
+
+// One embedded window of a context item's text. Chunks are derived data, never a source of
+// truth — the original bytes live in content_blobs, so a re-chunk or a model swap is a delete
+// plus a re-insert, which is why ingestion deletes an item's chunks before writing new ones.
+export const contextChunks = pgTable(
+  "context_chunks",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    itemId: integer("item_id")
+      .notNull()
+      .references(() => teamContextItems.id, { onDelete: "cascade" }),
+    // Denormalized from the item. Retrieval always filters on it, and a filtered HNSW scan
+    // wants the predicate on the indexed table rather than behind a join to team_context_items.
+    teamId: integer("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    chunkIdx: integer("chunk_idx").notNull(),
+    text: text("text").notNull(),
+    // 384 dimensions, following the embedder (Xenova/bge-small-en-v1.5) rather than
+    // ARCHITECTURE.md §2.4's vector(1536), which assumed an OpenAI model. The column's width is
+    // fixed and the HNSW index needs it fixed, so the model and the schema move together.
+    embedding: vector("embedding", { dimensions: 384 }).notNull(),
+    // Stamped per row so a mixed-model corpus is detectable rather than silently mis-ranked.
+    // The backfill command that acts on a mismatch is deliberately not built yet.
+    embeddingModel: text("embedding_model").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("context_chunks_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
+    index("context_chunks_team_id_idx").on(table.teamId),
   ],
 );
 
