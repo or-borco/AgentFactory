@@ -102,27 +102,6 @@ export default function TaskDetailPage() {
     }
   }, [messages, runStatus, rawEvents]);
 
-  // Load existing messages, workspace, and events when a session is linked.
-  useEffect(() => {
-    if (!session) return;
-    loadMessages(session.id);
-    (async () => {
-      const [runs, events] = await Promise.all([
-        apiFetch<Run[]>(`/api/sessions/${session.id}/runs`).catch(() => [] as Run[]),
-        apiFetch<RawEvent[]>(`/api/sessions/${session.id}/events`).catch(() => [] as RawEvent[]),
-      ]);
-      setSessionRuns(runs);
-      const done = runs.find((r) => r.status === "done" && r.workspaceSnapshot);
-      if (done?.workspaceSnapshot) {
-        setWorkspace(done.workspaceSnapshot);
-        setSelectedFile(Object.keys(done.workspaceSnapshot)[0] ?? null);
-        setActiveTab("files");
-      }
-      setRawEvents(events);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.id]);
-
   const pollRun = useCallback(
     (id: number, sessionId: number) => {
       const tick = () => {
@@ -150,6 +129,37 @@ export default function TaskDetailPage() {
     },
     [loadMessages],
   );
+
+  // Load existing messages, workspace, and events when a session is linked.
+  useEffect(() => {
+    if (!session) return;
+    loadMessages(session.id);
+    (async () => {
+      const [runs, events] = await Promise.all([
+        apiFetch<Run[]>(`/api/sessions/${session.id}/runs`).catch(() => [] as Run[]),
+        apiFetch<RawEvent[]>(`/api/sessions/${session.id}/events`).catch(() => [] as RawEvent[]),
+      ]);
+      setSessionRuns(runs);
+      const done = runs.find((r) => r.status === "done" && r.workspaceSnapshot);
+      if (done?.workspaceSnapshot) {
+        setWorkspace(done.workspaceSnapshot);
+        setSelectedFile(Object.keys(done.workspaceSnapshot)[0] ?? null);
+        setActiveTab("files");
+      }
+      setRawEvents(events);
+      // The most recent run may still be in flight (e.g. the user started it, navigated away,
+      // and came back) — runs is ordered newest-first, and nothing else ever re-derives
+      // runStatus from a fresh fetch, so without this the transcript freezes at whatever this
+      // one-shot fetch captured and never resumes polling for the rest of the run.
+      const latest = runs[0];
+      if (latest && !["done", "failed", "cancelled"].includes(latest.status)) {
+        setRunStatus(latest.status);
+        setRunStartedAt(new Date(latest.createdAt).getTime());
+        pollRun(latest.id, session.id);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.id]);
 
   const pollRunStatus = useCallback((id: number, sessionId: number) => {
     const tick = () => {

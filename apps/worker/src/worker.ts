@@ -329,7 +329,20 @@ const runWorker = new Worker<RunJobData>(
       throw err; // still let BullMQ mark the job failed
     }
   },
-  { connection: queueConnection },
+  {
+    connection: queueConnection,
+    // Each run gets its own Docker sandbox (ensureSandbox), so runs against different sessions
+    // are already isolated — the default concurrency of 1 was serializing them for no reason.
+    concurrency: Number(process.env.RUN_WORKER_CONCURRENCY ?? 5),
+    // Default lockDuration (30s) is shorter than a real agent turn: the perf-review commit that
+    // introduced phase timing measured turns at 40-100+s even after optimization. Once a lock
+    // expires, BullMQ's stalled-checker reclaims the job while this handler is still genuinely
+    // running it — the handler then spins forever retrying a renewal that can never succeed
+    // (the lock's gone), and a second stall trips the default maxStalledCount of 1, moving a
+    // still-in-progress run to "failed" out from under it. 15 minutes comfortably outlasts any
+    // real turn observed so far.
+    lockDuration: 15 * 60 * 1000,
+  },
 );
 
 // Belt-and-suspenders logging straight to stdout, independent of the DB/event-log path above —
