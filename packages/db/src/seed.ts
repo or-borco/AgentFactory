@@ -2,7 +2,7 @@ import "dotenv/config";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { sql } from "drizzle-orm";
-import { agents, events, memberships, messages, orgs, runs, sessions, tasks, teamContextItems, teams, users } from "./schema";
+import { agents, events, memberships, messages, orgs, runs, sessions, tasks, teams, users } from "./schema";
 import { hashPassword } from "./password";
 
 // Mirrors apps/web/src/lib/mock/seed.ts's seedTeams/seedAgents exactly (same IDs), so the
@@ -288,17 +288,6 @@ async function main() {
       { id: 5, runId: 1, seq: 4, type: "tool_result",    data: { tool: "comment_pr", output: { commentId: 99 }, isError: false }, createdAt: hoursAgo(3) },
       { id: 6, runId: 1, seq: 5, type: "text_delta",     data: { text: "I looked over PR 1234…" }, createdAt: hoursAgo(3) },
       { id: 7, runId: 1, seq: 6, type: "done",           data: { reason: "completed" }, createdAt: hoursAgo(3) },
-    ])
-    .onConflictDoNothing();
-
-  // ── Team context items ─────────────────────────────────────────────────────────
-  await db
-    .insert(teamContextItems)
-    .overridingSystemValue()
-    .values([
-      { id: 1, teamId: 1, title: "Engineering handbook", sizeBytes: 18200, createdAt: hoursAgo(300) },
-      { id: 2, teamId: 1, title: "API design guidelines", sizeBytes: 9400, createdAt: hoursAgo(200) },
-      { id: 3, teamId: 1, title: "Incident runbooks", sizeBytes: 31500, createdAt: hoursAgo(100) },
     ])
     .onConflictDoNothing();
 

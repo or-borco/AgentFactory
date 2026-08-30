@@ -15,6 +15,7 @@
     "@agentfactory/db": "workspace:*",
     "@agentfactory/queue": "workspace:*",
     "@agentfactory/shared": "workspace:*",
+    "@agentfactory/storage": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "jsonwebtoken": "^9.0.2",
     "next": "16.2.12",

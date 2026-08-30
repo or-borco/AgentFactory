@@ -12,15 +12,37 @@ describe("apiFetch", () => {
     await expect(apiFetch("/api/agents")).resolves.toEqual({ id: 1 });
   });
 
-  it("sends a JSON content-type header merged with any custom headers", async () => {
+  it("sends a JSON content-type header on a JSON body, merged with any custom headers", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await apiFetch("/api/agents", { method: "POST", headers: { "X-Test": "1" } });
+    const body = JSON.stringify({ name: "Platform" });
+    await apiFetch("/api/agents", { method: "POST", body, headers: { "X-Test": "1" } });
 
     expect(fetchMock).toHaveBeenCalledWith("/api/agents", {
       method: "POST",
+      body,
       headers: { "Content-Type": "application/json", "X-Test": "1" },
+    });
+  });
+
+  // A multipart body must carry the browser's own content-type, boundary and all. The default
+  // can't be removed at the call site — the headers object spreads the JSON default in first, so
+  // passing `undefined` leaves the key present — which is why the branch belongs here, in the
+  // one place all client→API traffic goes through.
+  it("omits the JSON content-type for a FormData body so the browser sets the boundary", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const body = new FormData();
+    body.append("file", new File(["# Handbook"], "handbook.md", { type: "text/markdown" }));
+
+    await apiFetch("/api/teams/3/context-items", { method: "POST", body });
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/teams/3/context-items", {
+      method: "POST",
+      body,
+      headers: {},
     });
   });
 
