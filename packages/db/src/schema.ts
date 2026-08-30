@@ -341,6 +341,25 @@ export const tasks = pgTable(
   ],
 );
 
+// The index over immutable file bytes; the bytes themselves live in a BlobStore (packages/storage).
+// Keyed (org_id, sha256), never sha256 alone: two orgs uploading the same public RFC must own
+// separate rows, or deleting one org cascades content out from under the other's still-referencing
+// item. The org_id FK is also what makes this table reachable by the db-test harness's
+// `truncate orgs ... cascade` — a hash-keyed table with no FK would leak rows between test files.
+export const contentBlobs = pgTable(
+  "content_blobs",
+  {
+    sha256: text("sha256").notNull(),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    sizeBytes: integer("size_bytes").notNull(),
+    mime: text("mime").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.sha256] })],
+);
+
 // Metadata-only stubs for now (no S3/upload yet). Large reference docs the team shares with
 // agents — tracked here for the usage meter and future indexing pipeline.
 export const teamContextItems = pgTable("team_context_items", {

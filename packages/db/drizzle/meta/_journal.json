@@ -127,6 +127,20 @@
       "when": 1787764750713,
       "tag": "0017_graceful_morbius",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1788093951711,
+      "tag": "0018_enable_pgvector",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1788094236060,
+      "tag": "0019_aberrant_mentor",
+      "breakpoints": true
     }
   ]
 }

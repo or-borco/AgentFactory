@@ -31,6 +31,11 @@ docker compose up -d
 This starts Postgres on `localhost:5432` (db `agentfactory`, user/password `agentfactory`) and
 Redis on `localhost:6379`.
 
+The Postgres image is `pgvector/pgvector:pg16` (stock PostgreSQL 16 plus the `vector` extension,
+which the migrations enable). If you have a volume from before that change, recreate it —
+`docker compose down -v && docker compose up -d` — then re-run step 4. The image is glibc-based
+where the old one was musl, and Postgres cannot detect the collation-provider change on its own.
+
 ## 3. Configure environment variables
 
 Copy the example env files and fill them in:
@@ -47,6 +52,11 @@ cp apps/worker/.env.example apps/worker/.env.local
 - `apps/worker/.env.local` — same `DATABASE_URL`/`REDIS_URL`, plus `ANTHROPIC_API_KEY` and the
   same `GITHUB_APP_ID`/`GITHUB_APP_PRIVATE_KEY` as the web app (the worker mints its own GitHub
   clone tokens directly). Also sets `SANDBOX_IMAGE`, used in step 6.
+- **Both files** need the same `BLOB_STORE` and `BLOB_DIR`. Uploaded team documents are written by
+  the web app and read by the worker, and a relative `BLOB_DIR` resolves against the repo root
+  (not the process's working directory), so the default `BLOB_DIR=.blobs` means `<repo>/.blobs`
+  for both processes. The directory is created on first upload and is gitignored. Set
+  `BLOB_STORE=s3` with `S3_BUCKET` instead if you have a bucket.
 
 ## 4. Run database migrations and seed data
 
