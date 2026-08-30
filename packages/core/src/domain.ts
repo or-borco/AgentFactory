@@ -34,11 +34,27 @@ export interface Team {
   createdAt: ISODateTime;
 }
 
+// pending → indexing → indexed | failed. `pending` is where every upload starts and, until the
+// ingest worker lands, where it stays.
+export type ContextItemStatus = "pending" | "indexing" | "indexed" | "failed";
+
+// One uploaded document. `sha256` + `orgId` address the bytes in content_blobs (blobs are
+// partitioned per org, never shared across tenants), and `source` is always "upload" today —
+// it exists so Drive/Notion/URL adapters are a value, not a schema change.
 export interface TeamContextItem {
   id: ID;
   teamId: ID;
+  orgId: ID;
   title: string;
   sizeBytes: number;
+  sha256: string;
+  mime: string;
+  source: string;
+  status: ContextItemStatus;
+  // Machine-or-human failure text from ingestion; only set when status is "failed".
+  error?: string;
+  indexedAt?: ISODateTime;
+  uploadedBy?: ID;
   createdAt: ISODateTime;
 }
 
