@@ -4,6 +4,7 @@ import {
   boolean,
   check,
   doublePrecision,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -360,17 +361,50 @@ export const contentBlobs = pgTable(
   (t) => [primaryKey({ columns: [t.orgId, t.sha256] })],
 );
 
-// Metadata-only stubs for now (no S3/upload yet). Large reference docs the team shares with
-// agents — tracked here for the usage meter and future indexing pipeline.
-export const teamContextItems = pgTable("team_context_items", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  teamId: integer("team_id")
-    .notNull()
-    .references(() => teams.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  sizeBytes: integer("size_bytes").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const contextItemStatusEnum = pgEnum("context_item_status", [
+  "pending",
+  "indexing",
+  "indexed",
+  "failed",
+]);
+
+// A real uploaded document: metadata here, bytes in the blob store, chunks (PR 3) hanging off
+// it. org_id is denormalized from the team so every scoping check is a column predicate rather
+// than an innerJoin(teams, …) — and because the composite FK to content_blobs needs it, blobs
+// being partitioned per org.
+export const teamContextItems = pgTable(
+  "team_context_items",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    teamId: integer("team_id")
+      .notNull()
+      .references(() => teams.id, { onDelete: "cascade" }),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    sizeBytes: integer("size_bytes").notNull().default(0),
+    sha256: text("sha256").notNull(),
+    mime: text("mime").notNull(),
+    // Always "upload" today; connectors (Drive, Notion, URLs) become other values, not columns.
+    source: text("source").notNull().default("upload"),
+    status: contextItemStatusEnum("status").notNull().default("pending"),
+    // Ingestion's failure message; null unless status is "failed".
+    error: text("error"),
+    indexedAt: timestamp("indexed_at", { withTimezone: true }),
+    uploadedBy: integer("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.orgId, t.sha256],
+      foreignColumns: [contentBlobs.orgId, contentBlobs.sha256],
+    }),
+    // Per team, not per org: one org may want the same handbook in two teams, but one team must
+    // never hold the same bytes twice — both copies would match retrieval and spend the budget.
+    uniqueIndex("team_context_items_team_sha").on(t.teamId, t.sha256),
+  ],
+);
 
 // No monthly partitioning yet — ARCHITECTURE.md flags this as "the one table that will hurt"
 // at scale, but partitioning tooling for zero rows is pure overhead. Revisit when it's real.

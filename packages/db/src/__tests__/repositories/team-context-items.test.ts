@@ -3,98 +3,133 @@ import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { db } from "../../client.js";
 import { teams } from "../../schema.js";
+import { insertContentBlob } from "../../repositories/content-blobs.js";
 import {
   createTeamContextItem,
-  deleteTeamContextItem,
   deleteTeamContextItemForOrg,
-  listTeamContextItems,
+  getTeamContextItem,
+  listTeamContextItemsForOrg,
 } from "../../repositories/team-context-items.js";
-import { insertOrg, insertTeam } from "../fixtures.js";
+import { insertOrg, insertTeam, insertUser } from "../fixtures.js";
+
+const SHA_A = "a".repeat(64);
+const SHA_B = "b".repeat(64);
+
+// Every item reaches its bytes through the composite (org_id, sha256) FK, so the blob row has to
+// exist first — the same order the upload route uses: put the bytes, then insert the item.
+async function setupTeamWithBlob(sha = SHA_A) {
+  const org = await insertOrg();
+  const team = await insertTeam(org.id);
+  await insertContentBlob(org.id, sha, 42, "text/markdown");
+  return { org, team };
+}
 
 describe("team-context-items repository", () => {
-  it("creates and lists items for a team", async () => {
-    const org = await insertOrg();
-    const team = await insertTeam(org.id);
+  it("creates a pending item and reads it back", async () => {
+    const { org, team } = await setupTeamWithBlob();
+    const user = await insertUser();
 
-    await createTeamContextItem(team.id, "Engineering handbook", 18200);
-    await createTeamContextItem(team.id, "API design guidelines", 9400);
+    const item = await createTeamContextItem({
+      teamId: team.id,
+      orgId: org.id,
+      title: "Engineering handbook",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+      uploadedBy: user.id,
+    });
+    if (!item) throw new Error("expected the item to be created");
 
-    const items = await listTeamContextItems(team.id);
-    expect(items).toHaveLength(2);
-    expect(items[0].title).toBe("Engineering handbook");
-    expect(items[0].sizeBytes).toBe(18200);
-    expect(items[1].title).toBe("API design guidelines");
+    expect(item).toMatchObject({
+      teamId: team.id,
+      orgId: org.id,
+      title: "Engineering handbook",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+      source: "upload",
+      status: "pending",
+      uploadedBy: user.id,
+    });
+    expect(item.error).toBeUndefined();
+    expect(item.indexedAt).toBeUndefined();
+    await expect(getTeamContextItem(item.id)).resolves.toEqual(item);
   });
 
-  it("returns empty list for a team with no items", async () => {
-    const org = await insertOrg();
-    const team = await insertTeam(org.id);
+  // The route turns this undefined into a 409. Two items over one blob would both match
+  // retrieval and spend the byte budget twice on identical text.
+  it("returns undefined when the same bytes are uploaded to the same team twice", async () => {
+    const { org, team } = await setupTeamWithBlob();
+    const first = await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Handbook", sizeBytes: 42, sha256: SHA_A, mime: "text/markdown",
+    });
+    expect(first).toBeDefined();
 
-    await expect(listTeamContextItems(team.id)).resolves.toEqual([]);
+    const second = await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Handbook (copy)", sizeBytes: 42, sha256: SHA_A, mime: "text/markdown",
+    });
+
+    expect(second).toBeUndefined();
+    await expect(listTeamContextItemsForOrg(team.id, org.id)).resolves.toHaveLength(1);
   });
 
-  it("isolates items by team", async () => {
-    const org = await insertOrg();
-    const team1 = await insertTeam(org.id);
-    const team2 = await insertTeam(org.id);
+  // The unique index is (team_id, sha256), not (org_id, sha256): two teams in one org sharing
+  // one handbook is a normal thing to want, and each needs its own retrievable item.
+  it("allows the same document in two teams of one org", async () => {
+    const { org, team } = await setupTeamWithBlob();
+    const other = await insertTeam(org.id, { name: "Other team" });
 
-    await createTeamContextItem(team1.id, "Team 1 doc");
-    await createTeamContextItem(team2.id, "Team 2 doc");
+    await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Handbook", sizeBytes: 42, sha256: SHA_A, mime: "text/markdown",
+    });
+    const twin = await createTeamContextItem({
+      teamId: other.id, orgId: org.id, title: "Handbook", sizeBytes: 42, sha256: SHA_A, mime: "text/markdown",
+    });
 
-    const items = await listTeamContextItems(team1.id);
-    expect(items).toHaveLength(1);
-    expect(items[0].title).toBe("Team 1 doc");
+    expect(twin).toBeDefined();
+    await expect(listTeamContextItemsForOrg(other.id, org.id)).resolves.toHaveLength(1);
   });
 
-  it("defaults sizeBytes to 0", async () => {
-    const org = await insertOrg();
-    const team = await insertTeam(org.id);
+  it("lists items ordered oldest first and only for the given team and org", async () => {
+    const { org, team } = await setupTeamWithBlob();
+    await insertContentBlob(org.id, SHA_B, 17, "text/plain");
+    await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Handbook", sizeBytes: 42, sha256: SHA_A, mime: "text/markdown",
+    });
+    await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Runbooks", sizeBytes: 17, sha256: SHA_B, mime: "text/plain",
+    });
 
-    const item = await createTeamContextItem(team.id, "Untitled");
-    expect(item.sizeBytes).toBe(0);
+    const items = await listTeamContextItemsForOrg(team.id, org.id);
+    expect(items.map((i) => i.title)).toEqual(["Handbook", "Runbooks"]);
+
+    const otherOrg = await insertOrg();
+    await expect(listTeamContextItemsForOrg(team.id, otherOrg.id)).resolves.toEqual([]);
   });
 
-  it("deletes an item by id", async () => {
-    const org = await insertOrg();
-    const team = await insertTeam(org.id);
-    const item = await createTeamContextItem(team.id, "To delete");
+  it("deletes an item for its own org and refuses another org's", async () => {
+    const { org, team } = await setupTeamWithBlob();
+    const otherOrg = await insertOrg();
+    const item = await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Cross-org doc", sizeBytes: 42, sha256: SHA_A, mime: "text/markdown",
+    });
+    if (!item) throw new Error("expected the item to be created");
 
-    await deleteTeamContextItem(item.id);
+    await expect(deleteTeamContextItemForOrg(item.id, otherOrg.id)).resolves.toBe(false);
+    await expect(listTeamContextItemsForOrg(team.id, org.id)).resolves.toHaveLength(1);
 
-    await expect(listTeamContextItems(team.id)).resolves.toEqual([]);
-  });
-
-  it("deleteTeamContextItemForOrg returns true and removes the item when org matches", async () => {
-    const org = await insertOrg();
-    const team = await insertTeam(org.id);
-    const item = await createTeamContextItem(team.id, "Org-scoped doc");
-
-    const result = await deleteTeamContextItemForOrg(item.id, org.id);
-
-    expect(result).toBe(true);
-    await expect(listTeamContextItems(team.id)).resolves.toEqual([]);
-  });
-
-  it("deleteTeamContextItemForOrg returns false and leaves the item when org does not match", async () => {
-    const org1 = await insertOrg();
-    const org2 = await insertOrg();
-    const team = await insertTeam(org1.id);
-    const item = await createTeamContextItem(team.id, "Cross-org doc");
-
-    const result = await deleteTeamContextItemForOrg(item.id, org2.id);
-
-    expect(result).toBe(false);
-    const remaining = await listTeamContextItems(team.id);
-    expect(remaining).toHaveLength(1);
+    await expect(deleteTeamContextItemForOrg(item.id, org.id)).resolves.toBe(true);
+    await expect(listTeamContextItemsForOrg(team.id, org.id)).resolves.toEqual([]);
   });
 
   it("cascade-deletes items when the team is deleted", async () => {
-    const org = await insertOrg();
-    const team = await insertTeam(org.id);
-    await createTeamContextItem(team.id, "Will cascade");
+    const { org, team } = await setupTeamWithBlob();
+    await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Will cascade", sizeBytes: 42, sha256: SHA_A, mime: "text/markdown",
+    });
 
     await db.delete(teams).where(eq(teams.id, team.id));
 
-    await expect(listTeamContextItems(team.id)).resolves.toEqual([]);
+    await expect(listTeamContextItemsForOrg(team.id, org.id)).resolves.toEqual([]);
   });
 });
