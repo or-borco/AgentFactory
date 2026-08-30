@@ -14,6 +14,17 @@ import type { TranslationKey } from "@/lib/i18n/paths";
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 const ALLOWED_MIMES = ["text/markdown", "text/plain"];
 
+// Some OS/browser combinations never populate `file.type` for a .md file — it comes through as
+// "" locally, or as "application/octet-stream" once a File round-trips through FormData. That
+// would reject this feature's own headline scenario, so a file whose declared mime isn't in
+// ALLOWED_MIMES gets a second chance based on its extension before being turned away.
+function extensionMime(filename: string): "text/markdown" | "text/plain" | null {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "text/markdown";
+  if (lower.endsWith(".txt")) return "text/plain";
+  return null;
+}
+
 // Badge has no danger tone and isn't gaining one here; a failed document carries its message
 // inline underneath instead.
 const STATUS_TONES: Record<TeamContextItem["status"], "neutral" | "success" | "warning"> = {
@@ -73,13 +84,23 @@ export function ContextDocumentsPanel({ teamId, members }: { teamId: number; mem
       setErrorKey("teamsV2.documentsTooLarge");
       return;
     }
-    if (!ALLOWED_MIMES.includes(file.type)) {
-      setErrorKey("teamsV2.documentsUnsupportedType");
-      return;
+    let mime = file.type;
+    if (!ALLOWED_MIMES.includes(mime)) {
+      const fallback = extensionMime(file.name);
+      if (!fallback) {
+        setErrorKey("teamsV2.documentsUnsupportedType");
+        return;
+      }
+      mime = fallback;
     }
 
+    // The route reads its mime straight off the File instance in the multipart body, so once
+    // `mime` diverges from `file.type` (the extension-fallback path) the simplest way to hand the
+    // server the corrected value — simpler than a separate form field it would have to prefer
+    // over `file.type` — is to reconstruct the File with that type before appending it.
+    const uploadFile = mime === file.type ? file : new File([file], file.name, { type: mime });
     const body = new FormData();
-    body.append("file", file);
+    body.append("file", uploadFile);
     body.append("title", file.name);
     setUploading(true);
     try {

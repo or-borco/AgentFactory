@@ -17,8 +17,9 @@ vi.mock("@agentfactory/db", () => ({
   createTeamContextItem: (...args: unknown[]) => createTeamContextItemMock(...args),
   listTeamContextItemsForOrg: (...args: unknown[]) => listTeamContextItemsForOrgMock(...args),
 }));
+const requireAuthContextMock = vi.fn();
 vi.mock("@/server/auth", () => ({
-  requireAuthContext: () => Promise.resolve({ user: { id: 5 }, orgId: 1 }),
+  requireAuthContext: (...args: unknown[]) => requireAuthContextMock(...args),
 }));
 
 import { GET, MAX_UPLOAD_BYTES, POST } from "../route";
@@ -72,6 +73,8 @@ beforeEach(() => {
   insertContentBlobMock.mockReset();
   createTeamContextItemMock.mockReset();
   listTeamContextItemsForOrgMock.mockReset();
+  requireAuthContextMock.mockReset();
+  requireAuthContextMock.mockResolvedValue({ user: { id: 5 }, orgId: 1 });
   getTeamMock.mockResolvedValue({ id: 1, orgId: 1 });
   putMock.mockResolvedValue({ sha256: "a".repeat(64), sizeBytes: 11 });
   createTeamContextItemMock.mockResolvedValue(ITEM);
@@ -183,6 +186,68 @@ describe("POST /api/teams/[teamId]/context-items", () => {
 
     expect(res.status).toBe(409);
   });
+
+  it("answers 400 when the file field is missing", async () => {
+    const body = `--${BOUNDARY}\r\nContent-Disposition: form-data; name="title"\r\n\r\nsome title\r\n--${BOUNDARY}--\r\n`;
+    const request = new Request(URL_1, {
+      method: "POST",
+      headers: {
+        "content-type": `multipart/form-data; boundary=${BOUNDARY}`,
+        "content-length": String(new TextEncoder().encode(body).length),
+      },
+      body,
+    });
+
+    const res = await POST(request, params());
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "No file uploaded" });
+    expect(putMock).not.toHaveBeenCalled();
+  });
+
+  it("answers 400 for a zero-byte file", async () => {
+    const res = await POST(
+      multipartRequest({ filename: "handbook.md", type: "text/markdown", content: "" }),
+      params(),
+    );
+
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toEqual({ error: "File is empty" });
+    expect(putMock).not.toHaveBeenCalled();
+  });
+
+  it("answers 401 without touching the blob store or DB when unauthorized", async () => {
+    requireAuthContextMock.mockResolvedValue(null);
+
+    const res = await POST(
+      multipartRequest({ filename: "handbook.md", type: "text/markdown", content: "# Handbook" }),
+      params(),
+    );
+
+    expect(res.status).toBe(401);
+    expect(getTeamMock).not.toHaveBeenCalled();
+    expect(putMock).not.toHaveBeenCalled();
+    expect(createTeamContextItemMock).not.toHaveBeenCalled();
+  });
+
+  // The reviewer's finding: some OS/browser combos never populate a .md file's mime — locally
+  // it's "", and once a File round-trips through FormData it can come back
+  // "application/octet-stream". The route must fall back to the extension rather than reject the
+  // PR's own headline scenario, and must persist the normalized mime, never the raw one.
+  it("accepts a .md file whose declared mime is empty or application/octet-stream, and persists the normalized mime", async () => {
+    const res = await POST(
+      multipartRequest({ filename: "handbook.md", type: "application/octet-stream", content: "# Handbook" }),
+      params(),
+    );
+
+    expect(res.status).toBe(201);
+    const [, , mime] = putMock.mock.calls[0];
+    expect(mime).toBe("text/markdown");
+    expect(insertContentBlobMock).toHaveBeenCalledWith(1, "a".repeat(64), 11, "text/markdown");
+    expect(createTeamContextItemMock).toHaveBeenCalledWith(
+      expect.objectContaining({ mime: "text/markdown" }),
+    );
+  });
 });
 
 describe("GET /api/teams/[teamId]/context-items", () => {
@@ -202,6 +267,16 @@ describe("GET /api/teams/[teamId]/context-items", () => {
     const res = await GET(new Request(URL_1), params());
 
     expect(res.status).toBe(404);
+    expect(listTeamContextItemsForOrgMock).not.toHaveBeenCalled();
+  });
+
+  it("answers 401 without listing when unauthorized", async () => {
+    requireAuthContextMock.mockResolvedValue(null);
+
+    const res = await GET(new Request(URL_1), params());
+
+    expect(res.status).toBe(401);
+    expect(getTeamMock).not.toHaveBeenCalled();
     expect(listTeamContextItemsForOrgMock).not.toHaveBeenCalled();
   });
 });

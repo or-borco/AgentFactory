@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrgMember, TeamContextItem } from "@agentfactory/core";
 import { I18nProvider } from "../../lib/i18n/context";
@@ -146,6 +146,26 @@ describe("ContextDocumentsPanel", () => {
     );
   });
 
+  // The reviewer's finding: some OS/browser combos never populate file.type for a .md file (""
+  // locally, or "application/octet-stream" once the File round-trips through FormData). This is
+  // exactly the PR's headline scenario, so it must not be rejected, and what goes out over the
+  // wire must carry the corrected mime, not the browser's unreliable one.
+  it("accepts a .md file with an unreliable declared mime and sends the normalized mime", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ ...ITEM, id: 2, title: "runbook.md", sizeBytes: 9 });
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+
+    const file = new File(["# Runbook"], "runbook.md", { type: "application/octet-stream" });
+    fireEvent.change(screen.getByLabelText("Upload document"), { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByText("runbook.md")).toBeInTheDocument());
+    const [, init] = apiFetchMock.mock.calls[1] as [string, RequestInit];
+    const uploaded = (init.body as FormData).get("file") as File;
+    expect(uploaded.type).toBe("text/markdown");
+  });
+
   it("removes a document", async () => {
     apiFetchMock.mockResolvedValueOnce([ITEM]).mockResolvedValueOnce(undefined);
     renderPanel();
@@ -155,5 +175,45 @@ describe("ContextDocumentsPanel", () => {
 
     await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
     expect(apiFetchMock).toHaveBeenLastCalledWith("/api/teams/3/context-items/1", { method: "DELETE" });
+  });
+
+  it("polls again while a document is pending, and stops once it reaches a terminal state", async () => {
+    vi.useFakeTimers();
+    try {
+      apiFetchMock.mockResolvedValueOnce([ITEM]); // initial GET on mount, status: pending
+
+      renderPanel();
+
+      // Flush the mount-time fetch effect.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(screen.getByText("Engineering handbook")).toBeInTheDocument();
+      expect(apiFetchMock).toHaveBeenCalledTimes(1);
+
+      // One poll tick fires while the item is still pending — a second list-fetch.
+      apiFetchMock.mockResolvedValueOnce([ITEM]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(apiFetchMock).toHaveBeenCalledTimes(2);
+
+      // The next tick reports the item as indexed — a terminal status.
+      apiFetchMock.mockResolvedValueOnce([{ ...ITEM, status: "indexed" as const }]);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+      expect(apiFetchMock).toHaveBeenCalledTimes(3);
+      expect(screen.getByText("Indexed")).toBeInTheDocument();
+
+      // Further ticks must NOT issue another GET — the assertion that would catch a poll that
+      // never stops once every item is terminal.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000 * 5);
+      });
+      expect(apiFetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

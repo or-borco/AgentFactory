@@ -18,6 +18,19 @@ export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 2 MB
 // later). Accepting anything else here only produces an item that can never leave "pending".
 const ALLOWED_MIMES = new Set(["text/markdown", "text/plain"]);
 
+// Mirrors the client-side fallback in ContextDocumentsPanel.tsx. The client already reconstructs
+// the File with a corrected type before it uploads, but this is the actual enforcement point —
+// a client that skips that step (or any other caller of this route) must not have a real .md
+// file rejected just because the browser/OS never populated file.type. When the fallback fires,
+// `mime` (never `file.type`) is what gets persisted, so PR4's text extractor can trust the
+// mime column is always one of the two real supported values.
+function extensionMime(filename: string): "text/markdown" | "text/plain" | null {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "text/markdown";
+  if (lower.endsWith(".txt")) return "text/plain";
+  return null;
+}
+
 // Built lazily rather than eagerly at module scope: this module is imported before test files'
 // own top-level `vi.fn()` mocks finish initializing, and an eager `createBlobStore()` call here
 // would read those mocks while they are still in their temporal dead zone. Lazy + memoized keeps
@@ -65,8 +78,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
   if (!(file instanceof File)) {
     return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
   }
-  if (!ALLOWED_MIMES.has(file.type)) {
-    return NextResponse.json({ error: "Only Markdown and plain text files are supported" }, { status: 415 });
+  let mime = file.type;
+  if (!ALLOWED_MIMES.has(mime)) {
+    const fallback = extensionMime(file.name);
+    if (!fallback) {
+      return NextResponse.json({ error: "Only Markdown and plain text files are supported" }, { status: 415 });
+    }
+    mime = fallback;
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer());
@@ -80,8 +98,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
 
   // Bytes first, then the blob row, then the item: the composite (org_id, sha256) FK means the
   // item cannot be written before the blob exists, and a blob with no item is inert.
-  const { sha256, sizeBytes } = await getBlobStore().put(ctx.orgId, bytes, file.type);
-  await insertContentBlob(ctx.orgId, sha256, sizeBytes, file.type);
+  const { sha256, sizeBytes } = await getBlobStore().put(ctx.orgId, bytes, mime);
+  await insertContentBlob(ctx.orgId, sha256, sizeBytes, mime);
 
   const submittedTitle = form.get("title");
   const title = typeof submittedTitle === "string" && submittedTitle.trim() ? submittedTitle.trim() : file.name;
@@ -92,7 +110,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
     title,
     sizeBytes,
     sha256,
-    mime: file.type,
+    mime,
     uploadedBy: ctx.user.id,
   });
   if (!item) {
