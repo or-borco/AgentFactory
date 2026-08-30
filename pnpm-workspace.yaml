@@ -5,6 +5,9 @@ allowBuilds:
   cpu-features: true
   esbuild: true
   msgpackr-extract: true
+  # Transitive dep of @huggingface/transformers. Its postinstall downloads the platform's
+  # native ONNX binding; unlisted here it installs silently and throws at the first embed call.
+  onnxruntime-node: true
   protobufjs: true
   sharp: true
   ssh2: true
