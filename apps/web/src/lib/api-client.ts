@@ -3,9 +3,16 @@
 // change if the mock API were ever replaced by the real apps/worker service from
 // ARCHITECTURE.md, instead of every call site.
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  // A FormData body has to reach the server with the browser's own multipart content-type,
+  // boundary included — setting application/json on it makes the body unparseable. The default
+  // can't be cancelled by a caller (the spread below would keep the key with an undefined
+  // value), so the exception lives here rather than at any call site.
+  const isFormData = init?.body instanceof FormData;
   const res = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: isFormData
+      ? { ...init?.headers }
+      : { "Content-Type": "application/json", ...init?.headers },
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
