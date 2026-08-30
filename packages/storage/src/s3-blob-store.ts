@@ -1,5 +1,5 @@
 import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { type BlobStore, sha256Hex } from "./blob-store";
+import { assertSha256, type BlobStore, sha256Hex } from "./blob-store";
 
 // The deployed-environment adapter. Same key layout as FsBlobStore — <orgId>/<sha[0:2]>/<sha> —
 // so the two are interchangeable over one key space and a dev-to-prod move is a config change,
@@ -28,6 +28,7 @@ export class S3BlobStore implements BlobStore {
   }
 
   async get(orgId: number, sha256: string): Promise<Uint8Array | undefined> {
+    assertSha256(sha256);
     try {
       const response = await this.client.send(
         new GetObjectCommand({ Bucket: this.bucket, Key: keyFor(orgId, sha256) }),

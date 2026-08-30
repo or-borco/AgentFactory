@@ -73,6 +73,22 @@ describe("S3BlobStore", () => {
     await expect(store.get(7, SHA)).rejects.toThrow("denied");
   });
 
+  // Unlike FsBlobStore, a malformed digest can't escape anything here — S3 keys aren't filesystem
+  // paths — but treating it as a literal (and always-missing) key would silently diverge from the
+  // Fs adapter's throw. Both adapters must reject hostile input the same way.
+  it("throws on a path-traversal-shaped digest instead of treating it as a literal key", async () => {
+    const store = new S3BlobStore("agentfactory-blobs");
+    await expect(store.get(7, "../../../../etc/passwd")).rejects.toThrow(/Invalid sha256 digest/);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it("throws for a digest of the wrong length or with non-hex characters", async () => {
+    const store = new S3BlobStore("agentfactory-blobs");
+    await expect(store.get(7, "abc")).rejects.toThrow(/Invalid sha256 digest/);
+    await expect(store.get(7, "g".repeat(64))).rejects.toThrow(/Invalid sha256 digest/);
+    expect(sendMock).not.toHaveBeenCalled();
+  });
+
   it("keys two orgs' identical bytes separately", async () => {
     sendMock.mockResolvedValue({});
     const store = new S3BlobStore("agentfactory-blobs");

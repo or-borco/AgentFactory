@@ -87,4 +87,17 @@ describe("FsBlobStore", () => {
   it("returns undefined for a digest that was never stored", async () => {
     await expect(store.get(1, "0".repeat(64))).resolves.toBeUndefined();
   });
+
+  // A hostile digest must never be treated as a path segment. Both a directory-traversal payload
+  // and a malformed-but-traversal-free string must throw rather than silently reading (or
+  // escaping to) some other location on disk.
+  it("throws rather than escaping rootDir for a path-traversal digest", async () => {
+    await expect(store.get(1, "../../../../etc/passwd")).rejects.toThrow(/Invalid sha256 digest/);
+  });
+
+  it("throws for a digest of the wrong length or with non-hex characters", async () => {
+    await expect(store.get(1, "abc")).rejects.toThrow(/Invalid sha256 digest/);
+    await expect(store.get(1, "g".repeat(64))).rejects.toThrow(/Invalid sha256 digest/);
+    await expect(store.get(1, SHA.toUpperCase())).rejects.toThrow(/Invalid sha256 digest/);
+  });
 });

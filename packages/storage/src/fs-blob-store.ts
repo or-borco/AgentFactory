@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { type BlobStore, sha256Hex } from "./blob-store";
+import { assertSha256, type BlobStore, sha256Hex } from "./blob-store";
 
 const DEFAULT_BLOB_DIR = ".blobs";
 
@@ -49,6 +49,7 @@ export class FsBlobStore implements BlobStore {
   }
 
   private pathFor(orgId: number, sha256: string): string {
+    assertSha256(sha256);
     return path.join(this.rootDir, String(orgId), sha256.slice(0, 2), sha256);
   }
 }
