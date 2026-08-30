@@ -4,6 +4,7 @@ import { Queue } from "bullmq";
 export const RUN_QUEUE_NAME = "runs";
 export const SANDBOX_TEARDOWN_QUEUE_NAME = "sandbox-teardown";
 export const REPO_MAP_WARM_QUEUE_NAME = "repo-map-warm";
+export const EVAL_QUEUE_NAME = "evals";
 
 export interface RunJobData {
   runId: number;
@@ -20,6 +21,10 @@ export interface RepoMapWarmJobData {
   repoFullName: string;
 }
 
+export interface EvalJobData {
+  evalId: number;
+}
+
 const redisUrl = process.env.REDIS_URL;
 if (!redisUrl) {
   throw new Error("REDIS_URL is not set");
@@ -32,6 +37,7 @@ const sandboxTeardownQueue = new Queue<SandboxTeardownJobData>(SANDBOX_TEARDOWN_
   connection: queueConnection,
 });
 const repoMapWarmQueue = new Queue<RepoMapWarmJobData>(REPO_MAP_WARM_QUEUE_NAME, { connection: queueConnection });
+const evalQueue = new Queue<EvalJobData>(EVAL_QUEUE_NAME, { connection: queueConnection });
 
 export async function enqueueRunJob(runId: number): Promise<void> {
   await runQueue.add("process-run", { runId });
@@ -52,4 +58,10 @@ export async function enqueueRepoMapWarmJob(orgId: number, repoFullName: string)
     { orgId, repoFullName },
     { jobId: `${orgId}-${repoFullName}`, removeOnComplete: true, removeOnFail: { count: 100 } },
   );
+}
+
+// Own queue rather than the run queue: an eval job would otherwise wait behind ~60s agent
+// runs, and grading should start when the user clicks Evaluate.
+export async function enqueueEvalJob(evalId: number): Promise<void> {
+  await evalQueue.add("process-eval", { evalId });
 }

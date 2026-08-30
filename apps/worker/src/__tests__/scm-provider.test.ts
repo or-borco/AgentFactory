@@ -12,6 +12,7 @@ vi.mock("@agentfactory/db", () => ({ listConnections: (orgId: number) => listCon
 const {
   buildPullRequestBody,
   cloneIntoSandbox,
+  fetchCommitRangeDiff,
   fetchIssue,
   openDraftPullRequest,
   parseIssueReference,
@@ -44,6 +45,27 @@ function fakeSandbox(chunks: OutputChunk[]): SandboxProvider {
     destroy: vi.fn(),
     exists: vi.fn(),
     resetMemory: vi.fn(),
+  };
+}
+
+// Same as fakeSandbox, but keeps the argv it was called with so a test can assert on the
+// shell script the caller actually built.
+function capturingSandbox(chunks: OutputChunk[]): { sandbox: SandboxProvider; script: () => string } {
+  let captured = "";
+  return {
+    sandbox: {
+      create: vi.fn(),
+      exec: async function* (_id: string, argv: string[]) {
+        captured = argv[argv.length - 1];
+        for (const chunk of chunks) yield chunk;
+      },
+      writeFiles: vi.fn(),
+      readWorkspace: vi.fn(),
+      destroy: vi.fn(),
+      exists: vi.fn(),
+      resetMemory: vi.fn(),
+    } as unknown as SandboxProvider,
+    script: () => captured,
   };
 }
 
@@ -240,6 +262,50 @@ describe("pushChangesIfDirty", () => {
       pushed: true,
       changedFiles: ["src/foo.ts", "README.md"],
     });
+  });
+
+  it("reports the commit range this push added to the branch", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const base = "1".repeat(40);
+    const head = "2".repeat(40);
+    const sandbox = fakeSandbox([
+      { stream: "stdout", data: `BASE_SHA:${base}\nHEAD_SHA:${head}\n` },
+      { stream: "stdout", data: "PUSH_OK\n" },
+    ]);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toMatchObject({
+      pushed: true,
+      commitRange: { baseSha: base, headSha: head },
+    });
+  });
+
+  it("asks the sandbox for both ends of the range before and after committing", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const { sandbox, script } = capturingSandbox([{ stream: "stdout", data: "NO_CHANGES\n" }]);
+    await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    expect(script()).toContain("BASE_SHA:");
+    expect(script()).toContain("HEAD_SHA:");
+  });
+
+  it("omits the commit range when the sandbox reported no shas", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
+    const result = await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    expect(result.pushed).toBe(true);
+    expect(result.commitRange).toBeUndefined();
+  });
+
+  it("omits the commit range when nothing was pushed", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const sandbox = fakeSandbox([
+      { stream: "stdout", data: `BASE_SHA:${"3".repeat(40)}\n` },
+      { stream: "stdout", data: "NO_CHANGES\n" },
+    ]);
+    const result = await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    expect(result.pushed).toBe(false);
+    expect(result.commitRange).toBeUndefined();
   });
 
   it("throws when the push fails", async () => {
@@ -471,6 +537,84 @@ describe("resolveDefaultBranchSha", () => {
     );
 
     await expect(resolveDefaultBranchSha(1, "acme-org/platform")).resolves.toBeUndefined();
+  });
+});
+
+describe("fetchCommitRangeDiff", () => {
+  beforeEach(() => {
+    process.env.GITHUB_APP_ID = "12345";
+    process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete process.env.GITHUB_APP_ID;
+    delete process.env.GITHUB_APP_PRIVATE_KEY;
+  });
+
+  const target = {
+    cloneUrl: "https://x-access-token:ghs@github.com/acme-org/platform.git",
+    branch: "agent/session-12",
+    repoFullName: "acme-org/platform",
+    installationId: 999,
+  };
+  const RANGE = { baseSha: "a".repeat(40), headSha: "b".repeat(40) };
+
+  function tokenResponse() {
+    return new Response(JSON.stringify({ token: "ghs_diff" }), { status: 200 });
+  }
+
+  it("compares the two shas directly and returns the diff", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(new Response("diff --git a/x b/x\n+added\n", { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchCommitRangeDiff(target, RANGE)).resolves.toBe("diff --git a/x b/x\n+added\n");
+
+    // Shas, not the branch name: the branch has moved on if a later run pushed to it. They are
+    // hex, so no encoding question arises — the pitfall that made the branch-based compare
+    // unsafe cannot recur here.
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      `https://api.github.com/repos/acme-org/platform/compare/${RANGE.baseSha}...${RANGE.headSha}`,
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer ghs_diff",
+          Accept: "application/vnd.github.v3.diff",
+        }),
+      }),
+    );
+  });
+
+  it("returns an empty diff as a string, never undefined — no result can read as a never-committed signal", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(new Response("", { status: 200 })),
+    );
+    // "" and not undefined: the caller decides whether a run committed from its recorded commit
+    // range, and nothing this function returns may be mistaken for that answer.
+    await expect(fetchCommitRangeDiff(target, RANGE)).resolves.toBe("");
+  });
+
+  it("raises on a 404 — a recorded range whose commits are gone is unavailable, never never-committed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(tokenResponse())
+        .mockResolvedValueOnce(new Response("Not Found", { status: 404 })),
+    );
+    await expect(fetchCommitRangeDiff(target, RANGE)).rejects.toThrow(/compare failed: 404/);
+  });
+
+  it("raises on any other error status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(new Response("boom", { status: 500 })),
+    );
+    await expect(fetchCommitRangeDiff(target, RANGE)).rejects.toThrow(/compare failed: 500/);
   });
 });
 

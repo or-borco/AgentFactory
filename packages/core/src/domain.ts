@@ -218,6 +218,15 @@ export type RunStatus =
   | "failed"
   | "cancelled";
 
+// Exactly what one run added to the session's branch: `baseSha` is where the branch stood
+// before this run pushed, `headSha` where it stood after. Recorded at push time because
+// nothing else can reconstruct it later — a session's branch accumulates every run's work,
+// so the branch tip alone cannot say which commits belong to which run.
+export interface RunCommitRange {
+  baseSha: string;
+  headSha: string;
+}
+
 export interface Run {
   id: ID;
   sessionId: ID;
@@ -229,6 +238,9 @@ export interface Run {
   tokensUsed: number;
   budgetExceeded?: boolean;
   workspaceSnapshot?: Record<string, string>;
+  // Set only when this run actually pushed commits. Absent means either "this run committed
+  // nothing" or "this run predates the field" — `workspaceSnapshot` distinguishes the two.
+  commitRange?: RunCommitRange;
   model?: ModelSpec;
   createdAt: ISODateTime;
   finishedAt?: ISODateTime;
@@ -266,6 +278,60 @@ export interface RunPrompt {
   // forces prompt_hash and prompt_segments to be written together, so the type
   // admits the state the database can actually hold rather than fabricating "".
   promptHash?: string;
+}
+
+// ── Run evals ────────────────────────────────────────────────────────────────
+// One row per judge invocation — a run can be evaluated more than once, so this
+// is its own entity, never a column on Run (the task page polls Run on a timer;
+// see the workspaceSnapshot over-fetch lesson).
+
+export type EvalStatus = "queued" | "running" | "done" | "failed";
+// "overridden": the instruction genuinely did not govern this run, because the user's own
+// request contradicted it. Distinct from "pass" (which claims compliance) and from "fail"
+// (which blames the agent for obeying the person operating it) — and, like "unclear", it
+// does not score. See 2026-08-27-eval-request-aware-judging-design.md.
+export type EvalVerdict = "pass" | "fail" | "unclear" | "overridden";
+// What the judge graded: the branch's diff when the run committed, otherwise the
+// run's final assistant message. Stored so no score is ambiguous about its input.
+export type EvalArtefactKind = "diff" | "final_message";
+
+export interface EvalRequirement {
+  text: string;
+  verdict: EvalVerdict;
+  // A quoted line from the artefact (or a brief statement of what is absent).
+  evidence: string;
+}
+
+export interface EvalLayerResult {
+  // PromptSegment id — "team_context" | "agent_system_prompt" in practice.
+  segmentId: string;
+  requirements: EvalRequirement[];
+}
+
+export interface RunEvalResult {
+  artefactKind: EvalArtefactKind;
+  layers: EvalLayerResult[];
+  // passed / decided requirements, 0..1; "unclear" and "overridden" verdicts are excluded
+  // from both sides, and the score is 0 when nothing was decided.
+  score: number;
+  // True when the artefact exceeded the judge's size cap and was cut before grading. Optional
+  // so rows stored before this field existed keep parsing as undefined (falsy); a truncated
+  // grading must never render identically to a complete one on the card.
+  truncated?: boolean;
+}
+
+export interface RunEval {
+  id: ID;
+  orgId: ID;
+  runId: ID;
+  status: EvalStatus;
+  result?: RunEvalResult;
+  // Which model graded — scores from different judges are not comparable.
+  judgeModelId?: string;
+  // Machine-readable failure reason code; only set when status is "failed".
+  error?: string;
+  createdAt: string;
+  completedAt?: string;
 }
 
 export interface Artifact {
