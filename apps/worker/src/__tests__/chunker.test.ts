@@ -111,6 +111,35 @@ describe("chunkDocument", () => {
     }
   });
 
+  it("hard-splits a bullet list with no blank lines without cutting any bullet mid-word", () => {
+    // Reproduces a spike finding: a long un-blank-line-separated bullet list is one paragraph to
+    // the chunker (no `\n\s*\n` inside it), so it goes through splitOversized. Words vary in
+    // length (unlike the evenly-spaced filler fixture above) so a fixed-stride cut is very likely
+    // to land inside a word unless boundaries are snapped to whitespace.
+    const bullets = Array.from(
+      { length: 60 },
+      (_, i) => `- item number ${i} carries a moderately descriptive label so the line has heft`,
+    ).join("\n");
+    const prefix = "Handbook › Big";
+
+    const chunks = chunkDocument("Handbook", `# Big\n\n${bullets}`);
+    const bodies = chunks.map((chunk) => bodyOf(chunk.text, prefix));
+
+    expect(bodies.length).toBeGreaterThan(1);
+    expect(bodies.join("").length).toBeGreaterThan(bullets.length); // overlap is real, not lost text
+
+    // Every window's start and end must fall on a whitespace boundary within the source text, and
+    // the source itself must never have been mangled (each body is a verbatim substring of it).
+    for (const body of bodies) {
+      const at = bullets.indexOf(body);
+      expect(at).toBeGreaterThanOrEqual(0);
+      const before = bullets[at - 1];
+      const after = bullets[at + body.length];
+      expect(before === undefined || /\s/.test(before)).toBe(true);
+      expect(after === undefined || /\s/.test(after)).toBe(true);
+    }
+  });
+
   it("returns no chunks for an empty or whitespace-only document", () => {
     expect(chunkDocument("Handbook", "")).toEqual([]);
     expect(chunkDocument("Handbook", "   \n\n  \n")).toEqual([]);

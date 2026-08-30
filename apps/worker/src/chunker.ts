@@ -42,23 +42,61 @@ function splitByHeadings(source: string): Section[] {
   return sections;
 }
 
+// The index of the first whitespace character at or after `from`, or `text.length` if the rest
+// of the string has no whitespace at all (i.e. it runs to the end as one token). Shared by
+// overlapTail and splitOversized so both snap to word boundaries the same way.
+function nextWhitespaceFrom(text: string, from: number): number {
+  const boundary = text.slice(from).search(/\s/);
+  return boundary === -1 ? text.length : from + boundary;
+}
+
 // The tail carried into the next window, trimmed forward to the first whitespace so a window
 // never opens mid-word — a half-token is noise to the embedder.
 function overlapTail(text: string): string {
   if (text.length <= CHUNK_OVERLAP_CHARS) return text;
-  const tail = text.slice(-CHUNK_OVERLAP_CHARS);
-  const boundary = tail.search(/\s/);
-  return boundary === -1 ? tail : tail.slice(boundary + 1);
+  const tailStart = text.length - CHUNK_OVERLAP_CHARS;
+  const boundary = nextWhitespaceFrom(text, tailStart);
+  return boundary >= text.length ? text.slice(tailStart) : text.slice(boundary + 1);
 }
 
-// A single paragraph bigger than the target has no internal boundary to respect, so it is cut on
-// a fixed stride. Consecutive windows share exactly CHUNK_OVERLAP_CHARS.
+// A cut at `index` is clean (falls on a word boundary) iff the character just before it is
+// whitespace or the index sits at a string boundary — i.e. it does not land inside a token.
+function isCleanBoundary(text: string, index: number): boolean {
+  return index <= 0 || index >= text.length || /\s/.test(text[index - 1]);
+}
+
+// Snap a window's start forward past any partial word: if `index` doesn't already sit right
+// after whitespace (or at the very start), skip forward to the next whitespace and start right
+// after it — the same move overlapTail makes for the packed-paragraph overlap case.
+function snapStart(text: string, index: number): number {
+  if (isCleanBoundary(text, index)) return index;
+  const boundary = nextWhitespaceFrom(text, index);
+  return boundary >= text.length ? index : boundary + 1;
+}
+
+// Snap a window's end forward past a partial word: if the cut at `index` would land inside a
+// token (the char right at index is not whitespace and the char before it isn't either), extend
+// forward to the next whitespace so the window ends on a whole word instead of cutting it.
+function snapEnd(text: string, index: number): number {
+  if (index >= text.length || isCleanBoundary(text, index) || /\s/.test(text[index])) return index;
+  return nextWhitespaceFrom(text, index);
+}
+
+// A single paragraph bigger than the target has no internal boundary to respect at the target
+// stride, so it is cut on a fixed stride but every boundary is snapped forward to the nearest
+// whitespace so a window never opens or closes mid-word. Consecutive windows share roughly (not
+// always exactly, once snapping shifts a boundary) CHUNK_OVERLAP_CHARS.
 function splitOversized(paragraph: string): string[] {
   const step = CHUNK_TARGET_CHARS - CHUNK_OVERLAP_CHARS;
   const windows: string[] = [];
-  for (let start = 0; start < paragraph.length; start += step) {
-    windows.push(paragraph.slice(start, start + CHUNK_TARGET_CHARS));
-    if (start + CHUNK_TARGET_CHARS >= paragraph.length) break;
+  let start = 0;
+  while (start < paragraph.length) {
+    const actualStart = snapStart(paragraph, start);
+    const nominalEnd = actualStart + CHUNK_TARGET_CHARS;
+    const actualEnd = nominalEnd >= paragraph.length ? paragraph.length : snapEnd(paragraph, nominalEnd);
+    windows.push(paragraph.slice(actualStart, actualEnd));
+    if (actualEnd >= paragraph.length) break;
+    start = actualStart + step;
   }
   return windows;
 }
