@@ -93,6 +93,47 @@ describe("chunkDocument", () => {
     expect(chunks.map((chunk) => chunk.chunkIdx)).toEqual(chunks.map((_, i) => i));
   });
 
+  it("never emits a body longer than the target, even through the oversized-paragraph split path", () => {
+    // Regression case: a paragraph with a long whitespace-free run (a base64 data URI, a long
+    // URL, a minified line, or a stretch of CJK text) used to make snapEnd search forward for a
+    // whitespace character with no bound at all. Against 042b138's version of splitOversized this
+    // paragraph produced one ~5750-character window (5.75x the target) followed by a tiny orphan
+    // — snapEnd walked clean past the target all the way to " tail" near the very end. The fix
+    // bounds that forward search to SNAP_LOOKAHEAD_CHARS, so a run this long forces a hard cut
+    // instead of an unbounded one.
+    const oversized = `${"word ".repeat(150)}${"B".repeat(5000)} tail words here`;
+    const prefix = "Handbook › Big";
+
+    const chunks = chunkDocument("Handbook", `# Big\n\n${oversized}`);
+    const bodies = chunks.map((chunk) => bodyOf(chunk.text, prefix));
+
+    expect(bodies.length).toBeGreaterThan(2); // pre-fix code collapsed this into ~2 windows
+    for (const body of bodies) {
+      expect(body.length).toBeLessThanOrEqual(CHUNK_TARGET_CHARS);
+    }
+    // The full source text must still be recoverable from the windows (plus overlap), i.e. no
+    // content silently dropped by the hard cut through the whitespace-free run.
+    expect(bodies.join("").length).toBeGreaterThanOrEqual(oversized.length);
+  });
+
+  it("hard-cuts through a whitespace-free run rather than growing a window without bound", () => {
+    // A single paragraph that is one long token throughout (e.g. CJK text with no ASCII spaces,
+    // or a minified line) has no whitespace to snap to at all. Every window must still respect
+    // the target: the fix's fallback is a hard cut at the nominal boundary, not an unbounded scan
+    // to the next (nonexistent) whitespace.
+    const oneLongToken = "字".repeat(3500);
+    const prefix = "Handbook › CJK";
+
+    const chunks = chunkDocument("Handbook", `# CJK\n\n${oneLongToken}`);
+    const bodies = chunks.map((chunk) => bodyOf(chunk.text, prefix));
+
+    expect(bodies.length).toBeGreaterThan(1);
+    for (const body of bodies) {
+      expect(body.length).toBeLessThanOrEqual(CHUNK_TARGET_CHARS);
+    }
+    expect(bodies.join("").length).toBeGreaterThanOrEqual(oneLongToken.length);
+  });
+
   it("hard-splits a single paragraph larger than the target, with overlapping windows", () => {
     const oversized = filler("z", 400); // 1889 characters, one paragraph, no blank lines
     const prefix = "Handbook › Big";
