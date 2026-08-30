@@ -101,6 +101,34 @@ export default function TaskDetailPage() {
     }
   }, [messages, runStatus, rawEvents]);
 
+  const pollRun = useCallback(
+    (id: number, sessionId: number) => {
+      const tick = () => {
+        setTimeout(async () => {
+          const [run, events] = await Promise.all([
+            apiFetch<Run>(`/api/runs/${id}`),
+            apiFetch<RawEvent[]>(`/api/sessions/${sessionId}/events`).catch(() => [] as RawEvent[]),
+          ]);
+          setRunStatus(run.status);
+          setRawEvents(events);
+          setSessionRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]));
+          if (run.status === "done") {
+            await loadMessages(sessionId);
+            if (run.workspaceSnapshot && Object.keys(run.workspaceSnapshot).length > 0) {
+              setWorkspace(run.workspaceSnapshot);
+              setSelectedFile(Object.keys(run.workspaceSnapshot)[0] ?? null);
+              setActiveTab("files");
+            }
+          } else if (run.status !== "failed" && run.status !== "cancelled") {
+            tick();
+          }
+        }, 1500);
+      };
+      tick();
+    },
+    [loadMessages],
+  );
+
   // Load existing messages, workspace, and events when a session is linked.
   useEffect(() => {
     if (!session) return;
@@ -131,34 +159,6 @@ export default function TaskDetailPage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.id]);
-
-  const pollRun = useCallback(
-    (id: number, sessionId: number) => {
-      const tick = () => {
-        setTimeout(async () => {
-          const [run, events] = await Promise.all([
-            apiFetch<Run>(`/api/runs/${id}`),
-            apiFetch<RawEvent[]>(`/api/sessions/${sessionId}/events`).catch(() => [] as RawEvent[]),
-          ]);
-          setRunStatus(run.status);
-          setRawEvents(events);
-          setSessionRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]));
-          if (run.status === "done") {
-            await loadMessages(sessionId);
-            if (run.workspaceSnapshot && Object.keys(run.workspaceSnapshot).length > 0) {
-              setWorkspace(run.workspaceSnapshot);
-              setSelectedFile(Object.keys(run.workspaceSnapshot)[0] ?? null);
-              setActiveTab("files");
-            }
-          } else if (run.status !== "failed" && run.status !== "cancelled") {
-            tick();
-          }
-        }, 1500);
-      };
-      tick();
-    },
-    [loadMessages],
-  );
 
   const pollRunStatus = useCallback((id: number, sessionId: number) => {
     const tick = () => {
