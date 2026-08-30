@@ -51,6 +51,9 @@ export function ContextDocumentsPanel({ teamId, members }: { teamId: number; mem
   }, [teamId]);
 
   useEffect(() => {
+    // Initial fetch on mount; load() is async, so any setState it makes lands in a later
+    // microtask, not synchronously here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
   }, [load]);
 

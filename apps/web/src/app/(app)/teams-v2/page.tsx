@@ -8,6 +8,7 @@ import type { Agent, OverflowPolicy, Team } from "@agentfactory/core";
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
 import { parseSharedContext, serializeSharedContext } from "@/lib/shared-context";
 import { SharedContextPanels } from "@/components/SharedContextPanels";
+import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
 import { apiFetch } from "@/lib/api-client";
 
 const selectClassName =
@@ -65,6 +66,15 @@ function MembersTab({ team }: { team: Team }) {
             await updateTeamSharedContext(team.id, serializeSharedContext(updated));
           }}
         />
+      </section>
+
+      {/* Team documents — the retrieved half of the context story; shared context above is the
+          always-injected half. */}
+      <section>
+        <h3 className="mb-3 text-sm font-semibold text-[var(--color-neutral-300)]">
+          {t("teamsV2.documentsSection")}
+        </h3>
+        <ContextDocumentsPanel teamId={team.id} members={orgMembers} />
       </section>
     </div>
   );
