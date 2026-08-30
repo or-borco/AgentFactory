@@ -6,6 +6,7 @@
       "runtimeExecutable": "/opt/homebrew/bin/node",
       "runtimeArgs": ["/opt/homebrew/bin/pnpm", "--filter", "@agentfactory/web", "dev"],
       "port": 3000,
+      "autoPort": true,
       "env": {
         "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
       }
