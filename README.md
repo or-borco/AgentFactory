@@ -52,6 +52,11 @@ cp apps/worker/.env.example apps/worker/.env.local
 - `apps/worker/.env.local` — same `DATABASE_URL`/`REDIS_URL`, plus `ANTHROPIC_API_KEY` and the
   same `GITHUB_APP_ID`/`GITHUB_APP_PRIVATE_KEY` as the web app (the worker mints its own GitHub
   clone tokens directly). Also sets `SANDBOX_IMAGE`, used in step 6.
+- **Both files** need the same `BLOB_STORE` and `BLOB_DIR`. Uploaded team documents are written by
+  the web app and read by the worker, and a relative `BLOB_DIR` resolves against the repo root
+  (not the process's working directory), so the default `BLOB_DIR=.blobs` means `<repo>/.blobs`
+  for both processes. The directory is created on first upload and is gitignored. Set
+  `BLOB_STORE=s3` with `S3_BUCKET` instead if you have a bucket.
 
 ## 4. Run database migrations and seed data
 
