@@ -104,8 +104,11 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
 
       {/* min-h-0 overrides the flex item's default min-height:auto, which otherwise lets tall
           content inflate this row past h-screen and hand scrolling to the document instead of
-          to this element's own overflow-y-auto — pinning the sidebar as intended. */}
-      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto">{children}</main>
+          to this element's own overflow-y-auto. overscroll-contain stops the remaining scroll
+          chaining: once a trackpad/wheel gesture exhausts main's own scroll range, the browser
+          would otherwise keep bubbling the leftover momentum to the document, dragging this
+          whole layout (sidebar included) along with it. Both are needed to pin the sidebar. */}
+      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain">{children}</main>
 
       {toast && (
         <div
