@@ -153,6 +153,25 @@ const MIXED_ASIDE_EVAL: RunEval = {
   },
 };
 
+function makeEval(overrides: Partial<RunEval>): RunEval {
+  return {
+    id: 31,
+    orgId: 1,
+    runId: 7,
+    status: "done",
+    judgeModelId: "claude-sonnet-5",
+    createdAt: "2026-08-26T11:00:00.000Z",
+    completedAt: "2026-08-26T11:00:20.000Z",
+    result: {
+      artefactKind: "diff",
+      score: 0.5,
+      layers: [],
+      ...overrides.result,
+    },
+    ...overrides,
+  } as RunEval;
+}
+
 function renderPanel(runs: Run[] = DONE_RUN) {
   return render(
     <I18nProvider>
@@ -385,5 +404,60 @@ describe("RunEvalPanel", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reports retrieval precision alongside the instruction score", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      makeEval({
+        result: {
+          artefactKind: "diff",
+          layers: [],
+          score: 1,
+          retrieval: {
+            precision: 2 / 3,
+            chunks: [
+              { itemTitle: "Auth handbook", chunkIdx: 2, relevant: true, reason: "Covers session expiry." },
+              { itemTitle: "Runbooks", chunkIdx: 0, relevant: false, reason: "Unrelated to the request." },
+              { itemTitle: "Auth handbook", chunkIdx: 3, relevant: true, reason: "Covers the refresh path." },
+            ],
+          },
+        },
+      }),
+    ]);
+
+    renderPanel();
+
+    expect(await screen.findByText("2 of 3 retrieved excerpts were relevant")).toBeInTheDocument();
+  });
+
+  it("says so when excerpts were retrieved and none were relevant", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      makeEval({
+        result: {
+          artefactKind: "diff",
+          layers: [],
+          score: 1,
+          retrieval: {
+            precision: 0,
+            chunks: [{ itemTitle: "Runbooks", chunkIdx: 0, relevant: false, reason: "Unrelated." }],
+          },
+        },
+      }),
+    ]);
+
+    renderPanel();
+
+    expect(await screen.findByText("0 of 1 retrieved excerpts were relevant")).toBeInTheDocument();
+  });
+
+  // The absent field means "no retrieved layer on this run" — every eval stored before this
+  // shipped, and every run for a team with no documents. It must render nothing at all.
+  it("says nothing about retrieval when the run had no retrieved layer", async () => {
+    apiFetchMock.mockResolvedValueOnce([makeEval({ result: { artefactKind: "diff", layers: [], score: 1 } })]);
+
+    renderPanel();
+
+    await screen.findByText(/no checkable/);
+    expect(screen.queryByText(/retrieved excerpts/)).not.toBeInTheDocument();
   });
 });
