@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Run } from "@agentfactory/core";
+import type { Run, RunContextRetrieval } from "@agentfactory/core";
 import { I18nProvider } from "../../lib/i18n/context";
 import { RunContextPanel } from "../RunContextPanel";
 
@@ -235,5 +235,107 @@ describe("RunContextPanel — the retrieved-documents layer", () => {
       expect(screen.getByText("Not included: no document excerpt matched this task")).toBeInTheDocument(),
     );
     expect(screen.getByText("Not included: document retrieval failed for this run")).toBeInTheDocument();
+  });
+
+  const RETRIEVALS: RunContextRetrieval[] = [
+    {
+      id: 2,
+      runId: 7,
+      itemId: 4,
+      itemTitle: "Engineering handbook",
+      chunkIdx: 3,
+      rank: 1,
+      score: 0.82,
+      createdAt: "2026-08-27T10:00:00.000Z",
+    },
+    // itemId is absent: the document was deleted after this run, and the title snapshot is
+    // the only thing left saying where the excerpt came from.
+    {
+      id: 3,
+      runId: 7,
+      itemTitle: "Incident runbooks",
+      chunkIdx: 0,
+      rank: 2,
+      score: 0.41,
+      createdAt: "2026-08-27T10:00:00.000Z",
+    },
+  ];
+
+  it("lists the documents behind the excerpts when the layer is expanded", async () => {
+    mockApi(RETRIEVAL_PROMPT, RETRIEVALS);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/runs/7/retrievals"));
+
+    fireEvent.click(screen.getByText("Retrieved documents"));
+
+    expect(screen.getByText("Retrieved from")).toBeInTheDocument();
+    expect(screen.getByText("Engineering handbook — chunk 3 · 82% match")).toBeInTheDocument();
+    expect(
+      screen.getByText("Incident runbooks (document deleted) — chunk 0 · 41% match"),
+    ).toBeInTheDocument();
+  });
+
+  it("orders the documents by retrieval rank, not by arrival order", async () => {
+    mockApi(RETRIEVAL_PROMPT, [RETRIEVALS[1], RETRIEVALS[0]]);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/runs/7/retrievals"));
+    fireEvent.click(screen.getByText("Retrieved documents"));
+
+    const rows = screen.getAllByText(/% match$/);
+    expect(rows.map((el) => el.textContent)).toEqual([
+      "Engineering handbook — chunk 3 · 82% match",
+      "Incident runbooks (document deleted) — chunk 0 · 41% match",
+    ]);
+  });
+
+  // Most runs have no documents at all. The second request must not be issued for them, and
+  // must not be issued for a layer that was omitted either — there is nothing to explain.
+  it("never asks for provenance rows for a run without a retrieved layer", async () => {
+    mockApi(PROMPT);
+    const { rerender } = renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Platform preamble")).toBeInTheDocument());
+
+    rerender(
+      <I18nProvider>
+        <RunContextPanel runs={RUNS} />
+      </I18nProvider>,
+    );
+    expect(apiFetchMock.mock.calls.every(([path]) => !String(path).endsWith("/retrievals"))).toBe(true);
+  });
+
+  it("never asks for provenance rows when the layer was omitted", async () => {
+    mockApi({
+      runId: 7,
+      promptHash: "d".repeat(64),
+      segments: [{ id: "retrieved_context", text: "", omittedReason: "no_relevant_chunks" }],
+    });
+    renderPanel();
+
+    await waitFor(() =>
+      expect(screen.getByText("Not included: no document excerpt matched this task")).toBeInTheDocument(),
+    );
+    expect(apiFetchMock.mock.calls.every(([path]) => !String(path).endsWith("/retrievals"))).toBe(true);
+  });
+
+  it("says so when the provenance rows can't be loaded, still showing the excerpts", async () => {
+    apiFetchMock.mockImplementation((path: string) =>
+      String(path).endsWith("/retrievals")
+        ? Promise.reject(new Error("boom"))
+        : Promise.resolve(RETRIEVAL_PROMPT),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/runs/7/retrievals"));
+
+    fireEvent.click(screen.getByText("Retrieved documents"));
+
+    expect(screen.getByText("Couldn't load which documents were retrieved.")).toBeInTheDocument();
+    expect(screen.getByText(/Rotate service credentials once per quarter/)).toBeInTheDocument();
   });
 });

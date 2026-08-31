@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PromptSegment, Run, RunPrompt, RunStatus } from "@agentfactory/core";
+import type { PromptSegment, Run, RunContextRetrieval, RunPrompt, RunStatus } from "@agentfactory/core";
 import { EmptyState } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
@@ -41,6 +41,7 @@ const TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set<RunStatus>(["done", "f
 const byteLength = (text: string): number => new TextEncoder().encode(text).length;
 
 type PromptFetchState = { status: "error" } | { status: "loaded"; prompt: RunPrompt | null };
+type RetrievalsFetchState = { status: "error" } | { status: "loaded"; retrievals: RunContextRetrieval[] };
 
 export function RunContextPanel({ runs }: { runs: Run[] }) {
   const { t } = useTranslation();
@@ -57,6 +58,8 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
   // second request for the same run — a plain state check can't do this without itself
   // triggering a synchronous setState-in-effect, which the lint rule (rightly) disallows.
   const requestedRunIds = useRef<Set<number>>(new Set());
+  const [retrievalsByRun, setRetrievalsByRun] = useState<Map<number, RetrievalsFetchState>>(new Map());
+  const requestedRetrievalRunIds = useRef<Set<number>>(new Set());
 
   // The run on screen: an explicit pick if there is one, otherwise the newest run — recomputed
   // every render, so it starts working the moment `runs` arrives rather than being frozen at mount.
@@ -108,6 +111,35 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
     () => (prompt ? prompt.segments.reduce((sum, s) => sum + byteLength(s.text), 0) : 0),
     [prompt],
   );
+
+  const setRetrievalsState = useCallback((runId: number, next: RetrievalsFetchState) => {
+    setRetrievalsByRun((prev) => new Map(prev).set(runId, next));
+  }, []);
+
+  // The retrieved layer is the only one with a second, out-of-band record: which document each
+  // excerpt came from. It is asked for only when that layer actually contributed text (a team
+  // with no indexed documents has an omitted layer and no rows), only once per run, and never
+  // polled — the worker writes these rows before it writes the run's segments, so a segment on
+  // screen implies its rows are already there.
+  const hasRetrievedLayer = Boolean(
+    prompt?.segments.some((segment) => segment.id === RETRIEVED_CONTEXT_ID && segment.text !== ""),
+  );
+
+  useEffect(() => {
+    if (shownRunId === null || !hasRetrievedLayer) return;
+    if (requestedRetrievalRunIds.current.has(shownRunId)) return;
+    requestedRetrievalRunIds.current.add(shownRunId);
+    apiFetch<RunContextRetrieval[]>(`/api/runs/${shownRunId}/retrievals`)
+      .then((retrievals) => setRetrievalsState(shownRunId, { status: "loaded", retrievals }))
+      .catch(() => {
+        // Never terminal: the excerpts themselves are already rendered, and a later status
+        // change re-asks for the provenance behind them.
+        requestedRetrievalRunIds.current.delete(shownRunId);
+        setRetrievalsState(shownRunId, { status: "error" });
+      });
+  }, [shownRunId, hasRetrievedLayer, setRetrievalsState]);
+
+  const retrievalsState = shownRunId !== null ? retrievalsByRun.get(shownRunId) : undefined;
 
   if (runs.length === 0) {
     return <EmptyState icon="📄" title={t("taskDetail.contextNoRuns")} subtitle={t("taskDetail.contextNoRunsSub")} />;
@@ -228,6 +260,7 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
               totalBytes={totalBytes}
               expanded={expandedIds.has(`${segment.id}-${index}`)}
               onToggle={() => toggleExpanded(`${segment.id}-${index}`)}
+              retrievals={segment.id === RETRIEVED_CONTEXT_ID ? retrievalsState : undefined}
             />
           ))}
         </div>
@@ -255,11 +288,15 @@ function SegmentRow({
   totalBytes,
   expanded,
   onToggle,
+  retrievals,
 }: {
   segment: PromptSegment;
   totalBytes: number;
   expanded: boolean;
   onToggle: () => void;
+  // Only ever supplied for the retrieved_context row; undefined everywhere else, and undefined
+  // for that row too until its request resolves.
+  retrievals?: RetrievalsFetchState;
 }) {
   const { t } = useTranslation();
   const bytes = byteLength(segment.text);
@@ -298,6 +335,7 @@ function SegmentRow({
           </span>
         </button>
       )}
+      {expanded && !omitted && retrievals && <ProvenanceGroup state={retrievals} />}
       {expanded && !omitted && (
         <pre
           style={{
@@ -315,6 +353,59 @@ function SegmentRow({
           {segment.text}
         </pre>
       )}
+    </div>
+  );
+}
+
+// Which documents the excerpts above came from. The row text itself is not repeated here — it is
+// already in the <pre> below, verbatim, exactly as the model received it.
+function ProvenanceGroup({ state }: { state: RetrievalsFetchState }) {
+  const { t } = useTranslation();
+
+  if (state.status === "error") {
+    return (
+      <p
+        style={{
+          borderTop: "1px solid var(--color-divider)",
+          color: "var(--color-status-amber)",
+          fontSize: 12,
+          margin: 0,
+          padding: "10px 14px",
+        }}
+      >
+        {t("taskDetail.contextSourcesLoadError")}
+      </p>
+    );
+  }
+
+  // Rank is the retrieval order the worker persisted; sorting here means the display never
+  // depends on the order the rows happen to come back in.
+  const rows = [...state.retrievals].sort((a, b) => a.rank - b.rank);
+  if (rows.length === 0) return null;
+
+  return (
+    <div style={{ borderTop: "1px solid var(--color-divider)", padding: "10px 14px" }}>
+      <p style={{ color: "var(--color-neutral-500)", fontSize: 12, fontWeight: 600, margin: "0 0 6px" }}>
+        {t("taskDetail.contextSourcesLabel")}
+      </p>
+      {rows.map((row) => {
+        // itemId is null once the document is deleted; the title snapshot survives, which is
+        // the whole point of storing it.
+        const title =
+          row.itemId === undefined
+            ? `${row.itemTitle} (${t("taskDetail.contextSourceDeleted")})`
+            : row.itemTitle;
+        const meta = t("taskDetail.contextSourceMeta", {
+          index: row.chunkIdx,
+          percent: (row.score * 100).toFixed(0),
+        });
+        // One flat string per row so the whole line is a single text node.
+        return (
+          <p key={row.id} style={{ color: "var(--color-neutral-400)", fontSize: 12, margin: "0 0 4px" }}>
+            {`${title} — ${meta}`}
+          </p>
+        );
+      })}
     </div>
   );
 }

@@ -289,6 +289,10 @@ const en = {
     contextLayerRetrievedContext: "Retrieved documents",
     contextLayerAgentSystemPrompt: "Agent system prompt",
     contextLayerUnknown: "Additional context",
+    contextSourcesLabel: "Retrieved from",
+    contextSourceMeta: "chunk {index} · {percent}% match",
+    contextSourceDeleted: "document deleted",
+    contextSourcesLoadError: "Couldn't load which documents were retrieved.",
     evalTab: "Evaluation",
     evalIntro:
       "Score this run's deliverable against the context it was given. The judge reads the human-authored prompt layers, extracts the checkable instructions, and verdicts each one with evidence.",
