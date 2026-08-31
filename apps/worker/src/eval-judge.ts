@@ -544,6 +544,60 @@ export function validateJudgeRetrieval(input: unknown): EvalRetrievalResult | un
   return { chunks, precision: chunks.length === 0 ? 0 : relevantCount / chunks.length };
 }
 
+// The ground truth for how many excerpts context-retrieval.ts actually injected: it numbers
+// each kept chunk "[Excerpt N]" (see context-retrieval.ts's body builder) precisely so this
+// module has something real to count against, rather than trusting the judge's own tally of
+// its `retrieval` array. Matches on the raw `retrieved` string, before escapeDelimiters and the
+// MAX_RETRIEVED_CHARS slice in buildJudgeUserMessage — truncation there is a backstop far above
+// the live RETRIEVAL_BUDGET_BYTES budget, so it is not expected to ever cut a marker off, and
+// this module has no cheaper way to recover the pre-truncation count than the caller telling it.
+const EXCERPT_MARKER = /\[Excerpt \d+\]/g;
+
+export function countInjectedExcerpts(retrieved: string): number {
+  return (retrieved.match(EXCERPT_MARKER) ?? []).length;
+}
+
+// Observability only — this never changes what gets stored or how a run is scored (see the
+// module-level note on judgeCompliance below). It exists because two judge failure modes were
+// measured (a one-off manual experiment, not yet instrumented) and neither leaves any trace
+// today:
+//
+//   1. The judge omits the `retrieval` field entirely even though a retrieved block was sent
+//      and the system prompt instructs it to always report one. Today `retrieval === undefined`
+//      in the stored result is indistinguishable from the correct, expected case — no retrieved
+//      block at all — so a real degradation reads identically to normal operation. Measured at
+//      roughly 80% of real calls that had a block to grade.
+//   2. The judge reports a real `retrieval` array, but it covers only a subset of the excerpts
+//      that were actually injected (or, in principle, more than were injected). A precision
+//      computed over the judge's own arbitrary subset is displayed as if it were authoritative
+//      over everything that was sent.
+//
+// Neither case is corrected here — the underlying judge-reliability gap is a known, documented
+// open issue, not something a warning can fix — but both are now visible and countable from
+// worker logs instead of silently invisible.
+export function logRetrievalCoverageGaps(
+  retrieved: string | undefined,
+  retrieval: EvalRetrievalResult | undefined,
+): void {
+  // Mirrors buildJudgeUserMessage's own gate for whether a <retrieved> block was actually sent
+  // (retrieved !== undefined && retrieved.trim() !== ""): a caller passing undefined or blank
+  // text is the legitimate "nothing to grade" case, and a missing/mismatched `retrieval` there
+  // is expected, not a degradation.
+  if (retrieved === undefined || retrieved.trim() === "") return;
+  if (retrieval === undefined) {
+    console.warn(
+      "eval-judge: a retrieved block was sent but the judge's report_eval call omitted the retrieval field",
+    );
+    return;
+  }
+  const injected = countInjectedExcerpts(retrieved);
+  if (retrieval.chunks.length !== injected) {
+    console.warn(
+      `eval-judge: retrieval count mismatch — ${injected} excerpts were injected but the judge reported ${retrieval.chunks.length}`,
+    );
+  }
+}
+
 // The score is computed here, never trusted from the model.
 export function computeResult(
   layers: EvalLayerResult[],
@@ -595,5 +649,6 @@ export async function judgeCompliance(
   // and this measures the platform's retrieval. Averaging them would make a good agent look worse
   // for a bad retrieval it had no control over.
   const retrieval = validateJudgeRetrieval(toolUse.input);
+  logRetrievalCoverageGaps(retrieved, retrieval);
   return { result: retrieval ? { ...result, retrieval } : result, judgeModelId: DEFAULT_MODEL_ID };
 }

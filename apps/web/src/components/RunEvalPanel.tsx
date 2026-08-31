@@ -344,10 +344,16 @@ function EvalCard({
             </p>
           )}
           {runEval.result.retrieval?.chunks
-            .filter((chunk) => !chunk.relevant)
-            .map((chunk) => (
+            .map((chunk, i) => ({ chunk, i }))
+            .filter(({ chunk }) => !chunk.relevant)
+            .map(({ chunk, i }) => (
+              // Keyed on the array index, not chunk.chunkIdx: chunkIdx is the judge's own
+              // report of an excerpt's ordinal, and while the "[Excerpt N]" markers
+              // context-retrieval.ts now writes give it something real to read, a judge that
+              // still misreports it can repeat an (itemTitle, chunkIdx) pair — the array index
+              // is a React key with no such dependency on the model getting it right.
               <p
-                key={`${chunk.itemTitle}-${chunk.chunkIdx}`}
+                key={i}
                 style={{ fontSize: 12, color: "var(--color-neutral-500)", margin: "0 0 4px" }}
               >
                 {`${t("taskDetail.evalRetrievalIrrelevant")}: ${chunk.itemTitle} — chunk ${chunk.chunkIdx} · ${chunk.reason}`}

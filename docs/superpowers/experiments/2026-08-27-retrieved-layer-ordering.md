@@ -1,7 +1,7 @@
 # Retrieved layer ordering and retrieval precision — experiment
 
 **Date:** 2026-08-31 / 2026-09-01
-**Status:** concluded — ordering confirmed, tuning constants left unchanged pending a re-measurement
+**Status:** concluded — shipped ordering not falsified (inconclusive at this task shape, no evidence it is worse), tuning constants left unchanged pending a re-measurement
 
 ## What prompted this
 
@@ -136,9 +136,14 @@ to do; the honest conclusion is that the tuning question is **currently unanswer
 in either direction. Re-run Step 2's data collection once the judge-reliability gap has its own
 fix, then revisit `SIMILARITY_FLOOR` and `RETRIEVAL_K` against the fuller sample.
 
-The layer ordering itself is a separate question from the tuning constants and **is** decided by
-Part 2: `prompt-composition.ts`'s shipped order is confirmed, not reversed. No code change follows
-from this experiment.
+The layer ordering itself is a separate question from the tuning constants. Part 2's result is
+directional, not a confirmation: Arm B (ARCHITECTURE.md order) scored no worse than the shipped
+order on every check and one sample better overall, on one task shape with no imperative
+team-context instruction and no long tool transcript — see
+[What this does not establish](#what-this-does-not-establish). That is not evidence the shipped
+order is wrong, so `prompt-composition.ts` is unchanged. It is also not the same strength of
+result as the original 10/10-vs-1/10 finding, so this should not be cited as "the ordering
+question is closed."
 
 ## What this does not establish
 

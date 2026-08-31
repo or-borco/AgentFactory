@@ -128,8 +128,13 @@ export async function retrieveContext(
 
     // The budget governs retrieved document bytes; the heading and the trailing separator are
     // fixed overhead outside it. Each chunk already carries its own "<title> › <heading path>"
-    // prefix from the chunker, so the layer needs no per-chunk framing of its own.
-    const body = kept.map((m) => m.text).join("\n\n");
+    // prefix from the chunker, but nothing previously numbered the excerpts themselves — the
+    // eval judge's report_eval tool asks for a chunkIdx per excerpt with no real information to
+    // report one from, so it guessed, and the UI displayed the guess as if it identified a real
+    // stored retrieval row. "[Excerpt N]" makes the ordinal the judge is asked to report an
+    // actual, visible fact about the text it was shown, in the same order as `kept` — the order
+    // eval-judge.ts's countInjectedExcerpts counts against.
+    const body = kept.map((m, i) => `[Excerpt ${i}] ${m.text}`).join("\n\n");
     return {
       text: `${RETRIEVED_CONTEXT_HEADING}\n\n${body}\n\n${RETRIEVED_CONTEXT_FOOTER}\n\n---\n\n`,
       retrievals: kept.map((m, i) => ({

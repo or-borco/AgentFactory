@@ -491,4 +491,36 @@ describe("RunEvalPanel", () => {
     await screen.findByText(/no checkable/);
     expect(screen.queryByText("1 of 1 retrieved excerpts were relevant")).not.toBeInTheDocument();
   });
+
+  // chunkIdx is the judge's own report of an excerpt's ordinal — even with the "[Excerpt N]"
+  // markers context-retrieval.ts now sends it something real to read, a judge that still
+  // misreports it can repeat an (itemTitle, chunkIdx) pair. The irrelevant-chunk list keys on
+  // the array index instead, so a repeated pair must render both lines without React logging a
+  // duplicate-key warning.
+  it("renders two irrelevant chunks with the same itemTitle and chunkIdx without a duplicate-key warning", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    apiFetchMock.mockResolvedValueOnce([
+      makeEval({
+        result: {
+          artefactKind: "diff",
+          layers: [],
+          score: 1,
+          retrieval: {
+            precision: 0,
+            chunks: [
+              { itemTitle: "Runbooks", chunkIdx: 0, relevant: false, reason: "First unrelated excerpt." },
+              { itemTitle: "Runbooks", chunkIdx: 0, relevant: false, reason: "Second unrelated excerpt." },
+            ],
+          },
+        },
+      }),
+    ]);
+
+    renderPanel();
+
+    expect(await screen.findByText("Not relevant: Runbooks — chunk 0 · First unrelated excerpt.")).toBeInTheDocument();
+    expect(screen.getByText("Not relevant: Runbooks — chunk 0 · Second unrelated excerpt.")).toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining("same key"), expect.anything());
+    consoleError.mockRestore();
+  });
 });
