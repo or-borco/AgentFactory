@@ -5,6 +5,7 @@ import {
   insertContentBlob,
   listTeamContextItemsForOrg,
 } from "@agentfactory/db";
+import { enqueueContextIngestJob } from "@agentfactory/queue";
 import { createBlobStore } from "@agentfactory/storage";
 import { requireAuthContext } from "@/server/auth";
 
@@ -119,5 +120,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
       { status: 409 },
     );
   }
+  // Enqueued after the row exists, never before: the job's first act is to load the item by
+  // id, and jobId is String(item.id), so an id that isn't in the table yet is a job that
+  // logs "not found" and drops itself. The response does not wait for ingestion — the item
+  // comes back at "pending" and the panel polls it to "indexed".
+  await enqueueContextIngestJob(item.id);
   return NextResponse.json(item, { status: 201 });
 }
