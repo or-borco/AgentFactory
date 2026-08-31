@@ -20,6 +20,7 @@ vi.mock("../embedder", () => ({
 const {
   RETRIEVAL_BUDGET_BYTES,
   RETRIEVAL_K,
+  RETRIEVED_CONTEXT_FOOTER,
   RETRIEVED_CONTEXT_HEADING,
   SIMILARITY_FLOOR,
   buildRetrievalQuery,
@@ -130,7 +131,7 @@ describe("retrieveContext", () => {
 
     expect(result.omittedReason).toBeUndefined();
     expect(result.text).toBe(
-      `${RETRIEVED_CONTEXT_HEADING}\n\nPage the on-call.\n\nOpen an incident channel.\n\n---\n\n`,
+      `${RETRIEVED_CONTEXT_HEADING}\n\nPage the on-call.\n\nOpen an incident channel.\n\n${RETRIEVED_CONTEXT_FOOTER}\n\n---\n\n`,
     );
     expect(result.retrievals).toEqual([
       { itemId: 3, itemTitle: "Runbooks", chunkIdx: 4, rank: 1, score: 0.81 },
@@ -204,7 +205,7 @@ describe("retrieveContext", () => {
     });
 
     expect(result.retrievals.map((r) => r.chunkIdx)).toEqual([0]);
-    expect(result.text).not.toContain("b");
+    expect(result.text).not.toContain("b".repeat(100));
   });
 
   it("omits with no_relevant_chunks for an empty query, without touching anything", async () => {

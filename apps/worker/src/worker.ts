@@ -246,7 +246,15 @@ const runWorker = new Worker<RunJobData>(
       // the shared-context indicator. These rows, plus the retrieved text already preserved
       // verbatim in runs.prompt_segments, carry the whole provenance story.
       if (retrieved.retrievals.length > 0) {
-        await insertRunContextRetrievals(retrieved.retrievals.map((r) => ({ ...r, runId })));
+        // Provenance only — never lets a write failure (e.g. a source document deleted between
+        // search and insert, violating the item_id FK on a fresh row) fail an otherwise-successful
+        // run. The prompt has already been persisted above; retrieval stays fail-soft end to end,
+        // matching retrieveContext's own catch in context-retrieval.ts.
+        try {
+          await insertRunContextRetrievals(retrieved.retrievals.map((r) => ({ ...r, runId })));
+        } catch (err) {
+          console.error(`Failed to record context retrievals for run ${runId}:`, err);
+        }
       }
       mark("prompt composed - handing off to model");
 
