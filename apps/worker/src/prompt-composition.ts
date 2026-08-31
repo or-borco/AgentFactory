@@ -117,8 +117,8 @@ export function buildRetrievedContextSegment(
   return { id: "retrieved_context", text: "", omittedReason: "no_relevant_chunks" };
 }
 
-// Order per ARCHITECTURE.md §3, narrowed to this repo's actual scope: no retrieved context
-// items, no skills index yet. Two rules decide the arrangement:
+// Order per ARCHITECTURE.md §3, narrowed to this repo's actual scope: no skills index yet. Three
+// rules decide the arrangement:
 //
 // 1. Platform-authored constraints lead. The preamble and the environment brief describe hard
 //    facts about the sandbox, so they must not read as something team context or the agent's
@@ -127,6 +127,12 @@ export function buildRetrievedContextSegment(
 //    them. The repo map is descriptive bulk (capped at 16 KB, routinely 60-70% of the whole
 //    prompt); team context and the agent's system prompt are what a human actually wrote and
 //    expects to be obeyed. Putting the map between them buries the team's instructions.
+// 3. Retrieved document excerpts sit between the two. They are human-written prose but
+//    machine-SELECTED bulk, and they are more task-specific than the repo map, so they go after
+//    the map and before team context. This supersedes ARCHITECTURE.md §3, which puts retrieved
+//    items after shared_context — that ordering predates the measurement below. Rule 3 is a
+//    hypothesis, not a measurement: re-running the layer-ordering experiment with a retrieved
+//    layer present is a PR 7 concern.
 //
 // Rule 2 is measured, not assumed. The repo map used to sit between team context and the agent
 // prompt. Replaying a real run's exact layers against claude-haiku-4-5 and scoring the output
@@ -149,12 +155,14 @@ export function composeSystemPrompt(
   environment: string,
   teamContext: PromptSegment,
   repoMap: PromptSegment,
+  retrievedContext: PromptSegment,
   agentSystemPrompt: string,
 ): ComposedPrompt {
   const segments: PromptSegment[] = [
     { id: "platform_preamble", text: PLATFORM_PREAMBLE },
     { id: "environment", text: environment },
     repoMap,
+    retrievedContext,
     teamContext,
     { id: "agent_system_prompt", text: agentSystemPrompt },
   ];

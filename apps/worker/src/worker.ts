@@ -13,7 +13,7 @@ import {
   type RunJobData,
   type SandboxTeardownJobData,
 } from "@agentfactory/queue";
-import { type ModelSpec, type Session, buildModelSpec, formatSharedContextForPrompt } from "@agentfactory/core";
+import { type ModelSpec, type PromptSegment, type Session, buildModelSpec, formatSharedContextForPrompt } from "@agentfactory/core";
 import {
   clearSessionSandboxId,
   createEvent,
@@ -24,7 +24,8 @@ import {
   getRun,
   getSession,
   getTaskBySessionId,
-  getTeam,
+  getTeamForOrg,
+  insertRunContextRetrievals,
   setSessionSandboxId,
   touchSessionActivity,
   updateRunCommitRange,
@@ -36,6 +37,7 @@ import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { type AgentTurnResult, InsufficientCreditError, PromptTooLongError, runAgentTurn } from "./agent-runtime";
 import {
   buildRepoMapSegment,
+  buildRetrievedContextSegment,
   buildTeamContextSegment,
   composeSystemPrompt,
   formatEnvironmentForPrompt,
@@ -53,6 +55,7 @@ import {
 } from "./scm-provider";
 import { resolveEscalation } from "./model-escalation";
 import { ensureRepoMap, warmRepoMap } from "./repo-map";
+import { buildRetrievalQuery, retrieveContext, type RetrievedContext } from "./context-retrieval";
 import { processEvalJob } from "./eval-runner";
 import { ingestContextItem } from "./context-ingest";
 
@@ -175,7 +178,13 @@ const runWorker = new Worker<RunJobData>(
         }
       }
 
-      const team = agent.teamId ? await getTeam(agent.teamId) : undefined;
+      // Org-scoped, not getTeam(agent.teamId). PATCH /api/agents/[agentId] is unscoped by
+      // acknowledged design debt and updateAgent writes teamId unchecked, so an agent in org A
+      // can be pointed at a team in org B. For shared_context alone that leaks one fixed 64 KB
+      // blob; with retrieval layered on top it becomes a repeatable query interface over
+      // another tenant's corpus, driven by a task title and description the attacker wrote. A
+      // cross-org pointer resolves to undefined here and BOTH layers are omitted as "no_team".
+      const team = agent.teamId ? await getTeamForOrg(agent.teamId, agent.orgId) : undefined;
       const teamContextPrefix = team ? formatSharedContextForPrompt(team.sharedContext) : "";
 
       if (teamContextPrefix) {
@@ -183,6 +192,18 @@ const runWorker = new Worker<RunJobData>(
           included: true,
           preview: teamContextPrefix.slice(0, 150).trim(),
         });
+      }
+
+      // Retrieval never fails a run: every path inside retrieveContext returns an omitted
+      // segment with a reason and logs the error itself, exactly as ensureRepoMap degrades to
+      // "". No team means it is not called at all — the embedder is never loaded.
+      let retrieved: RetrievedContext = { text: "", retrievals: [] };
+      if (team) {
+        retrieved = await retrieveContext(
+          team.id,
+          buildRetrievalQuery(task?.title, task?.description, triggeringMessage?.content),
+        );
+        mark(retrieved.text ? "context retrieval (chunks injected)" : "context retrieval (nothing injected)");
       }
 
       // Everything below is already known to the worker before the turn starts; stating it in the
@@ -194,10 +215,22 @@ const runWorker = new Worker<RunJobData>(
         branch: workspace?.branch,
         hasIssueContext: issueContext.length > 0,
       });
+      // buildRetrievedContextSegment maps the three states a pair of booleans can describe. A
+      // retrieval that threw is the fourth, and only retrieveContext knows about it, so its
+      // reason is used directly for that one case.
+      const retrievedContextSegment: PromptSegment =
+        retrieved.omittedReason === "retrieval_failed"
+          ? { id: "retrieved_context", text: "", omittedReason: "retrieval_failed" }
+          : buildRetrievedContextSegment(
+              Boolean(team),
+              retrieved.omittedReason !== "no_indexed_documents",
+              retrieved.text,
+            );
       const composed = composeSystemPrompt(
         environment,
         buildTeamContextSegment(Boolean(team), teamContextPrefix),
         buildRepoMapSegment(Boolean(task?.codebase), repoMap),
+        retrievedContextSegment,
         agent.systemPrompt,
       );
       const systemPrompt = composed.prompt;
@@ -207,6 +240,14 @@ const runWorker = new Worker<RunJobData>(
         promptHash: hashPrompt(composed.prompt),
         promptSegments: composed.segments,
       });
+      // Provenance for what was injected. Deliberately NOT a run event: the task page keys
+      // context_included by runId with last-write-wins (tasks/[taskId]/page.tsx:222-235, whose
+      // comment records the one-per-run assumption), so a second event would silently overwrite
+      // the shared-context indicator. These rows, plus the retrieved text already preserved
+      // verbatim in runs.prompt_segments, carry the whole provenance story.
+      if (retrieved.retrievals.length > 0) {
+        await insertRunContextRetrievals(retrieved.retrievals.map((r) => ({ ...r, runId })));
+      }
       mark("prompt composed - handing off to model");
 
       attemptModel = task?.model ?? agent.model;

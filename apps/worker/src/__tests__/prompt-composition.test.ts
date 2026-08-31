@@ -13,81 +13,89 @@ import {
 
 const teamSeg = (text: string): PromptSegment => ({ id: "team_context", text });
 const repoSeg = (text: string): PromptSegment => ({ id: "repo_map", text });
+const retrievedSeg = (text: string): PromptSegment => ({ id: "retrieved_context", text });
 
 describe("composeSystemPrompt", () => {
   // Human-authored instruction layers (team context, agent prompt) must come AFTER the
-  // machine-generated repo map. Measured, not stylistic: see composeSystemPrompt's comment and
+  // machine-generated bulk. Measured, not stylistic: see composeSystemPrompt's comment and
   // docs/superpowers/experiments/2026-08-26-prompt-layer-ordering.md — the old arrangement, with
-  // the map between them, produced fully-compliant output 1/10 vs 10/10 for this one.
-  it("orders platform preamble, then environment, then repo map, then team context, then agent system prompt", () => {
+  // the map between them, produced fully-compliant output 1/10 vs 10/10 for this one. Retrieved
+  // excerpts are human-written prose but machine-SELECTED bulk, and more task-specific than the
+  // repo map, so they sit after the map and before team context.
+  it("orders preamble, environment, repo map, retrieved context, team context, agent system prompt", () => {
     const { prompt } = composeSystemPrompt(
       "## Environment\n\nCheckout is at /workspace.\n\n---\n\n",
       teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
       repoSeg("## Repo Map\n\nThis is a monorepo.\n\n---\n\n"),
+      retrievedSeg("## Retrieved Context\n\nPage the on-call.\n\n---\n\n"),
       "You are a reviewer.",
     );
 
     const preambleIndex = prompt.indexOf(PLATFORM_PREAMBLE);
     const environmentIndex = prompt.indexOf("Checkout is at /workspace.");
-    const teamIndex = prompt.indexOf("Use pnpm.");
     const repoMapIndex = prompt.indexOf("This is a monorepo.");
+    const retrievedIndex = prompt.indexOf("Page the on-call.");
+    const teamIndex = prompt.indexOf("Use pnpm.");
     const agentIndex = prompt.indexOf("You are a reviewer.");
 
     expect(preambleIndex).toBe(0);
     expect(environmentIndex).toBeGreaterThan(preambleIndex);
     expect(repoMapIndex).toBeGreaterThan(environmentIndex);
-    expect(teamIndex).toBeGreaterThan(repoMapIndex);
+    expect(retrievedIndex).toBeGreaterThan(repoMapIndex);
+    expect(teamIndex).toBeGreaterThan(retrievedIndex);
     expect(agentIndex).toBeGreaterThan(teamIndex);
   });
 
   it("still leads with the platform preamble when every optional section is empty", () => {
-    const { prompt } = composeSystemPrompt("", teamSeg(""), repoSeg(""), "You are a reviewer.");
+    const { prompt } = composeSystemPrompt("", teamSeg(""), repoSeg(""), retrievedSeg(""), "You are a reviewer.");
     expect(prompt).toBe(PLATFORM_PREAMBLE + "You are a reviewer.");
   });
 
-  it("omits the repo map cleanly when empty, leaving team context adjacent to the agent prompt", () => {
+  it("omits the repo map and retrieved context cleanly, leaving team context adjacent to the agent prompt", () => {
     const { prompt } = composeSystemPrompt(
       "",
       teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
       repoSeg(""),
+      retrievedSeg(""),
       "You are a reviewer.",
     );
     expect(prompt).toBe(PLATFORM_PREAMBLE + "## Team Context\n\nUse pnpm.\n\n---\n\n" + "You are a reviewer.");
   });
 
   // The load-bearing property, stated directly rather than as a sequence: whatever else moves,
-  // nothing machine-generated may come between the two human-authored instruction layers. That
-  // separation is what measurably cost compliance (1/10 vs 10/10) before this ordering.
-  it("never separates team context from the agent's own prompt with generated bulk", () => {
+  // nothing machine-generated or machine-selected may come between the two human-authored
+  // instruction layers. That separation is what measurably cost compliance (1/10 vs 10/10).
+  it("never separates team context from the agent's own prompt with generated or retrieved bulk", () => {
     const { prompt } = composeSystemPrompt(
       "## Environment\n\n---\n\n",
       teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
       repoSeg("## Repo Map\n\nGENERATED-BULK\n\n---\n\n"),
+      retrievedSeg("## Retrieved Context\n\nRETRIEVED-BULK\n\n---\n\n"),
       "You are a reviewer.",
     );
 
-    const between = prompt.slice(
-      prompt.indexOf("Use pnpm."),
-      prompt.indexOf("You are a reviewer."),
-    );
+    const between = prompt.slice(prompt.indexOf("Use pnpm."), prompt.indexOf("You are a reviewer."));
     expect(between).not.toContain("GENERATED-BULK");
+    expect(between).not.toContain("RETRIEVED-BULK");
   });
 
   // The core guarantee of the whole feature: the stored record IS the sent prompt.
   it("returns segments whose joined texts are byte-identical to the prompt, for every omission combination", () => {
     const cases = [
-      { team: teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"), repo: repoSeg("## Repo Map\n\nMonorepo.\n\n---\n\n") },
-      { team: { id: "team_context", text: "", omittedReason: "no_team" as const }, repo: repoSeg("## Repo Map\n\nMonorepo.\n\n---\n\n") },
-      { team: teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"), repo: { id: "repo_map", text: "", omittedReason: "no_codebase" as const } },
-      { team: { id: "team_context", text: "", omittedReason: "empty_shared_context" as const }, repo: { id: "repo_map", text: "", omittedReason: "repo_map_pending" as const } },
+      { team: teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"), repo: repoSeg("## Repo Map\n\nMonorepo.\n\n---\n\n"), retrieved: retrievedSeg("## Retrieved Context\n\nExcerpt.\n\n---\n\n") },
+      { team: { id: "team_context", text: "", omittedReason: "no_team" as const }, repo: repoSeg("## Repo Map\n\nMonorepo.\n\n---\n\n"), retrieved: { id: "retrieved_context", text: "", omittedReason: "no_team" as const } },
+      { team: teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"), repo: { id: "repo_map", text: "", omittedReason: "no_codebase" as const }, retrieved: { id: "retrieved_context", text: "", omittedReason: "no_indexed_documents" as const } },
+      { team: { id: "team_context", text: "", omittedReason: "empty_shared_context" as const }, repo: { id: "repo_map", text: "", omittedReason: "repo_map_pending" as const }, retrieved: { id: "retrieved_context", text: "", omittedReason: "retrieval_failed" as const } },
+      { team: teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"), repo: repoSeg(""), retrieved: { id: "retrieved_context", text: "", omittedReason: "no_relevant_chunks" as const } },
     ];
     for (const c of cases) {
-      const { segments, prompt } = composeSystemPrompt("## Environment\n\n---\n\n", c.team, c.repo, "You are a reviewer.");
+      const { segments, prompt } = composeSystemPrompt("## Environment\n\n---\n\n", c.team, c.repo, c.retrieved, "You are a reviewer.");
       expect(segments.map((s) => s.text).join("")).toBe(prompt);
       expect(segments.map((s) => s.id)).toEqual([
         "platform_preamble",
         "environment",
         "repo_map",
+        "retrieved_context",
         "team_context",
         "agent_system_prompt",
       ]);
@@ -99,11 +107,13 @@ describe("composeSystemPrompt", () => {
       "",
       { id: "team_context", text: "", omittedReason: "no_team" },
       { id: "repo_map", text: "", omittedReason: "no_codebase" },
+      { id: "retrieved_context", text: "", omittedReason: "retrieval_failed" },
       "You are a reviewer.",
     );
     const byId = new Map(segments.map((s) => [s.id, s]));
     expect(byId.get("team_context")?.omittedReason).toBe("no_team");
     expect(byId.get("repo_map")?.omittedReason).toBe("no_codebase");
+    expect(byId.get("retrieved_context")?.omittedReason).toBe("retrieval_failed");
     expect(byId.get("platform_preamble")?.omittedReason).toBeUndefined();
     expect(byId.get("environment")?.omittedReason).toBeUndefined();
     expect(byId.get("agent_system_prompt")?.omittedReason).toBeUndefined();
