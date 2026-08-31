@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Team } from "@agentfactory/core";
 import { db } from "../client";
 import { teams } from "../schema";
@@ -36,6 +36,19 @@ export async function listTeams(orgId: number): Promise<Team[]> {
 
 export async function getTeam(id: number): Promise<Team | undefined> {
   const [row] = await db.select().from(teams).where(eq(teams.id, id));
+  return row ? toTeam(row) : undefined;
+}
+
+// The org-scoped read. getTeam above stays for callers that already resolved the org (the web
+// app's team routes go through requireAuthContext first); this one is for the worker, which
+// gets its team id from agents.team_id — a column an unscoped PATCH lets a caller point at
+// another org's team. Same shape as deleteTeamContextItemForOrg's scoping, as a column
+// predicate rather than a join because teams carries org_id directly.
+export async function getTeamForOrg(id: number, orgId: number): Promise<Team | undefined> {
+  const [row] = await db
+    .select()
+    .from(teams)
+    .where(and(eq(teams.id, id), eq(teams.orgId, orgId)));
   return row ? toTeam(row) : undefined;
 }
 

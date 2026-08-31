@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { db } from "../../client.js";
 import { orgs } from "../../schema.js";
-import { createTeam, getTeam, listTeams, updateTeam } from "../../repositories/teams.js";
+import { createTeam, getTeam, getTeamForOrg, listTeams, updateTeam } from "../../repositories/teams.js";
 import { insertOrg, insertTeam } from "../fixtures.js";
 
 describe("teams repository", () => {
@@ -68,5 +68,28 @@ describe("teams repository", () => {
 
     const cleared = await updateTeam(team.id, { defaultCodebase: "" });
     expect(cleared?.defaultCodebase).toBeUndefined();
+  });
+
+  it("getTeamForOrg returns the team when the org matches", async () => {
+    const org = await insertOrg();
+    const team = await createTeam(org.id, "Platform", "Core services");
+    await expect(getTeamForOrg(team.id, org.id)).resolves.toEqual(team);
+  });
+
+  // agents.team_id is settable across orgs today (PATCH /api/agents/[agentId] is unscoped by
+  // acknowledged design debt), so this is the state an attacker can actually reach. getTeam
+  // hands back the other org's team; getTeamForOrg is what closes it.
+  it("getTeamForOrg returns undefined for a team in another org, where getTeam does not", async () => {
+    const orgA = await insertOrg();
+    const orgB = await insertOrg();
+    const teamB = await insertTeam(orgB.id, { name: "Org B team" });
+
+    await expect(getTeam(teamB.id)).resolves.toBeDefined();
+    await expect(getTeamForOrg(teamB.id, orgA.id)).resolves.toBeUndefined();
+  });
+
+  it("getTeamForOrg returns undefined for a team id that does not exist", async () => {
+    const org = await insertOrg();
+    await expect(getTeamForOrg(999_999, org.id)).resolves.toBeUndefined();
   });
 });
