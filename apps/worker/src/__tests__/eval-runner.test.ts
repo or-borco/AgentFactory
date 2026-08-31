@@ -61,6 +61,7 @@ describe("processEvalJob", () => {
       [{ id: "agent_system_prompt", text: "You are a reviewer." }],
       { kind: "diff", text: "+line" },
       "write the release notes for the last 5 PRs",
+      undefined,
     );
     expect(deps.getTriggeringMessage).toHaveBeenCalledWith(55);
     // The whole Run, not just its id: the artefact rule reads the run's recorded commit range
@@ -164,7 +165,7 @@ describe("processEvalJob", () => {
     await processEvalJob(1, deps);
 
     expect(deps.getTriggeringMessage).not.toHaveBeenCalled();
-    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined, undefined);
     expect(deps.completeEval).toHaveBeenCalledWith(1, RESULT, "claude-sonnet-5");
     expect(deps.failEval).not.toHaveBeenCalled();
   });
@@ -173,7 +174,7 @@ describe("processEvalJob", () => {
     const deps = makeDeps({ getTriggeringMessage: vi.fn().mockResolvedValue(undefined) });
     await processEvalJob(1, deps);
 
-    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined, undefined);
     expect(deps.completeEval).toHaveBeenCalledWith(1, RESULT, "claude-sonnet-5");
     expect(deps.failEval).not.toHaveBeenCalled();
   });
@@ -185,7 +186,7 @@ describe("processEvalJob", () => {
     const deps = makeDeps({ getTriggeringMessage: vi.fn().mockResolvedValue({ content: blank }) });
     await processEvalJob(1, deps);
 
-    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined, undefined);
     expect(deps.completeEval).toHaveBeenCalledWith(1, RESULT, "claude-sonnet-5");
     expect(deps.failEval).not.toHaveBeenCalled();
   });
@@ -197,7 +198,7 @@ describe("processEvalJob", () => {
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(processEvalJob(1, deps)).resolves.toBeUndefined();
 
-    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+    expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined, undefined);
     expect(deps.completeEval).toHaveBeenCalledWith(1, RESULT, "claude-sonnet-5");
     expect(deps.failEval).not.toHaveBeenCalled();
 
@@ -208,5 +209,58 @@ describe("processEvalJob", () => {
       expect.any(Error),
     );
     logged.mockRestore();
+  });
+
+  it("passes the retrieved layer to the judge without grading it as an instruction layer", async () => {
+    const deps = makeDeps({
+      getRunPrompt: vi.fn().mockResolvedValue({
+        segments: [
+          { id: "team_context", text: "Always add a changelog entry." },
+          { id: "retrieved_context", text: "Auth handbook › Sessions\n\nSessions expire after 30 days." },
+          { id: "agent_system_prompt", text: "You are a backend agent." },
+        ],
+      }),
+    });
+
+    await processEvalJob(1, deps);
+
+    expect(deps.judge).toHaveBeenCalledTimes(1);
+    const [gradedSegments, , , retrieved] = vi.mocked(deps.judge).mock.calls[0];
+    // The excerpt layer is handed over as reference material...
+    expect(retrieved).toBe("Auth handbook › Sessions\n\nSessions expire after 30 days.");
+    // ...and is never one of the layers whose requirements get extracted and scored.
+    expect(gradedSegments.map((segment: PromptSegment) => segment.id)).toEqual([
+      "team_context",
+      "agent_system_prompt",
+    ]);
+  });
+
+  it("passes undefined when the run had no retrieved layer", async () => {
+    const deps = makeDeps({
+      getRunPrompt: vi.fn().mockResolvedValue({
+        segments: [{ id: "team_context", text: "Always add a changelog entry." }],
+      }),
+    });
+
+    await processEvalJob(1, deps);
+
+    expect(vi.mocked(deps.judge).mock.calls[0][3]).toBeUndefined();
+  });
+
+  // A team with no indexed documents produces an omitted layer: present in the segment list,
+  // empty text. There is nothing to grade, and an empty string must not reach the judge.
+  it("passes undefined when the retrieved layer was omitted", async () => {
+    const deps = makeDeps({
+      getRunPrompt: vi.fn().mockResolvedValue({
+        segments: [
+          { id: "team_context", text: "Always add a changelog entry." },
+          { id: "retrieved_context", text: "", omittedReason: "no_indexed_documents" },
+        ],
+      }),
+    });
+
+    await processEvalJob(1, deps);
+
+    expect(vi.mocked(deps.judge).mock.calls[0][3]).toBeUndefined();
   });
 });

@@ -32,6 +32,7 @@ export interface EvalRunnerDeps {
     segments: PromptSegment[],
     artefact: EvalArtefact,
     request: string | undefined,
+    retrieved: string | undefined,
   ) => Promise<{ result: RunEvalResult; judgeModelId: string }>;
 }
 
@@ -127,6 +128,13 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
       return;
     }
 
+    // Reference material, not an instruction layer — pulled out separately and deliberately
+    // never added to HUMAN_SEGMENT_IDS. An omitted layer (a team with no indexed documents)
+    // has empty text and is normalized to undefined here, so the judge's retrieved block is
+    // omitted rather than sent empty.
+    const retrievedText = segments.find((segment) => segment.id === "retrieved_context")?.text;
+    const retrieved = retrievedText !== undefined && retrievedText.trim() !== "" ? retrievedText : undefined;
+
     // 3. The artefact rule — diff or final message, never a silent fallback.
     const session = await deps.getSession(run.sessionId);
     if (!session) {
@@ -148,7 +156,7 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
 
     // 4-5. One structured-output judge call; store result + judge model, mark done.
     const request = await resolveRequest(evalId, run, deps);
-    const { result, judgeModelId } = await deps.judge(humanSegments, artefact, request);
+    const { result, judgeModelId } = await deps.judge(humanSegments, artefact, request, retrieved);
     await deps.completeEval(evalId, result, judgeModelId);
   } catch (err) {
     console.error(`Eval ${evalId} failed:`, err);
