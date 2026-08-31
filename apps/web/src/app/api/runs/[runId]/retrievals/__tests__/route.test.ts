@@ -68,8 +68,8 @@ describe("GET /api/runs/[runId]/retrievals", () => {
     expect(listRunContextRetrievals).toHaveBeenCalledWith(7);
   });
 
-  // The whole reason this route is org-scoped where prompt/route.ts is not: these rows carry
-  // another team's document titles.
+  // Both routes are org-scoped; this one answers 404 rather than prompt/route.ts's
+  // { segments: null }/200 because these rows carry another team's document titles.
   it("404s a run in another org without reading its retrievals", async () => {
     requireAuthContext.mockResolvedValue({ user: { id: 1 }, orgId: 3 });
     getRun.mockResolvedValue({ id: 7, sessionId: 11 });

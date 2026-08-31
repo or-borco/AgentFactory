@@ -7,9 +7,10 @@ import { requireAuthContext } from "@/server/auth";
 // Like the sibling prompt route it is fetched lazily — and only for a run whose prompt actually
 // carries a retrieved_context layer — and never polled.
 //
-// Unlike the sibling prompt route it IS org-scoped. These rows carry team document titles, which
-// are tenant data, so a cross-org run answers 404 rather than leaking a filename. The lookup is
-// the same runs → sessions → agents walk the evals route uses.
+// Like the sibling prompt route it IS org-scoped, but the two differ in what a cross-org caller
+// sees: these rows carry team document titles, which are tenant data, so a cross-org run answers
+// 404 rather than leaking a filename, where the prompt route returns { segments: null } with 200.
+// The lookup is the same runs → sessions → agents walk the evals route uses.
 async function loadRunForOrg(runId: number, orgId: number): Promise<Run | undefined> {
   if (!Number.isInteger(runId)) return undefined;
   const run = await getRun(runId);

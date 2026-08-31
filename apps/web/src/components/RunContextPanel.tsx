@@ -119,8 +119,8 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
   // The retrieved layer is the only one with a second, out-of-band record: which document each
   // excerpt came from. It is asked for only when that layer actually contributed text (a team
   // with no indexed documents has an omitted layer and no rows), only once per run, and never
-  // polled — the worker writes these rows before it writes the run's segments, so a segment on
-  // screen implies its rows are already there.
+  // polled — the worker writes these provenance rows before it persists the run's prompt segments,
+  // so a retrieved_context segment on screen already implies its rows exist in the database.
   const hasRetrievedLayer = Boolean(
     prompt?.segments.some((segment) => segment.id === RETRIEVED_CONTEXT_ID && segment.text !== ""),
   );
