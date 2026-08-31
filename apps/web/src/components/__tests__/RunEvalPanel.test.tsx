@@ -162,13 +162,13 @@ function makeEval(overrides: Partial<RunEval>): RunEval {
     judgeModelId: "claude-sonnet-5",
     createdAt: "2026-08-26T11:00:00.000Z",
     completedAt: "2026-08-26T11:00:20.000Z",
+    ...overrides,
     result: {
       artefactKind: "diff",
       score: 0.5,
       layers: [],
       ...overrides.result,
     },
-    ...overrides,
   } as RunEval;
 }
 
@@ -459,5 +459,36 @@ describe("RunEvalPanel", () => {
 
     await screen.findByText(/no checkable/);
     expect(screen.queryByText(/retrieved excerpts/)).not.toBeInTheDocument();
+  });
+
+  // Every eval but the newest renders collapsed (index > 0). The retrieval line must fold away
+  // with the rest of the card's detail, like the instruction headline beside it — not float on
+  // its own next to a collapsed card's bare timestamp.
+  it("hides the retrieval line on a collapsed (non-newest) eval card", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      makeEval({
+        id: 31,
+        createdAt: "2026-08-26T12:00:00.000Z",
+        result: { artefactKind: "diff", layers: [], score: 1 },
+      }),
+      makeEval({
+        id: 32,
+        createdAt: "2026-08-26T11:00:00.000Z",
+        result: {
+          artefactKind: "diff",
+          layers: [],
+          score: 1,
+          retrieval: {
+            precision: 1,
+            chunks: [{ itemTitle: "Auth handbook", chunkIdx: 2, relevant: true, reason: "Covers session expiry." }],
+          },
+        },
+      }),
+    ]);
+
+    renderPanel();
+
+    await screen.findByText(/no checkable/);
+    expect(screen.queryByText("1 of 1 retrieved excerpts were relevant")).not.toBeInTheDocument();
   });
 });

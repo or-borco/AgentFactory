@@ -297,7 +297,7 @@ function EvalCard({
         <p style={{ fontWeight: 600, fontSize: 13, color: "var(--color-text)", margin: "8px 0 0" }}>{headline}</p>
       )}
 
-      {runEval.result?.retrieval && (
+      {open && runEval.result?.retrieval && (
         <p style={{ fontSize: 12, color: "var(--color-neutral-400)", margin: "4px 0 0" }}>
           {t("taskDetail.evalRetrievalHeadline", {
             relevant: runEval.result.retrieval.chunks.filter((chunk) => chunk.relevant).length,
