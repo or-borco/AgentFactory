@@ -15,6 +15,7 @@ export * from "./repositories/run-evals";
 export * from "./repositories/events";
 export * from "./repositories/tasks";
 export * from "./repositories/team-context-items";
+export * from "./repositories/run-context-retrievals";
 export * from "./repositories/context-chunks";
 export * from "./repositories/repo-maps";
 export * from "./repositories/content-blobs";

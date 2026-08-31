@@ -4,16 +4,25 @@ import "../setup.js";
 import { db } from "../../client.js";
 import { teams } from "../../schema.js";
 import { insertContentBlob } from "../../repositories/content-blobs.js";
+import { insertContextChunks } from "../../repositories/context-chunks.js";
 import {
+  countIndexedContextItems,
   createTeamContextItem,
   deleteTeamContextItemForOrg,
   getTeamContextItem,
   listTeamContextItemsForOrg,
+  markContextItemIndexed,
 } from "../../repositories/team-context-items.js";
 import { insertOrg, insertTeam, insertUser } from "../fixtures.js";
 
 const SHA_A = "a".repeat(64);
 const SHA_B = "b".repeat(64);
+const MODEL = "Xenova/bge-small-en-v1.5";
+
+// 384 floats, deterministic — matches the pattern used in context-chunks.test.ts.
+function fakeEmbedding(seed: number): number[] {
+  return Array.from({ length: 384 }, (_, i) => Math.sin((seed + 1) * (i + 1)));
+}
 
 // Every item reaches its bytes through the composite (org_id, sha256) FK, so the blob row has to
 // exist first — the same order the upload route uses: put the bytes, then insert the item.
@@ -131,5 +140,75 @@ describe("team-context-items repository", () => {
     await db.delete(teams).where(eq(teams.id, team.id));
 
     await expect(listTeamContextItemsForOrg(team.id, org.id)).resolves.toEqual([]);
+  });
+
+  // countIndexedContextItems now counts context_chunks, not team_context_items rows, so an
+  // "indexed" item only counts once it actually has searchable chunks.
+  it("counts chunks, not indexed items, and only for the given team", async () => {
+    const org = await insertOrg();
+    const team = await insertTeam(org.id);
+    const otherTeam = await insertTeam(org.id);
+
+    await insertContentBlob(org.id, "a".repeat(64), 128, "text/markdown");
+    await insertContentBlob(org.id, "b".repeat(64), 128, "text/markdown");
+    await insertContentBlob(org.id, "c".repeat(64), 128, "text/markdown");
+    const indexed = await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Handbook", sizeBytes: 128,
+      sha256: "a".repeat(64), mime: "text/markdown",
+    });
+    await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Still pending", sizeBytes: 128,
+      sha256: "b".repeat(64), mime: "text/markdown",
+    });
+    const otherTeamItem = await createTeamContextItem({
+      teamId: otherTeam.id, orgId: org.id, title: "Other team handbook", sizeBytes: 128,
+      sha256: "c".repeat(64), mime: "text/markdown",
+    });
+
+    await expect(countIndexedContextItems(team.id)).resolves.toBe(0);
+
+    await markContextItemIndexed(indexed!.id);
+    await markContextItemIndexed(otherTeamItem!.id);
+    await insertContextChunks([
+      {
+        itemId: indexed!.id,
+        teamId: team.id,
+        chunkIdx: 0,
+        text: "Handbook › Deploys\n\nRun pnpm build.",
+        embedding: fakeEmbedding(0),
+        embeddingModel: MODEL,
+      },
+    ]);
+    await insertContextChunks([
+      {
+        itemId: otherTeamItem!.id,
+        teamId: otherTeam.id,
+        chunkIdx: 0,
+        text: "Other team handbook › Intro\n\nWelcome.",
+        embedding: fakeEmbedding(1),
+        embeddingModel: MODEL,
+      },
+    ]);
+
+    await expect(countIndexedContextItems(team.id)).resolves.toBe(1);
+  });
+
+  it("counts zero for a team with no items at all", async () => {
+    const org = await insertOrg();
+    const team = await insertTeam(org.id);
+    await expect(countIndexedContextItems(team.id)).resolves.toBe(0);
+  });
+
+  // The whole point of the fix: an item marked "indexed" that produced zero chunks (e.g. an
+  // empty or whitespace-only upload) must not make the team look searchable.
+  it("counts zero when the only item is indexed but has no chunks", async () => {
+    const { org, team } = await setupTeamWithBlob();
+    const item = await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Empty upload", sizeBytes: 42,
+      sha256: SHA_A, mime: "text/markdown",
+    });
+    await markContextItemIndexed(item!.id);
+
+    await expect(countIndexedContextItems(team.id)).resolves.toBe(0);
   });
 });

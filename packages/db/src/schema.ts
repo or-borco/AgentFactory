@@ -439,6 +439,33 @@ export const contextChunks = pgTable(
   ],
 );
 
+// What retrieval actually injected into one run. Deliberately its own table, never columns on
+// runs: the task page polls runs on a ~1.5s timer and RUN_COLUMNS exists to keep large per-run
+// payloads off that poll, so this is fetched lazily on tab open — the same arrangement as
+// run_evals. No run event is emitted for these rows: the task page keys context_included by
+// runId with last-write-wins, so a second one would overwrite the shared-context indicator.
+export const runContextRetrievals = pgTable(
+  "run_context_retrievals",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    runId: integer("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    // set null, not cascade: deleting a document must not erase the record of the runs it fed.
+    itemId: integer("item_id").references(() => teamContextItems.id, { onDelete: "set null" }),
+    // Snapshot of the document's title at retrieval time — survives the delete above.
+    itemTitle: text("item_title").notNull(),
+    chunkIdx: integer("chunk_idx").notNull(),
+    rank: integer("rank").notNull(),
+    score: doublePrecision("score").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // The only query shape: WHERE run_id = ?, ordered by rank.
+    index("run_context_retrievals_run_id_idx").on(table.runId),
+  ],
+);
+
 // No monthly partitioning yet — ARCHITECTURE.md flags this as "the one table that will hurt"
 // at scale, but partitioning tooling for zero rows is pure overhead. Revisit when it's real.
 export const events = pgTable("events", {
