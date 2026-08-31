@@ -99,6 +99,24 @@ export function buildRepoMapSegment(hasCodebase: boolean, wrapped: string): Prom
   return { id: "repo_map", text: "", omittedReason: hasCodebase ? "repo_map_pending" : "no_codebase" };
 }
 
+// Retrieved-context segment. Three distinguishable "nothing was injected" states, and they are
+// different bugs: no team at all (retrieval never ran), a team that has uploaded nothing that
+// finished indexing, and a team whose documents had nothing above the similarity floor for this
+// task. The fourth state — retrieval threw — is not derivable from these booleans; only
+// retrieveContext knows it, and worker.ts uses its reason directly for that one case.
+export function buildRetrievedContextSegment(
+  hasTeam: boolean,
+  hasIndexedDocuments: boolean,
+  wrapped: string,
+): PromptSegment {
+  if (wrapped) return { id: "retrieved_context", text: wrapped };
+  if (!hasTeam) return { id: "retrieved_context", text: "", omittedReason: "no_team" };
+  if (!hasIndexedDocuments) {
+    return { id: "retrieved_context", text: "", omittedReason: "no_indexed_documents" };
+  }
+  return { id: "retrieved_context", text: "", omittedReason: "no_relevant_chunks" };
+}
+
 // Order per ARCHITECTURE.md §3, narrowed to this repo's actual scope: no retrieved context
 // items, no skills index yet. Two rules decide the arrangement:
 //
