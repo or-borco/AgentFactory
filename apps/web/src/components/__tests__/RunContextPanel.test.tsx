@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Run } from "@agentfactory/core";
+import type { Run, RunContextRetrieval } from "@agentfactory/core";
 import { I18nProvider } from "../../lib/i18n/context";
 import { RunContextPanel } from "../RunContextPanel";
 
@@ -23,6 +23,28 @@ const PROMPT = {
     { id: "agent_system_prompt", text: "You are a reviewer." },
   ],
 };
+
+// A run whose team had indexed documents: the retrieved layer contributed real text.
+const RETRIEVAL_PROMPT = {
+  runId: 7,
+  promptHash: "d".repeat(64),
+  segments: [
+    { id: "repo_map", text: "", omittedReason: "no_codebase" },
+    {
+      id: "retrieved_context",
+      text: "## Retrieved Context\n\nRotate service credentials once per quarter.\n",
+    },
+    { id: "team_context", text: "Ship small PRs.\n" },
+  ],
+};
+
+// Path-aware because a prompt carrying a retrieved layer makes the panel issue a second
+// request; the prompt-only tests above keep using mockResolvedValue.
+function mockApi(prompt: unknown, retrievals: unknown = []) {
+  apiFetchMock.mockImplementation((path: string) =>
+    String(path).endsWith("/retrievals") ? Promise.resolve(retrievals) : Promise.resolve(prompt),
+  );
+}
 
 function renderPanel(runs: Run[] = RUNS) {
   return render(
@@ -173,5 +195,210 @@ describe("RunContextPanel", () => {
     // the tab order and is announced inconsistently).
     expect(screen.queryByRole("button", { name: /Team context/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Platform preamble/ })).toBeInTheDocument();
+  });
+});
+
+describe("RunContextPanel — the retrieved-documents layer", () => {
+  it("names the retrieved layer instead of falling back to the generic label", async () => {
+    mockApi(RETRIEVAL_PROMPT);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    expect(screen.queryByText("Additional context")).not.toBeInTheDocument();
+  });
+
+  it("says the team has no indexed documents when that is why the layer is empty", async () => {
+    mockApi({
+      runId: 7,
+      promptHash: "d".repeat(64),
+      segments: [{ id: "retrieved_context", text: "", omittedReason: "no_indexed_documents" }],
+    });
+    renderPanel();
+
+    await waitFor(() =>
+      expect(screen.getByText("Not included: this team has no indexed documents")).toBeInTheDocument(),
+    );
+  });
+
+  it("distinguishes an empty search from a broken one", async () => {
+    mockApi({
+      runId: 7,
+      promptHash: "d".repeat(64),
+      segments: [
+        { id: "retrieved_context", text: "", omittedReason: "no_relevant_chunks" },
+        { id: "team_context", text: "", omittedReason: "retrieval_failed" },
+      ],
+    });
+    renderPanel();
+
+    await waitFor(() =>
+      expect(screen.getByText("Not included: no document excerpt matched this task")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Not included: document retrieval failed for this run")).toBeInTheDocument();
+  });
+
+  const RETRIEVALS: RunContextRetrieval[] = [
+    {
+      id: 2,
+      runId: 7,
+      itemId: 4,
+      itemTitle: "Engineering handbook",
+      chunkIdx: 3,
+      rank: 1,
+      score: 0.82,
+      createdAt: "2026-08-27T10:00:00.000Z",
+    },
+    // itemId is absent: the document was deleted after this run, and the title snapshot is
+    // the only thing left saying where the excerpt came from.
+    {
+      id: 3,
+      runId: 7,
+      itemTitle: "Incident runbooks",
+      chunkIdx: 0,
+      rank: 2,
+      score: 0.41,
+      createdAt: "2026-08-27T10:00:00.000Z",
+    },
+  ];
+
+  it("lists the documents behind the excerpts when the layer is expanded", async () => {
+    mockApi(RETRIEVAL_PROMPT, RETRIEVALS);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/runs/7/retrievals"));
+
+    fireEvent.click(screen.getByText("Retrieved documents"));
+
+    expect(screen.getByText("Retrieved from")).toBeInTheDocument();
+    expect(screen.getByText("Engineering handbook — chunk 3 · 82% match")).toBeInTheDocument();
+    expect(
+      screen.getByText("Incident runbooks (document deleted) — chunk 0 · 41% match"),
+    ).toBeInTheDocument();
+  });
+
+  it("orders the documents by retrieval rank, not by arrival order", async () => {
+    mockApi(RETRIEVAL_PROMPT, [RETRIEVALS[1], RETRIEVALS[0]]);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/runs/7/retrievals"));
+    fireEvent.click(screen.getByText("Retrieved documents"));
+
+    const rows = screen.getAllByText(/% match$/);
+    expect(rows.map((el) => el.textContent)).toEqual([
+      "Engineering handbook — chunk 3 · 82% match",
+      "Incident runbooks (document deleted) — chunk 0 · 41% match",
+    ]);
+  });
+
+  // Most runs have no documents at all. The second request must not be issued for them, and
+  // must not be issued for a layer that was omitted either — there is nothing to explain.
+  it("never asks for provenance rows for a run without a retrieved layer", async () => {
+    mockApi(PROMPT);
+    const { rerender } = renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Platform preamble")).toBeInTheDocument());
+
+    rerender(
+      <I18nProvider>
+        <RunContextPanel runs={RUNS} />
+      </I18nProvider>,
+    );
+    expect(apiFetchMock.mock.calls.every(([path]) => !String(path).endsWith("/retrievals"))).toBe(true);
+  });
+
+  it("never asks for provenance rows when the layer was omitted", async () => {
+    mockApi({
+      runId: 7,
+      promptHash: "d".repeat(64),
+      segments: [{ id: "retrieved_context", text: "", omittedReason: "no_relevant_chunks" }],
+    });
+    renderPanel();
+
+    await waitFor(() =>
+      expect(screen.getByText("Not included: no document excerpt matched this task")).toBeInTheDocument(),
+    );
+    expect(apiFetchMock.mock.calls.every(([path]) => !String(path).endsWith("/retrievals"))).toBe(true);
+  });
+
+  it("says so when the provenance rows can't be loaded, still showing the excerpts", async () => {
+    apiFetchMock.mockImplementation((path: string) =>
+      String(path).endsWith("/retrievals")
+        ? Promise.reject(new Error("boom"))
+        : Promise.resolve(RETRIEVAL_PROMPT),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/runs/7/retrievals"));
+
+    fireEvent.click(screen.getByText("Retrieved documents"));
+
+    expect(screen.getByText("Couldn't load which documents were retrieved.")).toBeInTheDocument();
+    expect(screen.getByText(/Rotate service credentials once per quarter/)).toBeInTheDocument();
+  });
+
+  it("retries the provenance fetch when the user clicks Try again after a failure", async () => {
+    apiFetchMock.mockImplementation((path: string) =>
+      String(path).endsWith("/retrievals")
+        ? Promise.reject(new Error("boom"))
+        : Promise.resolve(RETRIEVAL_PROMPT),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Retrieved documents"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument());
+
+    apiFetchMock.mockImplementation((path: string) =>
+      String(path).endsWith("/retrievals") ? Promise.resolve(RETRIEVALS) : Promise.resolve(RETRIEVAL_PROMPT),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Engineering handbook — chunk 3 · 82% match")).toBeInTheDocument(),
+    );
+    expect(
+      apiFetchMock.mock.calls.filter(([path]) => String(path).endsWith("/retrievals")),
+    ).toHaveLength(2);
+  });
+
+  // Regression: the retrieval-fetch effect must re-run on a status transition the same way the
+  // prompt-fetch effect does, so a run finishing after a transient failure gets a second try
+  // without the user having to click anything.
+  it("re-asks for provenance rows once a failed run's status advances", async () => {
+    const runningRun = [{ ...RUNS[0], status: "running" } as Run];
+    apiFetchMock.mockImplementation((path: string) =>
+      String(path).endsWith("/retrievals")
+        ? Promise.reject(new Error("boom"))
+        : Promise.resolve(RETRIEVAL_PROMPT),
+    );
+    const { rerender } = renderPanel(runningRun);
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Retrieved documents"));
+    await waitFor(() =>
+      expect(screen.getByText("Couldn't load which documents were retrieved.")).toBeInTheDocument(),
+    );
+    expect(
+      apiFetchMock.mock.calls.filter(([path]) => String(path).endsWith("/retrievals")),
+    ).toHaveLength(1);
+
+    apiFetchMock.mockImplementation((path: string) =>
+      String(path).endsWith("/retrievals") ? Promise.resolve(RETRIEVALS) : Promise.resolve(RETRIEVAL_PROMPT),
+    );
+    rerender(
+      <I18nProvider>
+        <RunContextPanel runs={[{ ...RUNS[0], status: "done" } as Run]} />
+      </I18nProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("Engineering handbook — chunk 3 · 82% match")).toBeInTheDocument(),
+    );
+    expect(
+      apiFetchMock.mock.calls.filter(([path]) => String(path).endsWith("/retrievals")),
+    ).toHaveLength(2);
   });
 });

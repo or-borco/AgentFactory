@@ -234,28 +234,31 @@ const runWorker = new Worker<RunJobData>(
         agent.systemPrompt,
       );
       const systemPrompt = composed.prompt;
-      // Segments and hash describe the same string and are computed at the same moment;
-      // storing them in one statement means they can never describe different prompts.
-      await updateRunStatus(runId, "running", {
-        promptHash: hashPrompt(composed.prompt),
-        promptSegments: composed.segments,
-      });
       // Provenance for what was injected. Deliberately NOT a run event: the task page keys
       // context_included by runId with last-write-wins (tasks/[taskId]/page.tsx:222-235, whose
       // comment records the one-per-run assumption), so a second event would silently overwrite
       // the shared-context indicator. These rows, plus the retrieved text already preserved
       // verbatim in runs.prompt_segments, carry the whole provenance story.
+      //
+      // Written before the prompt segments below so a segment visible on screen always implies
+      // its provenance rows are already there (see RunContextPanel.tsx's ordering assumption).
       if (retrieved.retrievals.length > 0) {
         // Provenance only — never lets a write failure (e.g. a source document deleted between
         // search and insert, violating the item_id FK on a fresh row) fail an otherwise-successful
-        // run. The prompt has already been persisted above; retrieval stays fail-soft end to end,
-        // matching retrieveContext's own catch in context-retrieval.ts.
+        // run. Retrieval stays fail-soft end to end, matching retrieveContext's own catch in
+        // context-retrieval.ts; the prompt is still persisted below regardless of this outcome.
         try {
           await insertRunContextRetrievals(retrieved.retrievals.map((r) => ({ ...r, runId })));
         } catch (err) {
           console.error(`Failed to record context retrievals for run ${runId}:`, err);
         }
       }
+      // Segments and hash describe the same string and are computed at the same moment;
+      // storing them in one statement means they can never describe different prompts.
+      await updateRunStatus(runId, "running", {
+        promptHash: hashPrompt(composed.prompt),
+        promptSegments: composed.segments,
+      });
       mark("prompt composed - handing off to model");
 
       attemptModel = task?.model ?? agent.model;
