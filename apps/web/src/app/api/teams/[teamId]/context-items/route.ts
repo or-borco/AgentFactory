@@ -121,7 +121,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tea
     );
   }
   // Enqueued after the row exists, never before: the job's first act is to load the item by
-  // id, and jobId is String(item.id), so an id that isn't in the table yet is a job that
+  // id, and jobId is `item-${itemId}`, so an id that isn't in the table yet is a job that
   // logs "not found" and drops itself. The response does not wait for ingestion — the item
   // comes back at "pending" and the panel polls it to "indexed".
   await enqueueContextIngestJob(item.id);

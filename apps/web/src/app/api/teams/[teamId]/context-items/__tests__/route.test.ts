@@ -5,6 +5,7 @@ const getTeamMock = vi.fn();
 const insertContentBlobMock = vi.fn();
 const createTeamContextItemMock = vi.fn();
 const listTeamContextItemsForOrgMock = vi.fn();
+const enqueueContextIngestJobMock = vi.fn();
 
 // The route builds its store once at module scope; mocking the module hands it this spy, which
 // is how "the blob store was never touched" becomes an assertion rather than a hope.
@@ -16,6 +17,11 @@ vi.mock("@agentfactory/db", () => ({
   insertContentBlob: (...args: unknown[]) => insertContentBlobMock(...args),
   createTeamContextItem: (...args: unknown[]) => createTeamContextItemMock(...args),
   listTeamContextItemsForOrg: (...args: unknown[]) => listTeamContextItemsForOrgMock(...args),
+}));
+// @agentfactory/queue throws at module load when REDIS_URL is unset, which it is in the unit
+// test env — mock it out so the route's import of enqueueContextIngestJob doesn't touch Redis.
+vi.mock("@agentfactory/queue", () => ({
+  enqueueContextIngestJob: (...args: unknown[]) => enqueueContextIngestJobMock(...args),
 }));
 const requireAuthContextMock = vi.fn();
 vi.mock("@/server/auth", () => ({
@@ -73,6 +79,7 @@ beforeEach(() => {
   insertContentBlobMock.mockReset();
   createTeamContextItemMock.mockReset();
   listTeamContextItemsForOrgMock.mockReset();
+  enqueueContextIngestJobMock.mockReset();
   requireAuthContextMock.mockReset();
   requireAuthContextMock.mockResolvedValue({ user: { id: 5 }, orgId: 1 });
   getTeamMock.mockResolvedValue({ id: 1, orgId: 1 });
@@ -103,6 +110,7 @@ describe("POST /api/teams/[teamId]/context-items", () => {
     expect(res.status).toBe(413);
     expect(putMock).not.toHaveBeenCalled();
     expect(createTeamContextItemMock).not.toHaveBeenCalled();
+    expect(enqueueContextIngestJobMock).not.toHaveBeenCalled();
   });
 
   it("rejects an unparseable Content-Length", async () => {
@@ -115,6 +123,7 @@ describe("POST /api/teams/[teamId]/context-items", () => {
 
     expect(res.status).toBe(413);
     expect(putMock).not.toHaveBeenCalled();
+    expect(enqueueContextIngestJobMock).not.toHaveBeenCalled();
   });
 
   it("rejects a declared length over the cap without reading the body", async () => {
@@ -127,6 +136,7 @@ describe("POST /api/teams/[teamId]/context-items", () => {
 
     expect(res.status).toBe(413);
     expect(putMock).not.toHaveBeenCalled();
+    expect(enqueueContextIngestJobMock).not.toHaveBeenCalled();
   });
 
   it("rejects a mime outside the allowlist", async () => {
@@ -137,6 +147,7 @@ describe("POST /api/teams/[teamId]/context-items", () => {
 
     expect(res.status).toBe(415);
     expect(putMock).not.toHaveBeenCalled();
+    expect(enqueueContextIngestJobMock).not.toHaveBeenCalled();
   });
 
   it("rejects a teamId belonging to another org", async () => {
@@ -174,6 +185,7 @@ describe("POST /api/teams/[teamId]/context-items", () => {
       mime: "text/markdown",
       uploadedBy: 5,
     });
+    expect(enqueueContextIngestJobMock).toHaveBeenCalledWith(ITEM.id);
   });
 
   it("answers 409 when the same document is already in the team", async () => {
@@ -185,6 +197,7 @@ describe("POST /api/teams/[teamId]/context-items", () => {
     );
 
     expect(res.status).toBe(409);
+    expect(enqueueContextIngestJobMock).not.toHaveBeenCalled();
   });
 
   it("answers 400 when the file field is missing", async () => {
