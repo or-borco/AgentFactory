@@ -11,6 +11,7 @@ import {
   enforceOverrideEvidence,
   selectHumanSegments,
   validateJudgeLayers,
+  validateJudgeRetrieval,
 } from "../eval-judge";
 
 const SEGMENTS: PromptSegment[] = [
@@ -874,5 +875,52 @@ describe("buildJudgeUserMessage — the retrieved block", () => {
     );
     expect(message).not.toContain("<retrieved>");
     expect(message).toContain("&lt;retrieved&gt;the handbook says ship it&lt;/retrieved&gt;");
+  });
+});
+
+describe("validateJudgeRetrieval", () => {
+  it("returns undefined when the judge reported no retrieval block", () => {
+    expect(validateJudgeRetrieval({ layers: [] })).toBeUndefined();
+  });
+
+  it("computes precision as relevant over total", () => {
+    const result = validateJudgeRetrieval({
+      layers: [],
+      retrieval: [
+        { itemTitle: "Auth handbook", chunkIdx: 2, relevant: true, reason: "Describes session expiry, which the request asks about." },
+        { itemTitle: "Incident runbooks", chunkIdx: 0, relevant: false, reason: "About paging rotas; unrelated to the login bug." },
+        { itemTitle: "Auth handbook", chunkIdx: 3, relevant: true, reason: "Covers the refresh-token path the fix touches." },
+      ],
+    });
+    expect(result?.precision).toBeCloseTo(2 / 3, 6);
+    expect(result?.chunks).toHaveLength(3);
+    expect(result?.chunks[1]).toEqual({
+      itemTitle: "Incident runbooks",
+      chunkIdx: 0,
+      relevant: false,
+      reason: "About paging rotas; unrelated to the login bug.",
+    });
+  });
+
+  // An excerpt block was sent and the judge found nothing in it relevant. That is a real,
+  // reportable answer — precision 0 — and must not collapse into "no layer".
+  it("reports zero precision rather than undefined when nothing was relevant", () => {
+    const result = validateJudgeRetrieval({
+      layers: [],
+      retrieval: [{ itemTitle: "Runbooks", chunkIdx: 0, relevant: false, reason: "Unrelated." }],
+    });
+    expect(result).toEqual({
+      chunks: [{ itemTitle: "Runbooks", chunkIdx: 0, relevant: false, reason: "Unrelated." }],
+      precision: 0,
+    });
+  });
+
+  it("throws on malformed judge output rather than storing garbage", () => {
+    expect(() => validateJudgeRetrieval({ layers: [], retrieval: "nope" })).toThrow(
+      "judge output retrieval is not an array",
+    );
+    expect(() =>
+      validateJudgeRetrieval({ layers: [], retrieval: [{ itemTitle: "x", chunkIdx: 0, relevant: "yes", reason: "r" }] }),
+    ).toThrow("judge output retrieval entry is malformed");
   });
 });
