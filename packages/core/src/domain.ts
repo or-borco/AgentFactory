@@ -330,6 +330,26 @@ export interface EvalLayerResult {
   requirements: EvalRequirement[];
 }
 
+// One retrieved excerpt, judged for relevance to the request — NOT for compliance. This is a
+// separate question from the per-layer verdicts above and never joins HUMAN_SEGMENT_IDS: an
+// excerpt is reference material, and its text is fully user-controllable (anyone who can upload
+// a document can write it), so it must never become an instruction the agent is scored against.
+export interface EvalRetrievalChunk {
+  // Snapshot, matching run_context_retrievals.item_title — the document may since be deleted.
+  itemTitle: string;
+  chunkIdx: number;
+  relevant: boolean;
+  // One short sentence saying why, in the judge's words.
+  reason: string;
+}
+
+export interface EvalRetrievalResult {
+  chunks: EvalRetrievalChunk[];
+  // relevant / total, 0..1. Zero when nothing retrieved was relevant; the field is absent
+  // entirely (not zero) when the run had no retrieved layer to grade.
+  precision: number;
+}
+
 export interface RunEvalResult {
   artefactKind: EvalArtefactKind;
   layers: EvalLayerResult[];
@@ -340,6 +360,10 @@ export interface RunEvalResult {
   // so rows stored before this field existed keep parsing as undefined (falsy); a truncated
   // grading must never render identically to a complete one on the card.
   truncated?: boolean;
+  // Absent when the run had no retrieved_context layer — which is every run stored before this
+  // field existed, and every run for a team with no indexed documents. Distinct from a present
+  // result with precision 0, which means excerpts were injected and none of them were relevant.
+  retrieval?: EvalRetrievalResult;
 }
 
 export interface RunEval {

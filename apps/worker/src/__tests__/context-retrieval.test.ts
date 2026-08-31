@@ -131,13 +131,31 @@ describe("retrieveContext", () => {
 
     expect(result.omittedReason).toBeUndefined();
     expect(result.text).toBe(
-      `${RETRIEVED_CONTEXT_HEADING}\n\nPage the on-call.\n\nOpen an incident channel.\n\n${RETRIEVED_CONTEXT_FOOTER}\n\n---\n\n`,
+      `${RETRIEVED_CONTEXT_HEADING}\n\n[Excerpt 0] Page the on-call.\n\n[Excerpt 1] Open an incident channel.\n\n${RETRIEVED_CONTEXT_FOOTER}\n\n---\n\n`,
     );
     expect(result.retrievals).toEqual([
       { itemId: 3, itemTitle: "Runbooks", chunkIdx: 4, rank: 1, score: 0.81 },
       { itemId: 3, itemTitle: "Runbooks", chunkIdx: 5, rank: 2, score: 0.62 },
     ]);
     expect(embedder.embedQuery).toHaveBeenCalledWith("how do we handle incidents?");
+  });
+
+  // The eval judge's report_eval tool asks for a per-excerpt chunkIdx it has no real signal
+  // for otherwise; the "[Excerpt N]" marker is the ground truth eval-judge.ts counts against
+  // to detect a judge that silently drops or under-reports excerpts (see
+  // countInjectedExcerpts in eval-judge.ts).
+  it("numbers each kept excerpt so the judge has a real ordinal to report, not a guess", async () => {
+    const result = await retrieveContext(7, "how do we handle incidents?", {
+      countIndexedContextItems: vi.fn().mockResolvedValue(2),
+      searchContextChunks: vi.fn().mockResolvedValue([
+        match({ id: 11, itemId: 3, itemTitle: "Runbooks", chunkIdx: 4, text: "Page the on-call.", score: 0.81 }),
+        match({ id: 12, itemId: 3, itemTitle: "Runbooks", chunkIdx: 5, text: "Open an incident channel.", score: 0.62 }),
+      ]),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.text).toContain("[Excerpt 0] Page the on-call.");
+    expect(result.text).toContain("[Excerpt 1] Open an incident channel.");
   });
 
   it("asks the index for exactly RETRIEVAL_K candidates", async () => {

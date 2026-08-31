@@ -153,6 +153,25 @@ const MIXED_ASIDE_EVAL: RunEval = {
   },
 };
 
+function makeEval(overrides: Partial<RunEval>): RunEval {
+  return {
+    id: 31,
+    orgId: 1,
+    runId: 7,
+    status: "done",
+    judgeModelId: "claude-sonnet-5",
+    createdAt: "2026-08-26T11:00:00.000Z",
+    completedAt: "2026-08-26T11:00:20.000Z",
+    ...overrides,
+    result: {
+      artefactKind: "diff",
+      score: 0.5,
+      layers: [],
+      ...overrides.result,
+    },
+  } as RunEval;
+}
+
 function renderPanel(runs: Run[] = DONE_RUN) {
   return render(
     <I18nProvider>
@@ -385,5 +404,123 @@ describe("RunEvalPanel", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("reports retrieval precision alongside the instruction score", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      makeEval({
+        result: {
+          artefactKind: "diff",
+          layers: [],
+          score: 1,
+          retrieval: {
+            precision: 2 / 3,
+            chunks: [
+              { itemTitle: "Auth handbook", chunkIdx: 2, relevant: true, reason: "Covers session expiry." },
+              { itemTitle: "Runbooks", chunkIdx: 0, relevant: false, reason: "Unrelated to the request." },
+              { itemTitle: "Auth handbook", chunkIdx: 3, relevant: true, reason: "Covers the refresh path." },
+            ],
+          },
+        },
+      }),
+    ]);
+
+    renderPanel();
+
+    expect(await screen.findByText("2 of 3 retrieved excerpts were relevant")).toBeInTheDocument();
+  });
+
+  it("says so when excerpts were retrieved and none were relevant", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      makeEval({
+        result: {
+          artefactKind: "diff",
+          layers: [],
+          score: 1,
+          retrieval: {
+            precision: 0,
+            chunks: [{ itemTitle: "Runbooks", chunkIdx: 0, relevant: false, reason: "Unrelated." }],
+          },
+        },
+      }),
+    ]);
+
+    renderPanel();
+
+    expect(await screen.findByText("0 of 1 retrieved excerpts were relevant")).toBeInTheDocument();
+  });
+
+  // The absent field means "no retrieved layer on this run" — every eval stored before this
+  // shipped, and every run for a team with no documents. It must render nothing at all.
+  it("says nothing about retrieval when the run had no retrieved layer", async () => {
+    apiFetchMock.mockResolvedValueOnce([makeEval({ result: { artefactKind: "diff", layers: [], score: 1 } })]);
+
+    renderPanel();
+
+    await screen.findByText(/no checkable/);
+    expect(screen.queryByText(/retrieved excerpts/)).not.toBeInTheDocument();
+  });
+
+  // Every eval but the newest renders collapsed (index > 0). The retrieval line must fold away
+  // with the rest of the card's detail, like the instruction headline beside it — not float on
+  // its own next to a collapsed card's bare timestamp.
+  it("hides the retrieval line on a collapsed (non-newest) eval card", async () => {
+    apiFetchMock.mockResolvedValueOnce([
+      makeEval({
+        id: 31,
+        createdAt: "2026-08-26T12:00:00.000Z",
+        result: { artefactKind: "diff", layers: [], score: 1 },
+      }),
+      makeEval({
+        id: 32,
+        createdAt: "2026-08-26T11:00:00.000Z",
+        result: {
+          artefactKind: "diff",
+          layers: [],
+          score: 1,
+          retrieval: {
+            precision: 1,
+            chunks: [{ itemTitle: "Auth handbook", chunkIdx: 2, relevant: true, reason: "Covers session expiry." }],
+          },
+        },
+      }),
+    ]);
+
+    renderPanel();
+
+    await screen.findByText(/no checkable/);
+    expect(screen.queryByText("1 of 1 retrieved excerpts were relevant")).not.toBeInTheDocument();
+  });
+
+  // chunkIdx is the judge's own report of an excerpt's ordinal — even with the "[Excerpt N]"
+  // markers context-retrieval.ts now sends it something real to read, a judge that still
+  // misreports it can repeat an (itemTitle, chunkIdx) pair. The irrelevant-chunk list keys on
+  // the array index instead, so a repeated pair must render both lines without React logging a
+  // duplicate-key warning.
+  it("renders two irrelevant chunks with the same itemTitle and chunkIdx without a duplicate-key warning", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    apiFetchMock.mockResolvedValueOnce([
+      makeEval({
+        result: {
+          artefactKind: "diff",
+          layers: [],
+          score: 1,
+          retrieval: {
+            precision: 0,
+            chunks: [
+              { itemTitle: "Runbooks", chunkIdx: 0, relevant: false, reason: "First unrelated excerpt." },
+              { itemTitle: "Runbooks", chunkIdx: 0, relevant: false, reason: "Second unrelated excerpt." },
+            ],
+          },
+        },
+      }),
+    ]);
+
+    renderPanel();
+
+    expect(await screen.findByText("Not relevant: Runbooks — chunk 0 · First unrelated excerpt.")).toBeInTheDocument();
+    expect(screen.getByText("Not relevant: Runbooks — chunk 0 · Second unrelated excerpt.")).toBeInTheDocument();
+    expect(consoleError).not.toHaveBeenCalledWith(expect.stringContaining("same key"), expect.anything());
+    consoleError.mockRestore();
   });
 });

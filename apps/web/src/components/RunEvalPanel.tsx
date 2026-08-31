@@ -297,6 +297,15 @@ function EvalCard({
         <p style={{ fontWeight: 600, fontSize: 13, color: "var(--color-text)", margin: "8px 0 0" }}>{headline}</p>
       )}
 
+      {open && runEval.result?.retrieval && (
+        <p style={{ fontSize: 12, color: "var(--color-neutral-400)", margin: "4px 0 0" }}>
+          {t("taskDetail.evalRetrievalHeadline", {
+            relevant: runEval.result.retrieval.chunks.filter((chunk) => chunk.relevant).length,
+            total: runEval.result.retrieval.chunks.length,
+          })}
+        </p>
+      )}
+
       {/* The headline's denominator is the stored score's denominator, which excludes both
           overridden and unclear requirements — so on its own it cannot tell a reader that any
           were set aside. These two lines are the only place that surfaces them without
@@ -334,6 +343,22 @@ function EvalCard({
               {t("taskDetail.evalTruncated")}
             </p>
           )}
+          {runEval.result.retrieval?.chunks
+            .map((chunk, i) => ({ chunk, i }))
+            .filter(({ chunk }) => !chunk.relevant)
+            .map(({ chunk, i }) => (
+              // Keyed on the array index, not chunk.chunkIdx: chunkIdx is the judge's own
+              // report of an excerpt's ordinal, and while the "[Excerpt N]" markers
+              // context-retrieval.ts now writes give it something real to read, a judge that
+              // still misreports it can repeat an (itemTitle, chunkIdx) pair — the array index
+              // is a React key with no such dependency on the model getting it right.
+              <p
+                key={i}
+                style={{ fontSize: 12, color: "var(--color-neutral-500)", margin: "0 0 4px" }}
+              >
+                {`${t("taskDetail.evalRetrievalIrrelevant")}: ${chunk.itemTitle} — chunk ${chunk.chunkIdx} · ${chunk.reason}`}
+              </p>
+            ))}
           {runEval.result.layers.map((layer) => (
             <div key={layer.segmentId} style={{ marginBottom: 12 }}>
               <p style={{ fontWeight: 600, margin: "0 0 6px" }}>

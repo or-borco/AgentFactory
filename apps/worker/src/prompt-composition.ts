@@ -130,9 +130,11 @@ export function buildRetrievedContextSegment(
 // 3. Retrieved document excerpts sit between the two. They are human-written prose but
 //    machine-SELECTED bulk, and they are more task-specific than the repo map, so they go after
 //    the map and before team context. This supersedes ARCHITECTURE.md §3, which puts retrieved
-//    items after shared_context — that ordering predates the measurement below. Rule 3 is a
-//    hypothesis, not a measurement: re-running the layer-ordering experiment with a retrieved
-//    layer present is a PR 7 concern.
+//    items after shared_context — that ordering predates the measurement below. The re-run with
+//    a retrieved layer present (docs/superpowers/experiments/2026-08-27-retrieved-layer-ordering.md)
+//    did not falsify this order — Arm B (the §3 order) scored no worse, 10/10 vs 9/10 — but that
+//    is one task shape with no imperative team-context instruction and no long tool transcript,
+//    so it is inconclusive rather than a strong confirmation.
 //
 // Rule 2 is measured, not assumed. The repo map used to sit between team context and the agent
 // prompt. Replaying a real run's exact layers against claude-haiku-4-5 and scoring the output

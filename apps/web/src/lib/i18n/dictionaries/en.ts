@@ -308,6 +308,8 @@ const en = {
     evalArtefactDiff: "Graded the code this run committed",
     evalArtefactFinalMessage: "Graded the final reply (this run committed no code)",
     evalTruncated: "The artefact was too large and was cut before grading — this score may not reflect the full deliverable.",
+    evalRetrievalHeadline: "{relevant} of {total} retrieved excerpts were relevant",
+    evalRetrievalIrrelevant: "Not relevant",
     evalJudgeStamp: "Judged by {model}",
     evalFailedTitle: "Evaluation failed",
     evalErrorRunNeverComposedPrompt: "This run failed before composing a prompt, so there is no context to grade.",
