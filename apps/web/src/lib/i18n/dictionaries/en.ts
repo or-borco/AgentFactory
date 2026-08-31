@@ -366,6 +366,13 @@ const en = {
       admin: "Admin",
       member: "Member",
     },
+    documentStatus: {
+      pending: "Queued",
+      indexing: "Indexing…",
+      indexed: "Indexed",
+      failed: "Failed",
+    },
+    documentErrorPrefix: "Indexing failed: {error}",
     noTeams: "No teams yet",
     noTeamsSub: "Create a team to get started.",
     createFirstTeam: "Create team",
