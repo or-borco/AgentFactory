@@ -155,6 +155,13 @@
       "when": 1788098929740,
       "tag": "0021_organic_stryfe",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1788120532111,
+      "tag": "0022_melted_ultimo",
+      "breakpoints": true
     }
   ]
 }
