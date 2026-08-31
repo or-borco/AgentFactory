@@ -24,6 +24,28 @@ const PROMPT = {
   ],
 };
 
+// A run whose team had indexed documents: the retrieved layer contributed real text.
+const RETRIEVAL_PROMPT = {
+  runId: 7,
+  promptHash: "d".repeat(64),
+  segments: [
+    { id: "repo_map", text: "", omittedReason: "no_codebase" },
+    {
+      id: "retrieved_context",
+      text: "## Retrieved Context\n\nRotate service credentials once per quarter.\n",
+    },
+    { id: "team_context", text: "Ship small PRs.\n" },
+  ],
+};
+
+// Path-aware because a prompt carrying a retrieved layer makes the panel issue a second
+// request; the prompt-only tests above keep using mockResolvedValue.
+function mockApi(prompt: unknown, retrievals: unknown = []) {
+  apiFetchMock.mockImplementation((path: string) =>
+    String(path).endsWith("/retrievals") ? Promise.resolve(retrievals) : Promise.resolve(prompt),
+  );
+}
+
 function renderPanel(runs: Run[] = RUNS) {
   return render(
     <I18nProvider>
@@ -173,5 +195,45 @@ describe("RunContextPanel", () => {
     // the tab order and is announced inconsistently).
     expect(screen.queryByRole("button", { name: /Team context/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Platform preamble/ })).toBeInTheDocument();
+  });
+});
+
+describe("RunContextPanel — the retrieved-documents layer", () => {
+  it("names the retrieved layer instead of falling back to the generic label", async () => {
+    mockApi(RETRIEVAL_PROMPT);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    expect(screen.queryByText("Additional context")).not.toBeInTheDocument();
+  });
+
+  it("says the team has no indexed documents when that is why the layer is empty", async () => {
+    mockApi({
+      runId: 7,
+      promptHash: "d".repeat(64),
+      segments: [{ id: "retrieved_context", text: "", omittedReason: "no_indexed_documents" }],
+    });
+    renderPanel();
+
+    await waitFor(() =>
+      expect(screen.getByText("Not included: this team has no indexed documents")).toBeInTheDocument(),
+    );
+  });
+
+  it("distinguishes an empty search from a broken one", async () => {
+    mockApi({
+      runId: 7,
+      promptHash: "d".repeat(64),
+      segments: [
+        { id: "retrieved_context", text: "", omittedReason: "no_relevant_chunks" },
+        { id: "team_context", text: "", omittedReason: "retrieval_failed" },
+      ],
+    });
+    renderPanel();
+
+    await waitFor(() =>
+      expect(screen.getByText("Not included: no document excerpt matched this task")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Not included: document retrieval failed for this run")).toBeInTheDocument();
   });
 });

@@ -7,6 +7,10 @@ import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
 
+// The one segment id this panel treats specially: it is the only layer with a second,
+// out-of-band provenance record (which documents the excerpts came from).
+const RETRIEVED_CONTEXT_ID = "retrieved_context";
+
 // Segment ids are data (stable, defined in prompt-composition.ts) — labels are copy,
 // so the mapping lives here in i18n keys. Unknown ids (future layers) fall through
 // to a generic label instead of breaking, per the spec's forward-compatibility rule.
@@ -15,6 +19,7 @@ const LAYER_LABEL_KEYS: Record<string, TranslationKey> = {
   environment: "taskDetail.contextLayerEnvironment",
   team_context: "taskDetail.contextLayerTeamContext",
   repo_map: "taskDetail.contextLayerRepoMap",
+  [RETRIEVED_CONTEXT_ID]: "taskDetail.contextLayerRetrievedContext",
   agent_system_prompt: "taskDetail.contextLayerAgentSystemPrompt",
 };
 
@@ -23,6 +28,9 @@ const OMISSION_LABEL_KEYS: Record<string, TranslationKey> = {
   empty_shared_context: "taskDetail.contextOmittedEmptySharedContext",
   no_codebase: "taskDetail.contextOmittedNoCodebase",
   repo_map_pending: "taskDetail.contextOmittedRepoMapPending",
+  no_indexed_documents: "taskDetail.contextOmittedNoIndexedDocuments",
+  no_relevant_chunks: "taskDetail.contextOmittedNoRelevantChunks",
+  retrieval_failed: "taskDetail.contextOmittedRetrievalFailed",
 };
 
 // A run only gets its segments written in the same statement that flips it to `running`, so a
