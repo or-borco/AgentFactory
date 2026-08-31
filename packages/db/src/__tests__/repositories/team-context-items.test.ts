@@ -5,10 +5,12 @@ import { db } from "../../client.js";
 import { teams } from "../../schema.js";
 import { insertContentBlob } from "../../repositories/content-blobs.js";
 import {
+  countIndexedContextItems,
   createTeamContextItem,
   deleteTeamContextItemForOrg,
   getTeamContextItem,
   listTeamContextItemsForOrg,
+  markContextItemIndexed,
 } from "../../repositories/team-context-items.js";
 import { insertOrg, insertTeam, insertUser } from "../fixtures.js";
 
@@ -131,5 +133,40 @@ describe("team-context-items repository", () => {
     await db.delete(teams).where(eq(teams.id, team.id));
 
     await expect(listTeamContextItemsForOrg(team.id, org.id)).resolves.toEqual([]);
+  });
+
+  it("counts only indexed items, and only for the given team", async () => {
+    const org = await insertOrg();
+    const team = await insertTeam(org.id);
+    const otherTeam = await insertTeam(org.id);
+
+    await insertContentBlob(org.id, "a".repeat(64), 128, "text/markdown");
+    await insertContentBlob(org.id, "b".repeat(64), 128, "text/markdown");
+    await insertContentBlob(org.id, "c".repeat(64), 128, "text/markdown");
+    const indexed = await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Handbook", sizeBytes: 128,
+      sha256: "a".repeat(64), mime: "text/markdown",
+    });
+    await createTeamContextItem({
+      teamId: team.id, orgId: org.id, title: "Still pending", sizeBytes: 128,
+      sha256: "b".repeat(64), mime: "text/markdown",
+    });
+    const otherTeamItem = await createTeamContextItem({
+      teamId: otherTeam.id, orgId: org.id, title: "Other team handbook", sizeBytes: 128,
+      sha256: "c".repeat(64), mime: "text/markdown",
+    });
+
+    await expect(countIndexedContextItems(team.id)).resolves.toBe(0);
+
+    await markContextItemIndexed(indexed!.id);
+    await markContextItemIndexed(otherTeamItem!.id);
+
+    await expect(countIndexedContextItems(team.id)).resolves.toBe(1);
+  });
+
+  it("counts zero for a team with no items at all", async () => {
+    const org = await insertOrg();
+    const team = await insertTeam(org.id);
+    await expect(countIndexedContextItems(team.id)).resolves.toBe(0);
   });
 });

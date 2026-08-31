@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, count, eq } from "drizzle-orm";
 import type { TeamContextItem } from "@agentfactory/core";
 import { db } from "../client";
 import { teamContextItems } from "../schema";
@@ -100,4 +100,16 @@ export async function markContextItemFailed(id: number, error: string): Promise<
   // indexedAt is deliberately untouched — it means "the moment this item's chunks became
   // current", and a failed attempt did not produce any.
   await db.update(teamContextItems).set({ status: "failed", error }).where(eq(teamContextItems.id, id));
+}
+
+// Retrieval's cheap pre-flight: a team with nothing indexed must omit the layer with
+// "no_indexed_documents" WITHOUT loading the embedder, which is a several-hundred-megabyte
+// lazy init on first use. Counting rows is the whole point — the answer is only ever
+// compared against zero.
+export async function countIndexedContextItems(teamId: number): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(teamContextItems)
+    .where(and(eq(teamContextItems.teamId, teamId), eq(teamContextItems.status, "indexed")));
+  return row?.value ?? 0;
 }
