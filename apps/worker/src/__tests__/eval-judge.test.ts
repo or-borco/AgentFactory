@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { EvalLayerResult, PromptSegment } from "@agentfactory/core";
+import type { EvalRetrievalResult, PromptSegment, RunEvalResult } from "@agentfactory/core";
+import type { EvalLayerResult } from "@agentfactory/core";
 import {
   JUDGE_SYSTEM_PROMPT,
   MAX_ARTEFACT_CHARS,
@@ -794,5 +795,29 @@ describe("computeResult", () => {
       },
     ];
     expect(computeResult(layers, "final_message").score).toBe(0);
+  });
+});
+
+describe("retrieval precision types", () => {
+  it("keeps a result stored before this field existed parseable", () => {
+    // Exactly the shape completeEval wrote before this PR. It must still satisfy the type and
+    // read back with retrieval === undefined, which the card renders as "no retrieved layer".
+    const legacy = JSON.parse(
+      '{"artefactKind":"diff","layers":[],"score":0.5}',
+    ) as RunEvalResult;
+    expect(legacy.retrieval).toBeUndefined();
+    expect(legacy.score).toBe(0.5);
+  });
+
+  it("distinguishes an ungraded layer from a layer that graded zero", () => {
+    const noLayer: RunEvalResult = { artefactKind: "diff", layers: [], score: 1 };
+    const nothingRelevant: RunEvalResult = {
+      artefactKind: "diff",
+      layers: [],
+      score: 1,
+      retrieval: { chunks: [], precision: 0 },
+    };
+    expect(noLayer.retrieval).toBeUndefined();
+    expect(nothingRelevant.retrieval).toEqual({ chunks: [], precision: 0 });
   });
 });
