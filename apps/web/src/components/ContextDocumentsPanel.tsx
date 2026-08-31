@@ -162,33 +162,32 @@ export function ContextDocumentsPanel({
             return (
               <Fragment key={item.id}>
                 <div
-                  className={[
-                    "flex items-center gap-3 px-4 py-3",
-                    i < items.length - 1 ? "border-b border-[var(--color-divider)]" : "",
-                  ].join(" ")}
+                  className={i < items.length - 1 ? "border-b border-[var(--color-divider)]" : ""}
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm text-[var(--color-neutral-200)]">{item.title}</div>
-                    <div className="text-xs text-[var(--color-neutral-500)]">
-                      {t("teamsV2.documentsSize", { size: (item.sizeBytes / 1024).toFixed(1) })}
-                      {uploader ? ` · ${t("teamsV2.documentsUploadedBy", { name: uploader.name })}` : ""}
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm text-[var(--color-neutral-200)]">{item.title}</div>
+                      <div className="text-xs text-[var(--color-neutral-500)]">
+                        {t("teamsV2.documentsSize", { size: (item.sizeBytes / 1024).toFixed(1) })}
+                        {uploader ? ` · ${t("teamsV2.documentsUploadedBy", { name: uploader.name })}` : ""}
+                      </div>
                     </div>
+                    <Badge tone={CONTEXT_ITEM_STATUS_TONES[item.status]}>
+                      {t(CONTEXT_ITEM_STATUS_LABEL_KEYS[item.status])}
+                    </Badge>
+                    <button
+                      onClick={() => void handleDelete(item.id)}
+                      className="shrink-0 cursor-pointer text-xs text-[var(--color-neutral-500)] transition-colors hover:text-red-400"
+                    >
+                      {t("teamsV2.documentsDelete")}
+                    </button>
                   </div>
-                  <Badge tone={CONTEXT_ITEM_STATUS_TONES[item.status]}>
-                    {t(CONTEXT_ITEM_STATUS_LABEL_KEYS[item.status])}
-                  </Badge>
-                  <button
-                    onClick={() => void handleDelete(item.id)}
-                    className="shrink-0 cursor-pointer text-xs text-[var(--color-neutral-500)] transition-colors hover:text-red-400"
-                  >
-                    {t("teamsV2.documentsDelete")}
-                  </button>
+                  {item.status === "failed" && item.error ? (
+                    <p className="px-4 pb-3 text-[11px] text-red-400">
+                      {t("teamsV2.documentErrorPrefix", { error: item.error })}
+                    </p>
+                  ) : null}
                 </div>
-                {item.status === "failed" && item.error ? (
-                  <p className="mt-1 text-[11px] text-[var(--color-neutral-500)]">
-                    {t("teamsV2.documentErrorPrefix", { error: item.error })}
-                  </p>
-                ) : null}
               </Fragment>
             );
           })}
