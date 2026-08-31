@@ -1,11 +1,13 @@
 import "dotenv/config";
 import { Worker } from "bullmq";
 import {
+  CONTEXT_INGEST_QUEUE_NAME,
   EVAL_QUEUE_NAME,
   RUN_QUEUE_NAME,
   REPO_MAP_WARM_QUEUE_NAME,
   SANDBOX_TEARDOWN_QUEUE_NAME,
   queueConnection,
+  type ContextIngestJobData,
   type EvalJobData,
   type RepoMapWarmJobData,
   type RunJobData,
@@ -52,6 +54,7 @@ import {
 import { resolveEscalation } from "./model-escalation";
 import { ensureRepoMap, warmRepoMap } from "./repo-map";
 import { processEvalJob } from "./eval-runner";
+import { ingestContextItem } from "./context-ingest";
 
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
@@ -401,6 +404,25 @@ evalWorker.on("failed", (job, err) => {
   console.error(`Eval job ${job?.id} failed:`, err);
 });
 
+// Triggered by a document upload (apps/web's /api/teams/[teamId]/context-items route) —
+// extracts, chunks and embeds the file so PR 5's retrieval can reach it. Own queue for the
+// same reason the eval queue is its own: an upload's feedback loop is a status badge the
+// uploader is watching, and it must not wait behind a ~60s agent run. This is the only queue
+// in this process whose jobs retry (see enqueueContextIngestJob); the handler itself never
+// rejects, so what BullMQ retries here is a crashed or stalled delivery, not a logical failure.
+const contextIngestWorker = new Worker<ContextIngestJobData>(
+  CONTEXT_INGEST_QUEUE_NAME,
+  async (job) => {
+    await ingestContextItem(job.data.itemId);
+  },
+  { connection: queueConnection },
+);
+
+contextIngestWorker.on("failed", (job, err) => {
+  console.error(`Context ingest job ${job?.id} failed:`, err);
+});
+
 console.log(
-  `apps/worker listening on queues "${RUN_QUEUE_NAME}", "${SANDBOX_TEARDOWN_QUEUE_NAME}", "${REPO_MAP_WARM_QUEUE_NAME}", "${EVAL_QUEUE_NAME}"`,
+  `apps/worker listening on queues "${RUN_QUEUE_NAME}", "${SANDBOX_TEARDOWN_QUEUE_NAME}", ` +
+    `"${REPO_MAP_WARM_QUEUE_NAME}", "${EVAL_QUEUE_NAME}", "${CONTEXT_INGEST_QUEUE_NAME}"`,
 );
