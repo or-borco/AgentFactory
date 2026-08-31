@@ -20,8 +20,10 @@ vi.mock("../embedder", () => ({
 const {
   RETRIEVAL_BUDGET_BYTES,
   RETRIEVAL_K,
+  RETRIEVED_CONTEXT_HEADING,
   SIMILARITY_FLOOR,
   buildRetrievalQuery,
+  retrieveContext,
   selectWithinBudget,
 } = await import("../context-retrieval");
 
@@ -102,5 +104,150 @@ describe("selectWithinBudget", () => {
 
   it("returns an empty array for no matches", () => {
     expect(selectWithinBudget([], 8192)).toEqual([]);
+  });
+});
+
+function fakeEmbedder(vector = [0.1, 0.2, 0.3]) {
+  return {
+    modelId: "Xenova/bge-small-en-v1.5",
+    dimensions: 384,
+    embedQuery: vi.fn().mockResolvedValue(vector),
+    embedDocuments: vi.fn(),
+  };
+}
+
+describe("retrieveContext", () => {
+  it("wraps the kept chunks as untrusted reference material and ranks them", async () => {
+    const embedder = fakeEmbedder();
+    const result = await retrieveContext(7, "how do we handle incidents?", {
+      countIndexedContextItems: vi.fn().mockResolvedValue(2),
+      searchContextChunks: vi.fn().mockResolvedValue([
+        match({ id: 11, itemId: 3, itemTitle: "Runbooks", chunkIdx: 4, text: "Page the on-call.", score: 0.81 }),
+        match({ id: 12, itemId: 3, itemTitle: "Runbooks", chunkIdx: 5, text: "Open an incident channel.", score: 0.62 }),
+      ]),
+      embedder,
+    });
+
+    expect(result.omittedReason).toBeUndefined();
+    expect(result.text).toBe(
+      `${RETRIEVED_CONTEXT_HEADING}\n\nPage the on-call.\n\nOpen an incident channel.\n\n---\n\n`,
+    );
+    expect(result.retrievals).toEqual([
+      { itemId: 3, itemTitle: "Runbooks", chunkIdx: 4, rank: 1, score: 0.81 },
+      { itemId: 3, itemTitle: "Runbooks", chunkIdx: 5, rank: 2, score: 0.62 },
+    ]);
+    expect(embedder.embedQuery).toHaveBeenCalledWith("how do we handle incidents?");
+  });
+
+  it("asks the index for exactly RETRIEVAL_K candidates", async () => {
+    const searchContextChunks = vi.fn().mockResolvedValue([]);
+    await retrieveContext(7, "anything", {
+      countIndexedContextItems: vi.fn().mockResolvedValue(1),
+      searchContextChunks,
+      embedder: fakeEmbedder([0.5]),
+    });
+
+    expect(searchContextChunks).toHaveBeenCalledWith(7, [0.5], RETRIEVAL_K);
+  });
+
+  // The embedder is a several-hundred-megabyte lazy init; a team with nothing indexed must
+  // never pay for it.
+  it("omits with no_indexed_documents without touching the embedder or the index", async () => {
+    const embedder = fakeEmbedder();
+    const searchContextChunks = vi.fn();
+
+    const result = await retrieveContext(7, "anything", {
+      countIndexedContextItems: vi.fn().mockResolvedValue(0),
+      searchContextChunks,
+      embedder,
+    });
+
+    expect(result).toEqual({ text: "", retrievals: [], omittedReason: "no_indexed_documents" });
+    expect(embedder.embedQuery).not.toHaveBeenCalled();
+    expect(searchContextChunks).not.toHaveBeenCalled();
+  });
+
+  it("omits with no_relevant_chunks when everything is below the similarity floor", async () => {
+    const result = await retrieveContext(7, "anything", {
+      countIndexedContextItems: vi.fn().mockResolvedValue(3),
+      searchContextChunks: vi.fn().mockResolvedValue([
+        match({ id: 1, text: "Unrelated paragraph.", score: SIMILARITY_FLOOR - 0.01 }),
+        match({ id: 2, text: "Also unrelated.", score: 0.02 }),
+      ]),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result).toEqual({ text: "", retrievals: [], omittedReason: "no_relevant_chunks" });
+  });
+
+  it("keeps a chunk sitting exactly on the floor", async () => {
+    const result = await retrieveContext(7, "anything", {
+      countIndexedContextItems: vi.fn().mockResolvedValue(1),
+      searchContextChunks: vi.fn().mockResolvedValue([
+        match({ id: 1, text: "Borderline.", score: SIMILARITY_FLOOR }),
+      ]),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.omittedReason).toBeUndefined();
+    expect(result.retrievals).toHaveLength(1);
+  });
+
+  it("applies the byte budget, dropping the chunks that do not fit", async () => {
+    const result = await retrieveContext(7, "anything", {
+      countIndexedContextItems: vi.fn().mockResolvedValue(1),
+      searchContextChunks: vi.fn().mockResolvedValue([
+        match({ id: 1, chunkIdx: 0, text: "a".repeat(RETRIEVAL_BUDGET_BYTES - 10), score: 0.9 }),
+        match({ id: 2, chunkIdx: 1, text: "b".repeat(100), score: 0.8 }),
+      ]),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.retrievals.map((r) => r.chunkIdx)).toEqual([0]);
+    expect(result.text).not.toContain("b");
+  });
+
+  it("omits with no_relevant_chunks for an empty query, without touching anything", async () => {
+    const countIndexedContextItems = vi.fn();
+    const result = await retrieveContext(7, "   ", {
+      countIndexedContextItems,
+      searchContextChunks: vi.fn(),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result).toEqual({ text: "", retrievals: [], omittedReason: "no_relevant_chunks" });
+    expect(countIndexedContextItems).not.toHaveBeenCalled();
+  });
+
+  // ARCHITECTURE.md §4's no-retry rule exists because a run has side effects; the flip side is
+  // that a run must never DIE for a missing convenience. Retrieval degrades, exactly as
+  // ensureRepoMap returns "".
+  it("never throws into the run: a failing search becomes retrieval_failed", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await retrieveContext(7, "anything", {
+      countIndexedContextItems: vi.fn().mockResolvedValue(2),
+      searchContextChunks: vi.fn().mockRejectedValue(new Error("extension \"vector\" is not available")),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result).toEqual({ text: "", retrievals: [], omittedReason: "retrieval_failed" });
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+
+  it("degrades the same way when the embedder itself fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const embedder = fakeEmbedder();
+    embedder.embedQuery.mockRejectedValue(new Error("model load failed"));
+
+    const result = await retrieveContext(7, "anything", {
+      countIndexedContextItems: vi.fn().mockResolvedValue(2),
+      searchContextChunks: vi.fn(),
+      embedder,
+    });
+
+    expect(result.omittedReason).toBe("retrieval_failed");
+    consoleError.mockRestore();
   });
 });
