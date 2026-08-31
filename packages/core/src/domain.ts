@@ -350,6 +350,24 @@ export interface RunEval {
   completedAt?: string;
 }
 
+// One retrieved chunk that was injected into one run's prompt. Its own entity, never a field on
+// Run: RUN_COLUMNS exists precisely to keep large per-run payloads off the task page's 1.5s
+// poll, so this is served by a lazy route on tab open (mirrors RunEval).
+export interface RunContextRetrieval {
+  id: ID;
+  runId: ID;
+  // Absent once the source document is deleted — itemTitle below is the snapshot that keeps a
+  // historical run's provenance readable after the document is gone.
+  itemId?: ID;
+  itemTitle: string;
+  chunkIdx: number;
+  // 1-based position in the retrieval result, after the floor and byte budget were applied.
+  rank: number;
+  // Cosine similarity in [-1, 1]; higher is closer.
+  score: number;
+  createdAt: ISODateTime;
+}
+
 export interface Artifact {
   id: ID;
   runId: ID;
