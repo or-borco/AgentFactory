@@ -91,6 +91,16 @@
   --font-mono: ui-monospace, monospace;
 }
 
+html, body {
+  /* LeftPane pins the sidebar by giving `main` its own overflow-y-auto region (min-h-0 +
+     overscroll-contain). That only holds if the document itself can never become a second,
+     independent scroller — otherwise a wheel gesture over any non-scrolling area (like the
+     sidebar) falls through to the document instead of being blocked, dragging the whole layout
+     along with it. overflow: hidden here is the hard guarantee against that, regardless of any
+     transient layout hiccup during initial paint/hydration. */
+  overflow: hidden;
+}
+
 body {
   background: var(--color-bg);
   color: var(--color-text);
