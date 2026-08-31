@@ -211,11 +211,11 @@ rows    = db.transaction(tx => {
             return tx.select(...)                     // subquery: team_id filter + <=> order + limit K
                      .orderBy(distance)               // outer re-sort → deterministic rank
           })
-kept    = rows.filter(r => 1 - r.distance >= FLOOR)   // FLOOR = 0.35
+kept    = rows.filter(r => 1 - r.distance >= FLOOR)   // FLOOR = 0.6
           .reduce(byteBudget(8192))                   // whole chunks only
 ```
 
-`K = 12`, floor `0.35`, budget 8 192 bytes. Empty result → an omitted segment; a throw → an omitted segment plus `console.error`, never a failed run. On success the worker writes `run_context_retrievals` rows. No run event is emitted: those rows, plus the retrieved text already preserved verbatim in `runs.prompt_segments`, carry the whole provenance story, and the transcript is not where it is surfaced. Reusing `context_included` would actively break something — the task page keys that event by `runId` with last-write-wins (`apps/web/src/app/(app)/tasks/[taskId]/page.tsx:222-235`, whose comment records the one-per-run assumption), so a second one would silently overwrite the shared-context indicator.
+`K = 12`, floor `0.6`, budget 8 192 bytes. The floor was raised from its original default of `0.35` after or-borco/AgentFactory#135 — measured, not guessed, across 30 real queries against two independent real corpora: every off-topic or gibberish query's best-scoring chunk topped out at 0.556, every genuinely on-topic query's best-scoring chunk started at 0.6 or higher. See `docs/superpowers/experiments/2026-09-01-similarity-floor.md`. A residual gap remains for queries that are topically adjacent to the corpus but not actually answered by it (e.g. asking about a policy the team's documents don't cover) — a handful of these still cleared the new floor in testing; that is a different, harder problem than the off-topic case #135 was filed for, and is not claimed to be solved here. Empty result → an omitted segment; a throw → an omitted segment plus `console.error`, never a failed run. On success the worker writes `run_context_retrievals` rows. No run event is emitted: those rows, plus the retrieved text already preserved verbatim in `runs.prompt_segments`, carry the whole provenance story, and the transcript is not where it is surfaced. Reusing `context_included` would actively break something — the task page keys that event by `runId` with last-write-wins (`apps/web/src/app/(app)/tasks/[taskId]/page.tsx:222-235`, whose comment records the one-per-run assumption), so a second one would silently overwrite the shared-context indicator.
 
 ### Prompt composition
 

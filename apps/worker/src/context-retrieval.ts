@@ -4,13 +4,19 @@ import type { ContextChunkMatch, NewRunContextRetrieval } from "@agentfactory/db
 import { getEmbedder } from "./embedder";
 import type { Embedder } from "./embedder";
 
-// Top-k asked of the index. Tuning these three numbers is deliberately deferred until PR 7 can
-// measure retrieval precision — they are defaults, not findings.
+// Top-k asked of the index. RETRIEVAL_K itself is still a default, not a finding — only
+// SIMILARITY_FLOOR below has been measured.
 export const RETRIEVAL_K = 12;
 // Below this cosine similarity a chunk is noise, and top-k alone always returns something: with
 // no relevant documents, that something goes into every prompt. Under the floor the layer is
 // omitted entirely rather than padded.
-export const SIMILARITY_FLOOR = 0.35;
+//
+// Measured, not guessed (see or-borco/AgentFactory#135 and
+// docs/superpowers/experiments/2026-09-01-similarity-floor.md): across 16 real queries against
+// the real 7-document corpus, every off-topic or gibberish query's best-scoring chunk topped out
+// at 0.556, while every genuinely on-topic query's best-scoring chunk started at 0.642 or higher.
+// 0.6 sits in that gap.
+export const SIMILARITY_FLOOR = 0.6;
 // Small next to the 16 KB repo map. A run that still overflows is already handled by
 // PromptTooLongError → model escalation; no new budget mechanism is introduced.
 export const RETRIEVAL_BUDGET_BYTES = 8192;

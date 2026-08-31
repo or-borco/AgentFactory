@@ -39,7 +39,7 @@ const match = (over: Partial<ContextChunkMatch> & { id: number; text: string }):
 describe("retrieval constants", () => {
   it("pins K, the similarity floor, and the byte budget", () => {
     expect(RETRIEVAL_K).toBe(12);
-    expect(SIMILARITY_FLOOR).toBe(0.35);
+    expect(SIMILARITY_FLOOR).toBe(0.6);
     expect(RETRIEVAL_BUDGET_BYTES).toBe(8192);
   });
 });
