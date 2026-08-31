@@ -125,19 +125,31 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
     prompt?.segments.some((segment) => segment.id === RETRIEVED_CONTEXT_ID && segment.text !== ""),
   );
 
+  const loadRetrievals = useCallback(
+    (runId: number) => {
+      requestedRetrievalRunIds.current.add(runId);
+      apiFetch<RunContextRetrieval[]>(`/api/runs/${runId}/retrievals`)
+        .then((retrievals) => setRetrievalsState(runId, { status: "loaded", retrievals }))
+        .catch(() => {
+          // A transport failure is never terminal: forget the request so a status transition
+          // (handled by the effect below) or the manual Retry button re-asks for the provenance
+          // behind the excerpts, which are already rendered regardless of this result.
+          requestedRetrievalRunIds.current.delete(runId);
+          setRetrievalsState(runId, { status: "error" });
+        });
+    },
+    [setRetrievalsState],
+  );
+
   useEffect(() => {
     if (shownRunId === null || !hasRetrievedLayer) return;
     if (requestedRetrievalRunIds.current.has(shownRunId)) return;
-    requestedRetrievalRunIds.current.add(shownRunId);
-    apiFetch<RunContextRetrieval[]>(`/api/runs/${shownRunId}/retrievals`)
-      .then((retrievals) => setRetrievalsState(shownRunId, { status: "loaded", retrievals }))
-      .catch(() => {
-        // Never terminal: the excerpts themselves are already rendered, and a later status
-        // change re-asks for the provenance behind them.
-        requestedRetrievalRunIds.current.delete(shownRunId);
-        setRetrievalsState(shownRunId, { status: "error" });
-      });
-  }, [shownRunId, hasRetrievedLayer, setRetrievalsState]);
+    loadRetrievals(shownRunId);
+    // shownRunStatus is otherwise unused here, but it is a dependency on purpose: a status
+    // transition (e.g. a run finishing) must re-run this effect so a prior failure — which
+    // clears the run from requestedRetrievalRunIds — gets retried, mirroring the prompt-fetch
+    // effect above.
+  }, [shownRunId, shownRunStatus, hasRetrievedLayer, loadRetrievals]);
 
   const retrievalsState = shownRunId !== null ? retrievalsByRun.get(shownRunId) : undefined;
 
@@ -261,6 +273,7 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
               expanded={expandedIds.has(`${segment.id}-${index}`)}
               onToggle={() => toggleExpanded(`${segment.id}-${index}`)}
               retrievals={segment.id === RETRIEVED_CONTEXT_ID ? retrievalsState : undefined}
+              onRetryRetrievals={shownRunId !== null ? () => loadRetrievals(shownRunId) : undefined}
             />
           ))}
         </div>
@@ -289,6 +302,7 @@ function SegmentRow({
   expanded,
   onToggle,
   retrievals,
+  onRetryRetrievals,
 }: {
   segment: PromptSegment;
   totalBytes: number;
@@ -297,6 +311,7 @@ function SegmentRow({
   // Only ever supplied for the retrieved_context row; undefined everywhere else, and undefined
   // for that row too until its request resolves.
   retrievals?: RetrievalsFetchState;
+  onRetryRetrievals?: () => void;
 }) {
   const { t } = useTranslation();
   const bytes = byteLength(segment.text);
@@ -335,7 +350,9 @@ function SegmentRow({
           </span>
         </button>
       )}
-      {expanded && !omitted && retrievals && <ProvenanceGroup state={retrievals} />}
+      {expanded && !omitted && retrievals && (
+        <ProvenanceGroup state={retrievals} onRetry={onRetryRetrievals} />
+      )}
       {expanded && !omitted && (
         <pre
           style={{
@@ -359,21 +376,38 @@ function SegmentRow({
 
 // Which documents the excerpts above came from. The row text itself is not repeated here — it is
 // already in the <pre> below, verbatim, exactly as the model received it.
-function ProvenanceGroup({ state }: { state: RetrievalsFetchState }) {
+function ProvenanceGroup({ state, onRetry }: { state: RetrievalsFetchState; onRetry?: () => void }) {
   const { t } = useTranslation();
 
   if (state.status === "error") {
     return (
       <p
         style={{
+          alignItems: "center",
           borderTop: "1px solid var(--color-divider)",
           color: "var(--color-status-amber)",
+          display: "flex",
           fontSize: 12,
+          gap: 10,
           margin: 0,
           padding: "10px 14px",
         }}
       >
         {t("taskDetail.contextSourcesLoadError")}
+        <button
+          onClick={onRetry}
+          style={{
+            background: "none",
+            border: "1px solid var(--color-divider)",
+            borderRadius: "var(--radius-md)",
+            color: "var(--color-neutral-400)",
+            cursor: "pointer",
+            fontSize: 12,
+            padding: "4px 10px",
+          }}
+        >
+          {t("taskDetail.contextRetry")}
+        </button>
       </p>
     );
   }

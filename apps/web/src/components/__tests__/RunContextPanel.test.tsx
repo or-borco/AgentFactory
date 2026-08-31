@@ -338,4 +338,67 @@ describe("RunContextPanel — the retrieved-documents layer", () => {
     expect(screen.getByText("Couldn't load which documents were retrieved.")).toBeInTheDocument();
     expect(screen.getByText(/Rotate service credentials once per quarter/)).toBeInTheDocument();
   });
+
+  it("retries the provenance fetch when the user clicks Try again after a failure", async () => {
+    apiFetchMock.mockImplementation((path: string) =>
+      String(path).endsWith("/retrievals")
+        ? Promise.reject(new Error("boom"))
+        : Promise.resolve(RETRIEVAL_PROMPT),
+    );
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Retrieved documents"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument());
+
+    apiFetchMock.mockImplementation((path: string) =>
+      String(path).endsWith("/retrievals") ? Promise.resolve(RETRIEVALS) : Promise.resolve(RETRIEVAL_PROMPT),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() =>
+      expect(screen.getByText("Engineering handbook — chunk 3 · 82% match")).toBeInTheDocument(),
+    );
+    expect(
+      apiFetchMock.mock.calls.filter(([path]) => String(path).endsWith("/retrievals")),
+    ).toHaveLength(2);
+  });
+
+  // Regression: the retrieval-fetch effect must re-run on a status transition the same way the
+  // prompt-fetch effect does, so a run finishing after a transient failure gets a second try
+  // without the user having to click anything.
+  it("re-asks for provenance rows once a failed run's status advances", async () => {
+    const runningRun = [{ ...RUNS[0], status: "running" } as Run];
+    apiFetchMock.mockImplementation((path: string) =>
+      String(path).endsWith("/retrievals")
+        ? Promise.reject(new Error("boom"))
+        : Promise.resolve(RETRIEVAL_PROMPT),
+    );
+    const { rerender } = renderPanel(runningRun);
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("Retrieved documents"));
+    await waitFor(() =>
+      expect(screen.getByText("Couldn't load which documents were retrieved.")).toBeInTheDocument(),
+    );
+    expect(
+      apiFetchMock.mock.calls.filter(([path]) => String(path).endsWith("/retrievals")),
+    ).toHaveLength(1);
+
+    apiFetchMock.mockImplementation((path: string) =>
+      String(path).endsWith("/retrievals") ? Promise.resolve(RETRIEVALS) : Promise.resolve(RETRIEVAL_PROMPT),
+    );
+    rerender(
+      <I18nProvider>
+        <RunContextPanel runs={[{ ...RUNS[0], status: "done" } as Run]} />
+      </I18nProvider>,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText("Engineering handbook — chunk 3 · 82% match")).toBeInTheDocument(),
+    );
+    expect(
+      apiFetchMock.mock.calls.filter(([path]) => String(path).endsWith("/retrievals")),
+    ).toHaveLength(2);
+  });
 });
