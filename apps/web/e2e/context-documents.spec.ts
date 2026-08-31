@@ -38,7 +38,7 @@ test("a document uploads, appears as pending, and can't be uploaded twice", asyn
 
   await page.goto("/teams-v2");
   await expect(page.getByText("Engineering handbook")).toBeVisible();
-  await expect(page.getByText("Pending")).toBeVisible();
+  await expect(page.getByText("Queued")).toBeVisible();
 });
 
 test("an oversized upload is rejected", async ({ page, registeredUser }) => {
