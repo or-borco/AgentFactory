@@ -96,53 +96,74 @@ export const JUDGE_SYSTEM_PROMPT = [
   "Report exclusively through the report_eval tool.",
 ].join("\n");
 
-const REPORT_EVAL_TOOL: Anthropic.Tool = {
-  name: "report_eval",
-  description: "Report the per-layer compliance verdicts for the artefact.",
-  input_schema: {
-    type: "object",
-    required: ["layers"],
-    properties: {
-      layers: {
-        type: "array",
-        items: {
-          type: "object",
-          required: ["segmentId", "requirements"],
-          properties: {
-            segmentId: { type: "string", enum: ["team_context", "agent_system_prompt"] },
-            requirements: {
-              type: "array",
-              items: {
-                type: "object",
-                required: ["text", "verdict", "evidence"],
-                properties: {
-                  text: { type: "string" },
-                  verdict: { type: "string", enum: ["pass", "fail", "unclear", "overridden"] },
-                  evidence: { type: "string" },
-                },
-              },
+// A run either sent a <retrieved> block or it did not — every call site that cares (the message
+// builder, the tool schema, and logRetrievalCoverageGaps) must agree on the same gate, or the
+// three can disagree about whether "no retrieval field back" means "nothing was sent" or "the
+// judge dropped it." This is the single source of truth for that question.
+export function hasRetrievedBlock(retrieved: string | undefined): retrieved is string {
+  return retrieved !== undefined && retrieved.trim() !== "";
+}
+
+const REPORT_EVAL_PROPERTIES: NonNullable<Anthropic.Tool["input_schema"]["properties"]> = {
+  layers: {
+    type: "array",
+    items: {
+      type: "object",
+      required: ["segmentId", "requirements"],
+      properties: {
+        segmentId: { type: "string", enum: ["team_context", "agent_system_prompt"] },
+        requirements: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["text", "verdict", "evidence"],
+            properties: {
+              text: { type: "string" },
+              verdict: { type: "string", enum: ["pass", "fail", "unclear", "overridden"] },
+              evidence: { type: "string" },
             },
-          },
-        },
-      },
-      retrieval: {
-        type: "array",
-        description:
-          "One entry per retrieved excerpt, in the order they appear in the retrieved block. Omit this field entirely when no retrieved block was provided.",
-        items: {
-          type: "object",
-          required: ["itemTitle", "chunkIdx", "relevant", "reason"],
-          properties: {
-            itemTitle: { type: "string" },
-            chunkIdx: { type: "integer" },
-            relevant: { type: "boolean" },
-            reason: { type: "string" },
           },
         },
       },
     },
   },
+  retrieval: {
+    type: "array",
+    description:
+      "One entry per retrieved excerpt, in the order they appear in the retrieved block. Omit this field entirely when no retrieved block was provided.",
+    items: {
+      type: "object",
+      required: ["itemTitle", "chunkIdx", "relevant", "reason"],
+      properties: {
+        itemTitle: { type: "string" },
+        chunkIdx: { type: "integer" },
+        relevant: { type: "boolean" },
+        reason: { type: "string" },
+      },
+    },
+  },
 };
+
+// or-borco/AgentFactory#134: with `retrieval` always optional, the real judge omitted it from
+// ~75-80% of calls that had a genuine <retrieved> block to grade, despite JUDGE_SYSTEM_PROMPT
+// explicitly instructing it to always report one. Two prompt-level hypotheses were tried and
+// disproven (a larger JUDGE_MAX_TOKENS, reordering the schema's properties) — see
+// docs/superpowers/experiments/2026-09-01-judge-retrieval-required-field.md. Marking `retrieval`
+// conditionally required — only on calls where a block was actually sent — is a schema-level
+// constraint, not a prompt-level suggestion, and measured at 19/20 across two real-API scenarios
+// (28 total real excerpts graded) versus 5/20 on the always-optional schema. It must stay
+// conditional: a run with no retrieved block still must not be forced to invent one.
+export function buildReportEvalTool(includeRetrieval: boolean): Anthropic.Tool {
+  return {
+    name: "report_eval",
+    description: "Report the per-layer compliance verdicts for the artefact.",
+    input_schema: {
+      type: "object",
+      required: includeRetrieval ? ["layers", "retrieval"] : ["layers"],
+      properties: REPORT_EVAL_PROPERTIES,
+    },
+  };
+}
 
 // Every structural delimiter this module emits. Escaping is applied per-block against the
 // WHOLE vocabulary, not just the block's own tag: a block that neutralized only its own
@@ -270,7 +291,7 @@ export function buildJudgeUserMessage(
   // absent `retrieval` field in the report unambiguously means "nothing to grade" rather than
   // "graded and found nothing". Placed after the request and before the layers: the judge reads
   // what was asked, then what the platform pulled in on the strength of it.
-  const sendableRetrieved = retrieved !== undefined && retrieved.trim() !== "" ? retrieved : undefined;
+  const sendableRetrieved = hasRetrievedBlock(retrieved) ? retrieved : undefined;
   const retrievedBlock =
     sendableRetrieved === undefined
       ? ""
@@ -579,11 +600,10 @@ export function logRetrievalCoverageGaps(
   retrieved: string | undefined,
   retrieval: EvalRetrievalResult | undefined,
 ): void {
-  // Mirrors buildJudgeUserMessage's own gate for whether a <retrieved> block was actually sent
-  // (retrieved !== undefined && retrieved.trim() !== ""): a caller passing undefined or blank
-  // text is the legitimate "nothing to grade" case, and a missing/mismatched `retrieval` there
-  // is expected, not a degradation.
-  if (retrieved === undefined || retrieved.trim() === "") return;
+  // Same gate as buildJudgeUserMessage and buildReportEvalTool: a caller passing undefined or
+  // blank text is the legitimate "nothing to grade" case, and a missing/mismatched `retrieval`
+  // there is expected, not a degradation.
+  if (!hasRetrievedBlock(retrieved)) return;
   if (retrieval === undefined) {
     console.warn(
       "eval-judge: a retrieved block was sent but the judge's report_eval call omitted the retrieval field",
@@ -633,7 +653,7 @@ export async function judgeCompliance(
     model: DEFAULT_MODEL_ID,
     max_tokens: JUDGE_MAX_TOKENS,
     system: JUDGE_SYSTEM_PROMPT,
-    tools: [REPORT_EVAL_TOOL],
+    tools: [buildReportEvalTool(hasRetrievedBlock(retrieved))],
     tool_choice: { type: "tool", name: "report_eval" },
     messages: [
       { role: "user", content: buildJudgeUserMessage(segments, artefact, request, retrieved) },

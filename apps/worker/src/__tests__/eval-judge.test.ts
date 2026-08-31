@@ -7,9 +7,11 @@ import {
   MAX_ARTEFACT_CHARS,
   MAX_REQUEST_CHARS,
   buildJudgeUserMessage,
+  buildReportEvalTool,
   computeResult,
   countInjectedExcerpts,
   enforceOverrideEvidence,
+  hasRetrievedBlock,
   logRetrievalCoverageGaps,
   selectHumanSegments,
   validateJudgeLayers,
@@ -949,6 +951,42 @@ describe("countInjectedExcerpts", () => {
 
   it("returns 0 for text with no markers", () => {
     expect(countInjectedExcerpts("Auth handbook › Sessions\n\nSessions expire after 30 days.")).toBe(0);
+  });
+});
+
+describe("hasRetrievedBlock", () => {
+  it("is false for undefined and for whitespace-only text", () => {
+    expect(hasRetrievedBlock(undefined)).toBe(false);
+    expect(hasRetrievedBlock("   \n ")).toBe(false);
+  });
+
+  it("is true for real retrieved text", () => {
+    expect(hasRetrievedBlock("[Excerpt 0] Auth handbook › Sessions")).toBe(true);
+  });
+});
+
+// or-borco/AgentFactory#134: with `retrieval` always optional, the real judge omitted it from a
+// real <retrieved> block roughly 75-80% of the time. Measured across two real-API scenarios,
+// marking it required only on calls that actually send a block raised that to 19/20. See
+// docs/superpowers/experiments/2026-09-01-judge-retrieval-required-field.md.
+describe("buildReportEvalTool", () => {
+  it("requires only layers when there is nothing retrieved to grade", () => {
+    const tool = buildReportEvalTool(false);
+    expect(tool.input_schema.required).toEqual(["layers"]);
+  });
+
+  it("requires retrieval too when a retrieved block was sent", () => {
+    const tool = buildReportEvalTool(true);
+    expect(tool.input_schema.required).toEqual(["layers", "retrieval"]);
+  });
+
+  it("keeps the same property definitions regardless of what's required", () => {
+    const withRetrieval = buildReportEvalTool(true);
+    const without = buildReportEvalTool(false);
+    expect(withRetrieval.input_schema.properties).toEqual(without.input_schema.properties);
+    expect(Object.keys(without.input_schema.properties ?? {})).toEqual(
+      expect.arrayContaining(["layers", "retrieval"]),
+    );
   });
 });
 
