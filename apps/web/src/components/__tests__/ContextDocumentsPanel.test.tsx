@@ -64,7 +64,7 @@ describe("ContextDocumentsPanel", () => {
     await waitFor(() => expect(screen.getByText("Engineering handbook")).toBeInTheDocument());
     expect(screen.getByText(/17\.8 KB/)).toBeInTheDocument();
     expect(screen.getByText(/Uploaded by Ada Lovelace/)).toBeInTheDocument();
-    expect(screen.getByText("Pending")).toBeInTheDocument();
+    expect(screen.getByText("Queued")).toBeInTheDocument();
   });
 
   // "Failed" alone says nothing actionable; Badge has no danger tone, so the message from
@@ -76,7 +76,9 @@ describe("ContextDocumentsPanel", () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText("Failed")).toBeInTheDocument());
-    expect(screen.getByText("Could not read the file as UTF-8 text")).toBeInTheDocument();
+    expect(
+      screen.getByText("Indexing failed: Could not read the file as UTF-8 text"),
+    ).toBeInTheDocument();
   });
 
   it("refuses a file over the 2 MB cap without calling the API", async () => {

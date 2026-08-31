@@ -1,9 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import type { OrgMember, TeamContextItem } from "@agentfactory/core";
 import { Badge, EmptyState } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
+import {
+  CONTEXT_ITEM_STATUS_LABEL_KEYS,
+  CONTEXT_ITEM_STATUS_TONES,
+  hasPendingIngest,
+} from "@/lib/context-item-status";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
 
@@ -25,26 +30,17 @@ function extensionMime(filename: string): "text/markdown" | "text/plain" | null 
   return null;
 }
 
-// Badge has no danger tone and isn't gaining one here; a failed document carries its message
-// inline underneath instead.
-const STATUS_TONES: Record<TeamContextItem["status"], "neutral" | "success" | "warning"> = {
-  pending: "neutral",
-  indexing: "neutral",
-  indexed: "success",
-  failed: "warning",
-};
-
-const STATUS_LABEL_KEYS: Record<TeamContextItem["status"], TranslationKey> = {
-  pending: "teamsV2.documentsStatusPending",
-  indexing: "teamsV2.documentsStatusIndexing",
-  indexed: "teamsV2.documentsStatusIndexed",
-  failed: "teamsV2.documentsStatusFailed",
-};
-
-const NON_TERMINAL: ReadonlySet<TeamContextItem["status"]> = new Set(["pending", "indexing"]);
+// Matches RunEvalPanel's cadence — the same "a worker is doing something we can't be told
+// about" problem, and the same answer.
 const POLL_MS = 3000;
 
-export function ContextDocumentsPanel({ teamId, members }: { teamId: number; members: OrgMember[] }) {
+export function ContextDocumentsPanel({
+  teamId,
+  members = [],
+}: {
+  teamId: number;
+  members?: OrgMember[];
+}) {
   const { t } = useTranslation();
   const [items, setItems] = useState<TeamContextItem[]>([]);
   const [loadError, setLoadError] = useState(false);
@@ -52,7 +48,7 @@ export function ContextDocumentsPanel({ teamId, members }: { teamId: number; mem
   const [uploading, setUploading] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const load = useCallback(async () => {
+  const reload = useCallback(async () => {
     try {
       setItems(await apiFetch<TeamContextItem[]>(`/api/teams/${teamId}/context-items`));
       setLoadError(false);
@@ -62,21 +58,23 @@ export function ContextDocumentsPanel({ teamId, members }: { teamId: number; mem
   }, [teamId]);
 
   useEffect(() => {
-    // Initial fetch on mount; load() is async, so any setState it makes lands in a later
+    // Initial fetch on mount; reload() is async, so any setState it makes lands in a later
     // microtask, not synchronously here.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void load();
-  }, [load]);
+    void reload();
+  }, [reload]);
 
-  // Poll only while something is mid-ingestion. Until the ingest worker lands nothing moves an
-  // item off "pending", so on a team with documents this keeps ticking for as long as the tab is
-  // open — one small GET every 3s, and it stops itself the moment ingestion exists.
-  const anyPending = items.some((item) => NON_TERMINAL.has(item.status));
+  // Ingestion runs in apps/worker with no push channel back to this tab, so a document that
+  // was "Queued" a second ago has no way to say it reached "Indexed". Poll — but only while
+  // something can still move, so a settled list (and the empty list a team sits on before its
+  // first upload) costs nothing.
   useEffect(() => {
-    if (!anyPending) return;
-    const timer = setInterval(() => void load(), POLL_MS);
+    if (!hasPendingIngest(items)) return;
+    const timer = setInterval(() => {
+      void reload();
+    }, POLL_MS);
     return () => clearInterval(timer);
-  }, [anyPending, load]);
+  }, [items, reload]);
 
   async function handleFile(file: File) {
     setErrorKey(null);
@@ -162,31 +160,35 @@ export function ContextDocumentsPanel({ teamId, members }: { teamId: number; mem
           {items.map((item, i) => {
             const uploader = members.find((m) => m.userId === item.uploadedBy);
             return (
-              <div
-                key={item.id}
-                className={[
-                  "flex items-center gap-3 px-4 py-3",
-                  i < items.length - 1 ? "border-b border-[var(--color-divider)]" : "",
-                ].join(" ")}
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm text-[var(--color-neutral-200)]">{item.title}</div>
-                  <div className="text-xs text-[var(--color-neutral-500)]">
-                    {t("teamsV2.documentsSize", { size: (item.sizeBytes / 1024).toFixed(1) })}
-                    {uploader ? ` · ${t("teamsV2.documentsUploadedBy", { name: uploader.name })}` : ""}
-                  </div>
-                  {item.status === "failed" && item.error && (
-                    <div className="mt-1 text-xs text-red-400">{item.error}</div>
-                  )}
-                </div>
-                <Badge tone={STATUS_TONES[item.status]}>{t(STATUS_LABEL_KEYS[item.status])}</Badge>
-                <button
-                  onClick={() => void handleDelete(item.id)}
-                  className="shrink-0 cursor-pointer text-xs text-[var(--color-neutral-500)] transition-colors hover:text-red-400"
+              <Fragment key={item.id}>
+                <div
+                  className={i < items.length - 1 ? "border-b border-[var(--color-divider)]" : ""}
                 >
-                  {t("teamsV2.documentsDelete")}
-                </button>
-              </div>
+                  <div className="flex items-center gap-3 px-4 py-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm text-[var(--color-neutral-200)]">{item.title}</div>
+                      <div className="text-xs text-[var(--color-neutral-500)]">
+                        {t("teamsV2.documentsSize", { size: (item.sizeBytes / 1024).toFixed(1) })}
+                        {uploader ? ` · ${t("teamsV2.documentsUploadedBy", { name: uploader.name })}` : ""}
+                      </div>
+                    </div>
+                    <Badge tone={CONTEXT_ITEM_STATUS_TONES[item.status]}>
+                      {t(CONTEXT_ITEM_STATUS_LABEL_KEYS[item.status])}
+                    </Badge>
+                    <button
+                      onClick={() => void handleDelete(item.id)}
+                      className="shrink-0 cursor-pointer text-xs text-[var(--color-neutral-500)] transition-colors hover:text-red-400"
+                    >
+                      {t("teamsV2.documentsDelete")}
+                    </button>
+                  </div>
+                  {item.status === "failed" && item.error ? (
+                    <p className="px-4 pb-3 text-[11px] text-red-400">
+                      {t("teamsV2.documentErrorPrefix", { error: item.error })}
+                    </p>
+                  ) : null}
+                </div>
+              </Fragment>
             );
           })}
         </div>

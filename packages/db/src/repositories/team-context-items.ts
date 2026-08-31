@@ -74,3 +74,30 @@ export async function deleteTeamContextItemForOrg(id: number, orgId: number): Pr
     .returning({ id: teamContextItems.id });
   return rows.length > 0;
 }
+
+// The three writes the ingest worker makes. Each is a whole-row status assignment rather than
+// a conditional update: the caller has already decided the transition is legal (see the
+// pending | indexing guard in apps/worker/src/context-ingest.ts), and putting the same rule
+// in two places would let them disagree.
+
+export async function markContextItemIndexing(id: number): Promise<void> {
+  // error is cleared on the way in, not on the way out: a redelivered job that succeeds must
+  // not leave the previous attempt's message sitting under an "Indexed" badge.
+  await db
+    .update(teamContextItems)
+    .set({ status: "indexing", error: null })
+    .where(eq(teamContextItems.id, id));
+}
+
+export async function markContextItemIndexed(id: number): Promise<void> {
+  await db
+    .update(teamContextItems)
+    .set({ status: "indexed", error: null, indexedAt: new Date() })
+    .where(eq(teamContextItems.id, id));
+}
+
+export async function markContextItemFailed(id: number, error: string): Promise<void> {
+  // indexedAt is deliberately untouched — it means "the moment this item's chunks became
+  // current", and a failed attempt did not produce any.
+  await db.update(teamContextItems).set({ status: "failed", error }).where(eq(teamContextItems.id, id));
+}
