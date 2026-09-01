@@ -1,6 +1,7 @@
 import "dotenv/config";
 import { Worker } from "bullmq";
 import {
+  TASK_CONTEXT_INGEST_QUEUE_NAME,
   TEAM_CONTEXT_INGEST_QUEUE_NAME,
   EVAL_QUEUE_NAME,
   RUN_QUEUE_NAME,
@@ -12,6 +13,7 @@ import {
   type RepoMapWarmJobData,
   type RunJobData,
   type SandboxTeardownJobData,
+  type TaskContextIngestJobData,
 } from "@agentfactory/queue";
 import { type ModelSpec, type PromptSegment, type Session, buildModelSpec, formatSharedContextForPrompt } from "@agentfactory/core";
 import {
@@ -57,7 +59,7 @@ import { resolveEscalation } from "./model-escalation";
 import { ensureRepoMap, warmRepoMap } from "./repo-map";
 import { buildRetrievalQuery, retrieveContext, type RetrievedContext } from "./context-retrieval";
 import { processEvalJob } from "./eval-runner";
-import { ingestTeamContextItem } from "./context-ingest";
+import { ingestTaskContextItem, ingestTeamContextItem } from "./context-ingest";
 
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
@@ -474,7 +476,25 @@ contextIngestWorker.on("failed", (job, err) => {
   console.error(`Context ingest job ${job?.id} failed:`, err);
 });
 
+// Triggered by a document upload on the task-scoped route (apps/web's
+// /api/tasks/[taskId]/context-items) — same extract/chunk/embed pipeline as the team ingest
+// worker above, on its own queue: TASK_CONTEXT_INGEST_QUEUE_NAME has its own jobId namespace
+// (see that queue's definition) so a team item and a task item can never collide on the same
+// BullMQ job id even when their numeric ids happen to match.
+const taskContextIngestWorker = new Worker<TaskContextIngestJobData>(
+  TASK_CONTEXT_INGEST_QUEUE_NAME,
+  async (job) => {
+    await ingestTaskContextItem(job.data.itemId);
+  },
+  { connection: queueConnection },
+);
+
+taskContextIngestWorker.on("failed", (job, err) => {
+  console.error(`Task context ingest job ${job?.id} failed:`, err);
+});
+
 console.log(
   `apps/worker listening on queues "${RUN_QUEUE_NAME}", "${SANDBOX_TEARDOWN_QUEUE_NAME}", ` +
-    `"${REPO_MAP_WARM_QUEUE_NAME}", "${EVAL_QUEUE_NAME}", "${TEAM_CONTEXT_INGEST_QUEUE_NAME}"`,
+    `"${REPO_MAP_WARM_QUEUE_NAME}", "${EVAL_QUEUE_NAME}", "${TEAM_CONTEXT_INGEST_QUEUE_NAME}", ` +
+    `"${TASK_CONTEXT_INGEST_QUEUE_NAME}"`,
 );
