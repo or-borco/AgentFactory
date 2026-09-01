@@ -17,5 +17,7 @@ export * from "./repositories/tasks";
 export * from "./repositories/team-context-items";
 export * from "./repositories/run-context-retrievals";
 export * from "./repositories/context-chunks";
+export * from "./repositories/task-context-items";
+export * from "./repositories/task-context-chunks";
 export * from "./repositories/repo-maps";
 export * from "./repositories/content-blobs";

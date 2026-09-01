@@ -439,6 +439,75 @@ export const contextChunks = pgTable(
   ],
 );
 
+// Task-scoped twin of team_context_items — same addressing scheme (org_id denormalized, composite
+// FK to content_blobs), same status machine, but keyed by task_id instead of team_id. Deliberately
+// its own table rather than a nullable team_id/task_id union on the existing one: retrieval, the
+// worker, and the routes all key off exactly one of the two, and a shared table would make every
+// query there carry a redundant "and the other id is null" predicate. Unwired for now — no route,
+// no worker, no retrieval reads this table yet.
+export const taskContextItems = pgTable(
+  "task_context_items",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    taskId: integer("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    sizeBytes: integer("size_bytes").notNull().default(0),
+    sha256: text("sha256").notNull(),
+    mime: text("mime").notNull(),
+    // Always "upload" today; connectors (Drive, Notion, URLs) become other values, not columns.
+    source: text("source").notNull().default("upload"),
+    status: contextItemStatusEnum("status").notNull().default("pending"),
+    // Ingestion's failure message; null unless status is "failed".
+    error: text("error"),
+    indexedAt: timestamp("indexed_at", { withTimezone: true }),
+    uploadedBy: integer("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.orgId, t.sha256],
+      foreignColumns: [contentBlobs.orgId, contentBlobs.sha256],
+    }),
+    // Per task, not per org: one org may want the same handbook attached to two tasks, but one
+    // task must never hold the same bytes twice — both copies would match retrieval and spend
+    // the budget.
+    uniqueIndex("task_context_items_task_sha").on(t.taskId, t.sha256),
+  ],
+);
+
+// Task-scoped twin of context_chunks. A separate table from context_chunks rather than a shared
+// one for the same reason as task_context_items above — retrieval always filters on exactly one
+// of team_id/task_id, and the HNSW scan wants that predicate on its own indexed table.
+export const taskContextChunks = pgTable(
+  "task_context_chunks",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    itemId: integer("item_id")
+      .notNull()
+      .references(() => taskContextItems.id, { onDelete: "cascade" }),
+    // Denormalized from the item, same reasoning as context_chunks.team_id: a filtered HNSW scan
+    // wants the predicate on the indexed table rather than behind a join to task_context_items.
+    taskId: integer("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    chunkIdx: integer("chunk_idx").notNull(),
+    text: text("text").notNull(),
+    // Same 384 dimensions as context_chunks, following the same embedder.
+    embedding: vector("embedding", { dimensions: 384 }).notNull(),
+    embeddingModel: text("embedding_model").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("task_context_chunks_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
+    index("task_context_chunks_task_id_idx").on(table.taskId),
+  ],
+);
+
 // What retrieval actually injected into one run. Deliberately its own table, never columns on
 // runs: the task page polls runs on a ~1.5s timer and RUN_COLUMNS exists to keep large per-run
 // payloads off that poll, so this is fetched lazily on tab open — the same arrangement as

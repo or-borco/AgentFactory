@@ -58,6 +58,25 @@ export interface TeamContextItem {
   createdAt: ISODateTime;
 }
 
+// One uploaded document scoped to a task rather than a team. Mirrors TeamContextItem exactly —
+// same addressing scheme, same status machine — but keyed by taskId instead of teamId.
+export interface TaskContextItem {
+  id: ID;
+  taskId: ID;
+  orgId: ID;
+  title: string;
+  sizeBytes: number;
+  sha256: string;
+  mime: string;
+  source: string;
+  status: ContextItemStatus;
+  // Machine-or-human failure text from ingestion; only set when status is "failed".
+  error?: string;
+  indexedAt?: ISODateTime;
+  uploadedBy?: ID;
+  createdAt: ISODateTime;
+}
+
 export interface OrgMember {
   userId: ID;
   orgId: ID;
