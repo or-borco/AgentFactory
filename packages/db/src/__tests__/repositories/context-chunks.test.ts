@@ -10,8 +10,8 @@ import {
 } from "../../repositories/team-context-items.js";
 import {
   countChunksForItem,
-  deleteChunksForItem,
-  insertContextChunks,
+  deleteTeamChunksForItem,
+  insertTeamContextChunks,
 } from "../../repositories/context-chunks.js";
 import { insertOrg, insertTeam } from "../fixtures.js";
 
@@ -43,7 +43,7 @@ describe("context-chunks repository", () => {
   it("inserts chunks and counts them for an item", async () => {
     const { team, item } = await setupItem();
 
-    await insertContextChunks([
+    await insertTeamContextChunks([
       {
         itemId: item.id,
         teamId: team.id,
@@ -69,7 +69,7 @@ describe("context-chunks repository", () => {
     const { team, item } = await setupItem();
     const embedding = fakeEmbedding(7);
 
-    await insertContextChunks([
+    await insertTeamContextChunks([
       { itemId: item.id, teamId: team.id, chunkIdx: 0, text: "body", embedding, embeddingModel: MODEL },
     ]);
 
@@ -84,14 +84,14 @@ describe("context-chunks repository", () => {
 
   it("is a no-op on an empty batch", async () => {
     const { item } = await setupItem();
-    await expect(insertContextChunks([])).resolves.toBeUndefined();
+    await expect(insertTeamContextChunks([])).resolves.toBeUndefined();
     await expect(countChunksForItem(item.id)).resolves.toBe(0);
   });
 
   it("deletes only the named item's chunks", async () => {
     const { team, item } = await setupItem("Engineering handbook");
     const second = await setupItem("API design guidelines");
-    await insertContextChunks([
+    await insertTeamContextChunks([
       { itemId: item.id, teamId: team.id, chunkIdx: 0, text: "a", embedding: fakeEmbedding(0), embeddingModel: MODEL },
       {
         itemId: second.item.id,
@@ -103,7 +103,7 @@ describe("context-chunks repository", () => {
       },
     ]);
 
-    await deleteChunksForItem(item.id);
+    await deleteTeamChunksForItem(item.id);
 
     await expect(countChunksForItem(item.id)).resolves.toBe(0);
     await expect(countChunksForItem(second.item.id)).resolves.toBe(1);
@@ -111,7 +111,7 @@ describe("context-chunks repository", () => {
 
   it("cascades chunks away when the item is deleted", async () => {
     const { org, team, item } = await setupItem();
-    await insertContextChunks([
+    await insertTeamContextChunks([
       { itemId: item.id, teamId: team.id, chunkIdx: 0, text: "a", embedding: fakeEmbedding(0), embeddingModel: MODEL },
       { itemId: item.id, teamId: team.id, chunkIdx: 1, text: "b", embedding: fakeEmbedding(1), embeddingModel: MODEL },
     ]);

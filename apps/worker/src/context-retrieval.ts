@@ -1,5 +1,5 @@
 import type { PromptOmissionReason } from "@agentfactory/core";
-import { countIndexedContextItems, searchContextChunks } from "@agentfactory/db";
+import { countIndexedTeamContextItems, searchTeamContextChunks } from "@agentfactory/db";
 import type { ContextChunkMatch, NewRunContextRetrieval } from "@agentfactory/db";
 import { getEmbedder } from "./embedder";
 import type { Embedder } from "./embedder";
@@ -73,8 +73,8 @@ export function selectWithinBudget(
 // vi.fn() — the production defaults below are structurally compatible. Same shape as
 // EvalRunnerDeps (eval-runner.ts:16-50).
 export interface RetrievalDeps {
-  countIndexedContextItems: (teamId: number) => Promise<number>;
-  searchContextChunks: (
+  countIndexedTeamContextItems: (teamId: number) => Promise<number>;
+  searchTeamContextChunks: (
     teamId: number,
     embedding: number[],
     limit: number,
@@ -101,8 +101,8 @@ const OMITTED = (omittedReason: PromptOmissionReason): RetrievedContext => ({
 // test with a stub embedder never touches the real module.
 function resolveDeps(overrides?: Partial<RetrievalDeps>): RetrievalDeps {
   return {
-    countIndexedContextItems,
-    searchContextChunks,
+    countIndexedTeamContextItems,
+    searchTeamContextChunks,
     embedder: overrides?.embedder ?? getEmbedder(),
     ...overrides,
   };
@@ -122,12 +122,12 @@ export async function retrieveContext(
 
   try {
     const resolved = resolveDeps(deps);
-    if ((await resolved.countIndexedContextItems(teamId)) === 0) {
+    if ((await resolved.countIndexedTeamContextItems(teamId)) === 0) {
       return OMITTED("no_indexed_documents");
     }
 
     const embedding = await resolved.embedder.embedQuery(query);
-    const matches = await resolved.searchContextChunks(teamId, embedding, RETRIEVAL_K);
+    const matches = await resolved.searchTeamContextChunks(teamId, embedding, RETRIEVAL_K);
     const relevant = matches.filter((m) => m.score >= SIMILARITY_FLOOR);
     const kept = selectWithinBudget(relevant, RETRIEVAL_BUDGET_BYTES);
     if (kept.length === 0) return OMITTED("no_relevant_chunks");

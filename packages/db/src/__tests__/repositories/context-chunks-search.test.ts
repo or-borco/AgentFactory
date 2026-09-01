@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 // The regression-guard test below forces the query planner off the team_id btree index and onto
 // the HNSW index it exists to exercise (see the comment on that test). That only means anything
-// if the planner-forcing SET statements and searchContextChunks' own internal db.transaction()
+// if the planner-forcing SET statements and searchTeamContextChunks' own internal db.transaction()
 // land on the exact same physical connection — not "probably the same one, since nothing else
 // happens to be running concurrently in this file today." A pooled client with no `max` (the
 // default in client.ts) can't promise that: a future edit to this file that adds an earlier test
@@ -30,7 +30,7 @@ vi.mock("../../client.js", async () => {
 import "../setup.js";
 import { db } from "../../client.js";
 import { insertContentBlob } from "../../repositories/content-blobs.js";
-import { insertContextChunks, searchContextChunks } from "../../repositories/context-chunks.js";
+import { insertTeamContextChunks, searchTeamContextChunks } from "../../repositories/context-chunks.js";
 import { createTeamContextItem } from "../../repositories/team-context-items.js";
 import { getTeamForOrg } from "../../repositories/teams.js";
 import { insertAgent, insertOrg, insertTeam } from "../fixtures.js";
@@ -78,18 +78,18 @@ async function seedChunks(
         embeddingModel: EMBEDDING_MODEL,
       });
     }
-    await insertContextChunks(rows);
+    await insertTeamContextChunks(rows);
   }
 }
 
-describe("searchContextChunks", () => {
+describe("searchTeamContextChunks", () => {
   // THE REGRESSION GUARD. hnsw.ef_search defaults to 40: the index yields ~40 candidates
   // GLOBALLY and the team_id predicate is applied afterwards, so a tenant-filtered top-k
   // silently under-returns — measured at 4 rows for a limit of 10 on a realistic table. The
   // fixture below makes that failure total rather than partial: the two noisy teams sit
   // directly on the query vector and own 2 000 of the 2 040 rows, so every one of the 40
   // candidates belongs to them and the filter removes all of them. Only the `set local
-  // hnsw.iterative_scan = 'relaxed_order'` inside searchContextChunks' transaction keeps
+  // hnsw.iterative_scan = 'relaxed_order'` inside searchTeamContextChunks' transaction keeps
   // scanning until the requested 10 target-team rows are found. If that line is ever deleted,
   // this is the test that says so — nothing else in the system errors.
   it("returns exactly the requested number of rows for a team that owns none of the global top-k", async () => {
@@ -121,7 +121,7 @@ describe("searchContextChunks", () => {
     //
     // These are session-level `SET` (not `SET LOCAL`) on the connection, not a transaction: the
     // module-level mock above makes `db` a { max: 1 } client for this whole file, so this really
-    // is the one connection searchContextChunks' internal db.transaction() will use — not an
+    // is the one connection searchTeamContextChunks' internal db.transaction() will use — not an
     // inference from the absence of concurrent queries. The settings are still explicitly
     // restored in `finally` so nothing leaks to the other tests in this file, which share the
     // same single connection.
@@ -129,7 +129,7 @@ describe("searchContextChunks", () => {
     await db.execute(sql`set enable_bitmapscan = off`);
     await db.execute(sql`set enable_indexscan = off`);
     try {
-      const matches = await searchContextChunks(target.id, QUERY, 10);
+      const matches = await searchTeamContextChunks(target.id, QUERY, 10);
 
       expect(matches).toHaveLength(10);
       expect(new Set(matches.map((m) => m.itemId))).toEqual(new Set([targetItem.id]));
@@ -141,14 +141,14 @@ describe("searchContextChunks", () => {
   });
 
   // relaxed_order buys recall by allowing candidates back slightly out of order, so the outer
-  // ORDER BY in searchContextChunks is what makes the persisted `rank` mean anything.
+  // ORDER BY in searchTeamContextChunks is what makes the persisted `rank` mean anything.
   it("returns matches sorted by descending similarity", async () => {
     const org = await insertOrg();
     const team = await insertTeam(org.id);
     const item = await seedItem(org.id, team.id, "Handbook", "d");
     await seedChunks(item.id, team.id, 60, (i) => (i % 60) * 0.02);
 
-    const matches = await searchContextChunks(team.id, QUERY, 10);
+    const matches = await searchTeamContextChunks(team.id, QUERY, 10);
 
     const scores = matches.map((m) => m.score);
     expect(scores).toEqual([...scores].sort((a, b) => b - a));
@@ -166,7 +166,7 @@ describe("searchContextChunks", () => {
     await seedChunks(myItem.id, mine.id, 3, () => 0.1);
     await seedChunks(theirItem.id, theirs.id, 3, () => 0);
 
-    const matches = await searchContextChunks(mine.id, QUERY, 10);
+    const matches = await searchTeamContextChunks(mine.id, QUERY, 10);
 
     expect(matches).toHaveLength(3);
     expect(matches.every((m) => m.itemTitle === "Incident runbook")).toBe(true);
@@ -188,12 +188,12 @@ describe("searchContextChunks", () => {
 
     await expect(getTeamForOrg(agent.teamId!, agent.orgId)).resolves.toBeUndefined();
     await expect(getTeamForOrg(teamB.id, orgB.id)).resolves.toBeDefined();
-    await expect(searchContextChunks(teamB.id, QUERY, 10)).resolves.toHaveLength(5);
+    await expect(searchTeamContextChunks(teamB.id, QUERY, 10)).resolves.toHaveLength(5);
   });
 
   it("returns an empty array for a team with no chunks", async () => {
     const org = await insertOrg();
     const team = await insertTeam(org.id);
-    await expect(searchContextChunks(team.id, QUERY, 10)).resolves.toEqual([]);
+    await expect(searchTeamContextChunks(team.id, QUERY, 10)).resolves.toEqual([]);
   });
 });

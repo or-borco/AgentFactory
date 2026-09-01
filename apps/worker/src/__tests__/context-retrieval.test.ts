@@ -5,11 +5,11 @@ import type { ContextChunkMatch } from "@agentfactory/db";
 // DATABASE_URL) and the embedder (which pulls in onnxruntime and would download a model on a
 // fresh clone). The unit project has neither a database nor a network policy, and
 // .husky/pre-push runs it, so both are mocked at import — same pattern as repo-map.test.ts.
-const countIndexedContextItemsMock = vi.fn();
-const searchContextChunksMock = vi.fn();
+const countIndexedTeamContextItemsMock = vi.fn();
+const searchTeamContextChunksMock = vi.fn();
 vi.mock("@agentfactory/db", () => ({
-  countIndexedContextItems: (...args: unknown[]) => countIndexedContextItemsMock(...args),
-  searchContextChunks: (...args: unknown[]) => searchContextChunksMock(...args),
+  countIndexedTeamContextItems: (...args: unknown[]) => countIndexedTeamContextItemsMock(...args),
+  searchTeamContextChunks: (...args: unknown[]) => searchTeamContextChunksMock(...args),
 }));
 
 const getEmbedderMock = vi.fn();
@@ -121,8 +121,8 @@ describe("retrieveContext", () => {
   it("wraps the kept chunks as untrusted reference material and ranks them", async () => {
     const embedder = fakeEmbedder();
     const result = await retrieveContext(7, "how do we handle incidents?", {
-      countIndexedContextItems: vi.fn().mockResolvedValue(2),
-      searchContextChunks: vi.fn().mockResolvedValue([
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(2),
+      searchTeamContextChunks: vi.fn().mockResolvedValue([
         match({ id: 11, itemId: 3, itemTitle: "Runbooks", chunkIdx: 4, text: "Page the on-call.", score: 0.81 }),
         match({ id: 12, itemId: 3, itemTitle: "Runbooks", chunkIdx: 5, text: "Open an incident channel.", score: 0.62 }),
       ]),
@@ -146,8 +146,8 @@ describe("retrieveContext", () => {
   // countInjectedExcerpts in eval-judge.ts).
   it("numbers each kept excerpt so the judge has a real ordinal to report, not a guess", async () => {
     const result = await retrieveContext(7, "how do we handle incidents?", {
-      countIndexedContextItems: vi.fn().mockResolvedValue(2),
-      searchContextChunks: vi.fn().mockResolvedValue([
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(2),
+      searchTeamContextChunks: vi.fn().mockResolvedValue([
         match({ id: 11, itemId: 3, itemTitle: "Runbooks", chunkIdx: 4, text: "Page the on-call.", score: 0.81 }),
         match({ id: 12, itemId: 3, itemTitle: "Runbooks", chunkIdx: 5, text: "Open an incident channel.", score: 0.62 }),
       ]),
@@ -159,37 +159,37 @@ describe("retrieveContext", () => {
   });
 
   it("asks the index for exactly RETRIEVAL_K candidates", async () => {
-    const searchContextChunks = vi.fn().mockResolvedValue([]);
+    const searchTeamContextChunks = vi.fn().mockResolvedValue([]);
     await retrieveContext(7, "anything", {
-      countIndexedContextItems: vi.fn().mockResolvedValue(1),
-      searchContextChunks,
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(1),
+      searchTeamContextChunks,
       embedder: fakeEmbedder([0.5]),
     });
 
-    expect(searchContextChunks).toHaveBeenCalledWith(7, [0.5], RETRIEVAL_K);
+    expect(searchTeamContextChunks).toHaveBeenCalledWith(7, [0.5], RETRIEVAL_K);
   });
 
   // The embedder is a several-hundred-megabyte lazy init; a team with nothing indexed must
   // never pay for it.
   it("omits with no_indexed_documents without touching the embedder or the index", async () => {
     const embedder = fakeEmbedder();
-    const searchContextChunks = vi.fn();
+    const searchTeamContextChunks = vi.fn();
 
     const result = await retrieveContext(7, "anything", {
-      countIndexedContextItems: vi.fn().mockResolvedValue(0),
-      searchContextChunks,
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(0),
+      searchTeamContextChunks,
       embedder,
     });
 
     expect(result).toEqual({ text: "", retrievals: [], omittedReason: "no_indexed_documents" });
     expect(embedder.embedQuery).not.toHaveBeenCalled();
-    expect(searchContextChunks).not.toHaveBeenCalled();
+    expect(searchTeamContextChunks).not.toHaveBeenCalled();
   });
 
   it("omits with no_relevant_chunks when everything is below the similarity floor", async () => {
     const result = await retrieveContext(7, "anything", {
-      countIndexedContextItems: vi.fn().mockResolvedValue(3),
-      searchContextChunks: vi.fn().mockResolvedValue([
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(3),
+      searchTeamContextChunks: vi.fn().mockResolvedValue([
         match({ id: 1, text: "Unrelated paragraph.", score: SIMILARITY_FLOOR - 0.01 }),
         match({ id: 2, text: "Also unrelated.", score: 0.02 }),
       ]),
@@ -201,8 +201,8 @@ describe("retrieveContext", () => {
 
   it("keeps a chunk sitting exactly on the floor", async () => {
     const result = await retrieveContext(7, "anything", {
-      countIndexedContextItems: vi.fn().mockResolvedValue(1),
-      searchContextChunks: vi.fn().mockResolvedValue([
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(1),
+      searchTeamContextChunks: vi.fn().mockResolvedValue([
         match({ id: 1, text: "Borderline.", score: SIMILARITY_FLOOR }),
       ]),
       embedder: fakeEmbedder(),
@@ -214,8 +214,8 @@ describe("retrieveContext", () => {
 
   it("applies the byte budget, dropping the chunks that do not fit", async () => {
     const result = await retrieveContext(7, "anything", {
-      countIndexedContextItems: vi.fn().mockResolvedValue(1),
-      searchContextChunks: vi.fn().mockResolvedValue([
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(1),
+      searchTeamContextChunks: vi.fn().mockResolvedValue([
         match({ id: 1, chunkIdx: 0, text: "a".repeat(RETRIEVAL_BUDGET_BYTES - 10), score: 0.9 }),
         match({ id: 2, chunkIdx: 1, text: "b".repeat(100), score: 0.8 }),
       ]),
@@ -227,15 +227,15 @@ describe("retrieveContext", () => {
   });
 
   it("omits with no_relevant_chunks for an empty query, without touching anything", async () => {
-    const countIndexedContextItems = vi.fn();
+    const countIndexedTeamContextItems = vi.fn();
     const result = await retrieveContext(7, "   ", {
-      countIndexedContextItems,
-      searchContextChunks: vi.fn(),
+      countIndexedTeamContextItems,
+      searchTeamContextChunks: vi.fn(),
       embedder: fakeEmbedder(),
     });
 
     expect(result).toEqual({ text: "", retrievals: [], omittedReason: "no_relevant_chunks" });
-    expect(countIndexedContextItems).not.toHaveBeenCalled();
+    expect(countIndexedTeamContextItems).not.toHaveBeenCalled();
   });
 
   // ARCHITECTURE.md §4's no-retry rule exists because a run has side effects; the flip side is
@@ -245,8 +245,8 @@ describe("retrieveContext", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
     const result = await retrieveContext(7, "anything", {
-      countIndexedContextItems: vi.fn().mockResolvedValue(2),
-      searchContextChunks: vi.fn().mockRejectedValue(new Error("extension \"vector\" is not available")),
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(2),
+      searchTeamContextChunks: vi.fn().mockRejectedValue(new Error("extension \"vector\" is not available")),
       embedder: fakeEmbedder(),
     });
 
@@ -261,8 +261,8 @@ describe("retrieveContext", () => {
     embedder.embedQuery.mockRejectedValue(new Error("model load failed"));
 
     const result = await retrieveContext(7, "anything", {
-      countIndexedContextItems: vi.fn().mockResolvedValue(2),
-      searchContextChunks: vi.fn(),
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(2),
+      searchTeamContextChunks: vi.fn(),
       embedder,
     });
 

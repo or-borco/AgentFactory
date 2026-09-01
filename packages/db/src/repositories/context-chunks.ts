@@ -15,14 +15,14 @@ export interface NewContextChunk {
 
 // Guards the empty batch because drizzle throws on `.values([])` — and an empty batch is a
 // normal outcome, not a bug: an empty or whitespace-only document chunks to nothing.
-export async function insertContextChunks(rows: NewContextChunk[]): Promise<void> {
+export async function insertTeamContextChunks(rows: NewContextChunk[]): Promise<void> {
   if (rows.length === 0) return;
   await db.insert(contextChunks).values(rows);
 }
 
 // Called before every re-insert, which is what makes an ingest job idempotent under BullMQ's
 // stalled-job redelivery: re-running produces the same rows, never a doubled corpus.
-export async function deleteChunksForItem(itemId: number): Promise<void> {
+export async function deleteTeamChunksForItem(itemId: number): Promise<void> {
   await db.delete(contextChunks).where(eq(contextChunks.itemId, itemId));
 }
 
@@ -61,7 +61,7 @@ export interface ContextChunkMatch {
 // subquery and re-sorted in an outer ORDER BY — otherwise the `rank` persisted in
 // run_context_retrievals would not be reproducible. The title join is deliberately OUTSIDE the
 // limited scan: joining inside it risks a plan that does not use the index at all.
-export async function searchContextChunks(
+export async function searchTeamContextChunks(
   teamId: number,
   embedding: number[],
   limit: number,

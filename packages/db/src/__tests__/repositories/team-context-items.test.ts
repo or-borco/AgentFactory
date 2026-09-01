@@ -4,14 +4,14 @@ import "../setup.js";
 import { db } from "../../client.js";
 import { teams } from "../../schema.js";
 import { insertContentBlob } from "../../repositories/content-blobs.js";
-import { insertContextChunks } from "../../repositories/context-chunks.js";
+import { insertTeamContextChunks } from "../../repositories/context-chunks.js";
 import {
-  countIndexedContextItems,
+  countIndexedTeamContextItems,
   createTeamContextItem,
   deleteTeamContextItemForOrg,
   getTeamContextItem,
   listTeamContextItemsForOrg,
-  markContextItemIndexed,
+  markTeamContextItemIndexed,
 } from "../../repositories/team-context-items.js";
 import { insertOrg, insertTeam, insertUser } from "../fixtures.js";
 
@@ -142,7 +142,7 @@ describe("team-context-items repository", () => {
     await expect(listTeamContextItemsForOrg(team.id, org.id)).resolves.toEqual([]);
   });
 
-  // countIndexedContextItems now counts context_chunks, not team_context_items rows, so an
+  // countIndexedTeamContextItems now counts context_chunks, not team_context_items rows, so an
   // "indexed" item only counts once it actually has searchable chunks.
   it("counts chunks, not indexed items, and only for the given team", async () => {
     const org = await insertOrg();
@@ -165,11 +165,11 @@ describe("team-context-items repository", () => {
       sha256: "c".repeat(64), mime: "text/markdown",
     });
 
-    await expect(countIndexedContextItems(team.id)).resolves.toBe(0);
+    await expect(countIndexedTeamContextItems(team.id)).resolves.toBe(0);
 
-    await markContextItemIndexed(indexed!.id);
-    await markContextItemIndexed(otherTeamItem!.id);
-    await insertContextChunks([
+    await markTeamContextItemIndexed(indexed!.id);
+    await markTeamContextItemIndexed(otherTeamItem!.id);
+    await insertTeamContextChunks([
       {
         itemId: indexed!.id,
         teamId: team.id,
@@ -179,7 +179,7 @@ describe("team-context-items repository", () => {
         embeddingModel: MODEL,
       },
     ]);
-    await insertContextChunks([
+    await insertTeamContextChunks([
       {
         itemId: otherTeamItem!.id,
         teamId: otherTeam.id,
@@ -190,13 +190,13 @@ describe("team-context-items repository", () => {
       },
     ]);
 
-    await expect(countIndexedContextItems(team.id)).resolves.toBe(1);
+    await expect(countIndexedTeamContextItems(team.id)).resolves.toBe(1);
   });
 
   it("counts zero for a team with no items at all", async () => {
     const org = await insertOrg();
     const team = await insertTeam(org.id);
-    await expect(countIndexedContextItems(team.id)).resolves.toBe(0);
+    await expect(countIndexedTeamContextItems(team.id)).resolves.toBe(0);
   });
 
   // The whole point of the fix: an item marked "indexed" that produced zero chunks (e.g. an
@@ -207,8 +207,8 @@ describe("team-context-items repository", () => {
       teamId: team.id, orgId: org.id, title: "Empty upload", sizeBytes: 42,
       sha256: SHA_A, mime: "text/markdown",
     });
-    await markContextItemIndexed(item!.id);
+    await markTeamContextItemIndexed(item!.id);
 
-    await expect(countIndexedContextItems(team.id)).resolves.toBe(0);
+    await expect(countIndexedTeamContextItems(team.id)).resolves.toBe(0);
   });
 });
