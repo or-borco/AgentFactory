@@ -1,9 +1,9 @@
 import "./setup.js";
 import { Queue } from "bullmq";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
-import { CONTEXT_INGEST_QUEUE_NAME, enqueueContextIngestJob, queueConnection } from "../index.js";
+import { TEAM_CONTEXT_INGEST_QUEUE_NAME, enqueueTeamContextIngestJob, queueConnection } from "../index.js";
 
-const inspectQueue = new Queue(CONTEXT_INGEST_QUEUE_NAME, { connection: queueConnection });
+const inspectQueue = new Queue(TEAM_CONTEXT_INGEST_QUEUE_NAME, { connection: queueConnection });
 
 afterEach(async () => {
   await inspectQueue.obliterate({ force: true });
@@ -14,9 +14,9 @@ afterAll(async () => {
   await queueConnection.quit();
 });
 
-describe("enqueueContextIngestJob", () => {
+describe("enqueueTeamContextIngestJob", () => {
   it("adds a job carrying the item id to the queue", async () => {
-    await enqueueContextIngestJob(12);
+    await enqueueTeamContextIngestJob(12);
 
     const jobs = await inspectQueue.getJobs(["waiting", "delayed"]);
     expect(jobs).toHaveLength(1);
@@ -27,7 +27,7 @@ describe("enqueueContextIngestJob", () => {
   // The first retry configuration in this repo — asserted rather than assumed, because the
   // ingest handler's status guard (pending | indexing) is only correct in company with it.
   it("configures three attempts with exponential backoff", async () => {
-    await enqueueContextIngestJob(12);
+    await enqueueTeamContextIngestJob(12);
 
     const [job] = await inspectQueue.getJobs(["waiting", "delayed"]);
     expect(job.opts.attempts).toBe(3);
@@ -35,8 +35,8 @@ describe("enqueueContextIngestJob", () => {
   });
 
   it("collapses a double upload of the same item into one job", async () => {
-    await enqueueContextIngestJob(12);
-    await enqueueContextIngestJob(12);
+    await enqueueTeamContextIngestJob(12);
+    await enqueueTeamContextIngestJob(12);
 
     const jobs = await inspectQueue.getJobs(["waiting", "delayed"]);
     expect(jobs).toHaveLength(1);
@@ -44,8 +44,8 @@ describe("enqueueContextIngestJob", () => {
   });
 
   it("keeps jobs for different items independent", async () => {
-    await enqueueContextIngestJob(1);
-    await enqueueContextIngestJob(2);
+    await enqueueTeamContextIngestJob(1);
+    await enqueueTeamContextIngestJob(2);
 
     const jobs = await inspectQueue.getJobs(["waiting", "delayed"]);
     expect(jobs.map((job) => job.data.itemId).sort((a, b) => a - b)).toEqual([1, 2]);

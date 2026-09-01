@@ -4,9 +4,9 @@ import { insertContentBlob } from "../../repositories/content-blobs.js";
 import {
   createTeamContextItem,
   getTeamContextItem,
-  markContextItemFailed,
-  markContextItemIndexed,
-  markContextItemIndexing,
+  markTeamContextItemFailed,
+  markTeamContextItemIndexed,
+  markTeamContextItemIndexing,
 } from "../../repositories/team-context-items.js";
 import { insertOrg, insertTeam } from "../fixtures.js";
 
@@ -42,7 +42,7 @@ describe("context item status transitions", () => {
   it("moves pending → indexing", async () => {
     const { item } = await setupItem();
 
-    await markContextItemIndexing(item.id);
+    await markTeamContextItemIndexing(item.id);
 
     await expect(getTeamContextItem(item.id)).resolves.toMatchObject({ status: "indexing" });
   });
@@ -50,8 +50,8 @@ describe("context item status transitions", () => {
   it("moves indexing → indexed and stamps indexedAt", async () => {
     const { item } = await setupItem();
 
-    await markContextItemIndexing(item.id);
-    await markContextItemIndexed(item.id);
+    await markTeamContextItemIndexing(item.id);
+    await markTeamContextItemIndexed(item.id);
 
     const indexed = await getTeamContextItem(item.id);
     expect(indexed?.status).toBe("indexed");
@@ -62,8 +62,8 @@ describe("context item status transitions", () => {
   it("records the message on failure", async () => {
     const { item } = await setupItem();
 
-    await markContextItemIndexing(item.id);
-    await markContextItemFailed(item.id, "Unsupported mime type: application/pdf");
+    await markTeamContextItemIndexing(item.id);
+    await markTeamContextItemFailed(item.id, "Unsupported mime type: application/pdf");
 
     const failed = await getTeamContextItem(item.id);
     expect(failed?.status).toBe("failed");
@@ -76,11 +76,11 @@ describe("context item status transitions", () => {
   it("clears a previous error when a re-ingest succeeds", async () => {
     const { item } = await setupItem();
 
-    await markContextItemFailed(item.id, "Blob a… is missing from the blob store");
-    await markContextItemIndexing(item.id);
+    await markTeamContextItemFailed(item.id, "Blob a… is missing from the blob store");
+    await markTeamContextItemIndexing(item.id);
     expect((await getTeamContextItem(item.id))?.error).toBeUndefined();
 
-    await markContextItemIndexed(item.id);
+    await markTeamContextItemIndexed(item.id);
     const indexed = await getTeamContextItem(item.id);
     expect(indexed?.status).toBe("indexed");
     expect(indexed?.error).toBeUndefined();

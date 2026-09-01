@@ -5,7 +5,7 @@ export const RUN_QUEUE_NAME = "runs";
 export const SANDBOX_TEARDOWN_QUEUE_NAME = "sandbox-teardown";
 export const REPO_MAP_WARM_QUEUE_NAME = "repo-map-warm";
 export const EVAL_QUEUE_NAME = "evals";
-export const CONTEXT_INGEST_QUEUE_NAME = "context-ingest";
+export const TEAM_CONTEXT_INGEST_QUEUE_NAME = "context-ingest";
 
 export interface RunJobData {
   runId: number;
@@ -43,7 +43,7 @@ const sandboxTeardownQueue = new Queue<SandboxTeardownJobData>(SANDBOX_TEARDOWN_
 });
 const repoMapWarmQueue = new Queue<RepoMapWarmJobData>(REPO_MAP_WARM_QUEUE_NAME, { connection: queueConnection });
 const evalQueue = new Queue<EvalJobData>(EVAL_QUEUE_NAME, { connection: queueConnection });
-const contextIngestQueue = new Queue<ContextIngestJobData>(CONTEXT_INGEST_QUEUE_NAME, {
+const contextIngestQueue = new Queue<ContextIngestJobData>(TEAM_CONTEXT_INGEST_QUEUE_NAME, {
   connection: queueConnection,
 });
 
@@ -85,7 +85,7 @@ export async function enqueueEvalJob(evalId: number): Promise<void> {
 // reason it does on the repo-map warm queue — .add() with an already-used jobId silently
 // no-ops even after that job completed, which would otherwise block re-ingesting the item
 // forever.
-export async function enqueueContextIngestJob(itemId: number): Promise<void> {
+export async function enqueueTeamContextIngestJob(itemId: number): Promise<void> {
   await contextIngestQueue.add(
     "ingest-context-item",
     { itemId },

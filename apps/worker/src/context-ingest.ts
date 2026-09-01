@@ -1,11 +1,11 @@
 import type { TeamContextItem } from "@agentfactory/core";
 import {
-  deleteChunksForItem,
+  deleteTeamChunksForItem,
   getTeamContextItem,
-  insertContextChunks,
-  markContextItemFailed,
-  markContextItemIndexed,
-  markContextItemIndexing,
+  insertTeamContextChunks,
+  markTeamContextItemFailed,
+  markTeamContextItemIndexed,
+  markTeamContextItemIndexing,
   type NewContextChunk,
 } from "@agentfactory/db";
 import { createBlobStore, type BlobStore } from "@agentfactory/storage";
@@ -25,11 +25,11 @@ export const EMBED_BATCH_SIZE = 32;
 // EvalRunnerDeps in eval-runner.ts.
 export interface IngestDeps {
   getTeamContextItem: (id: number) => Promise<TeamContextItem | undefined>;
-  markContextItemIndexing: (id: number) => Promise<void>;
-  markContextItemIndexed: (id: number) => Promise<void>;
-  markContextItemFailed: (id: number, error: string) => Promise<void>;
-  deleteChunksForItem: (itemId: number) => Promise<void>;
-  insertContextChunks: (rows: NewContextChunk[]) => Promise<void>;
+  markTeamContextItemIndexing: (id: number) => Promise<void>;
+  markTeamContextItemIndexed: (id: number) => Promise<void>;
+  markTeamContextItemFailed: (id: number, error: string) => Promise<void>;
+  deleteTeamChunksForItem: (itemId: number) => Promise<void>;
+  insertTeamContextChunks: (rows: NewContextChunk[]) => Promise<void>;
   blobStore: BlobStore;
   embedder: Embedder;
 }
@@ -40,11 +40,11 @@ export interface IngestDeps {
 // runs the unit suite with no network policy of its own.
 const defaultDbDeps: Omit<IngestDeps, "blobStore" | "embedder"> = {
   getTeamContextItem,
-  markContextItemIndexing,
-  markContextItemIndexed,
-  markContextItemFailed,
-  deleteChunksForItem,
-  insertContextChunks,
+  markTeamContextItemIndexing,
+  markTeamContextItemIndexed,
+  markTeamContextItemFailed,
+  deleteTeamChunksForItem,
+  insertTeamContextChunks,
 };
 
 // Never rejects, exactly like processEvalJob: every path past the row lookup ends on a terminal
@@ -52,7 +52,7 @@ const defaultDbDeps: Omit<IngestDeps, "blobStore" | "embedder"> = {
 // The `attempts: 3` on the queue is for the case this function never got to run its catch at
 // all — a crashed worker leaves the row at "indexing", which the guard admits, and the
 // delete-before-insert below makes the second pass land on exactly the same rows.
-export async function ingestContextItem(itemId: number, deps: Partial<IngestDeps> = {}): Promise<void> {
+export async function ingestTeamContextItem(itemId: number, deps: Partial<IngestDeps> = {}): Promise<void> {
   const d = { ...defaultDbDeps, ...deps };
 
   const item = await d.getTeamContextItem(itemId);
@@ -72,7 +72,7 @@ export async function ingestContextItem(itemId: number, deps: Partial<IngestDeps
   }
 
   try {
-    await d.markContextItemIndexing(itemId);
+    await d.markTeamContextItemIndexing(itemId);
 
     const blobStore = d.blobStore ?? createBlobStore();
     const embedder = d.embedder ?? getEmbedder();
@@ -84,12 +84,12 @@ export async function ingestContextItem(itemId: number, deps: Partial<IngestDeps
 
     // Idempotency, and the reason a redelivery is safe: this item's previous chunks go before
     // any new one arrives, so a second pass replaces rather than duplicates.
-    await d.deleteChunksForItem(itemId);
+    await d.deleteTeamChunksForItem(itemId);
 
     for (let offset = 0; offset < chunks.length; offset += EMBED_BATCH_SIZE) {
       const batch = chunks.slice(offset, offset + EMBED_BATCH_SIZE);
       const embeddings = await embedder.embedDocuments(batch.map((c) => c.text));
-      await d.insertContextChunks(
+      await d.insertTeamContextChunks(
         batch.map((c, i) => ({
           itemId,
           // Denormalized from the item so retrieval's tenant filter sits on the indexed table.
@@ -102,14 +102,14 @@ export async function ingestContextItem(itemId: number, deps: Partial<IngestDeps
       );
     }
 
-    await d.markContextItemIndexed(itemId);
+    await d.markTeamContextItemIndexed(itemId);
   } catch (err) {
     console.error(`Context item ${itemId} ingest failed:`, err);
     // The message, not the stack: it is rendered verbatim under the document's row in
     // /teams-v2, and it is the only explanation the uploader ever gets.
     const message = err instanceof Error ? err.message : String(err);
     try {
-      await d.markContextItemFailed(itemId, message);
+      await d.markTeamContextItemFailed(itemId, message);
     } catch (writeErr) {
       // The failure write itself failed — nothing left to record it on. The row stays at
       // "indexing", which a redelivery will pick up.

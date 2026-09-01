@@ -80,7 +80,7 @@ export async function deleteTeamContextItemForOrg(id: number, orgId: number): Pr
 // pending | indexing guard in apps/worker/src/context-ingest.ts), and putting the same rule
 // in two places would let them disagree.
 
-export async function markContextItemIndexing(id: number): Promise<void> {
+export async function markTeamContextItemIndexing(id: number): Promise<void> {
   // error is cleared on the way in, not on the way out: a redelivered job that succeeds must
   // not leave the previous attempt's message sitting under an "Indexed" badge.
   await db
@@ -89,14 +89,14 @@ export async function markContextItemIndexing(id: number): Promise<void> {
     .where(eq(teamContextItems.id, id));
 }
 
-export async function markContextItemIndexed(id: number): Promise<void> {
+export async function markTeamContextItemIndexed(id: number): Promise<void> {
   await db
     .update(teamContextItems)
     .set({ status: "indexed", error: null, indexedAt: new Date() })
     .where(eq(teamContextItems.id, id));
 }
 
-export async function markContextItemFailed(id: number, error: string): Promise<void> {
+export async function markTeamContextItemFailed(id: number, error: string): Promise<void> {
   // indexedAt is deliberately untouched — it means "the moment this item's chunks became
   // current", and a failed attempt did not produce any.
   await db.update(teamContextItems).set({ status: "failed", error }).where(eq(teamContextItems.id, id));
@@ -106,10 +106,10 @@ export async function markContextItemFailed(id: number, error: string): Promise<
 // "no_indexed_documents" WITHOUT loading the embedder, which is a several-hundred-megabyte
 // lazy init on first use. Counts context_chunks rather than team_context_items rows: an item
 // can be marked "indexed" while having produced zero chunks (an empty or whitespace-only
-// document is a normal, valid outcome per insertContextChunks), and such a team must never
-// pass this check — there would be nothing for searchContextChunks to find. Equally cheap as
+// document is a normal, valid outcome per insertTeamContextChunks), and such a team must never
+// pass this check — there would be nothing for searchTeamContextChunks to find. Equally cheap as
 // counting items: both are simple indexed count aggregates.
-export async function countIndexedContextItems(teamId: number): Promise<number> {
+export async function countIndexedTeamContextItems(teamId: number): Promise<number> {
   const [row] = await db
     .select({ value: count() })
     .from(contextChunks)

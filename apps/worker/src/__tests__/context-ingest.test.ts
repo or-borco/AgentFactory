@@ -9,11 +9,11 @@ import type { Embedder } from "../embedder";
 // though every test injects a stub over it.
 vi.mock("@agentfactory/db", () => ({
   getTeamContextItem: vi.fn(),
-  markContextItemIndexing: vi.fn(),
-  markContextItemIndexed: vi.fn(),
-  markContextItemFailed: vi.fn(),
-  deleteChunksForItem: vi.fn(),
-  insertContextChunks: vi.fn(),
+  markTeamContextItemIndexing: vi.fn(),
+  markTeamContextItemIndexed: vi.fn(),
+  markTeamContextItemFailed: vi.fn(),
+  deleteTeamChunksForItem: vi.fn(),
+  insertTeamContextChunks: vi.fn(),
 }));
 
 // Same reason repo-map.test.ts mocks it: packages/queue/src/index.ts throws at import when
@@ -39,7 +39,7 @@ vi.mock("../embedder", () => ({
 const chunkDocumentMock = vi.fn();
 vi.mock("../chunker", () => ({ chunkDocument: (...args: unknown[]) => chunkDocumentMock(...args) }));
 
-const { EMBED_BATCH_SIZE, ingestContextItem } = await import("../context-ingest");
+const { EMBED_BATCH_SIZE, ingestTeamContextItem } = await import("../context-ingest");
 
 const SHA = "a".repeat(64);
 
@@ -82,11 +82,11 @@ function makeDeps(item: TeamContextItem | undefined, bytes?: Uint8Array) {
   };
   return {
     getTeamContextItem: vi.fn(async () => item),
-    markContextItemIndexing: vi.fn(async () => {}),
-    markContextItemIndexed: vi.fn(async () => {}),
-    markContextItemFailed: vi.fn(async (_id: number, _error: string) => {}),
-    deleteChunksForItem: vi.fn(async () => {}),
-    insertContextChunks: vi.fn(async () => {}),
+    markTeamContextItemIndexing: vi.fn(async () => {}),
+    markTeamContextItemIndexed: vi.fn(async () => {}),
+    markTeamContextItemFailed: vi.fn(async (_id: number, _error: string) => {}),
+    deleteTeamChunksForItem: vi.fn(async () => {}),
+    insertTeamContextChunks: vi.fn(async () => {}),
     blobStore,
     embedder,
   };
@@ -97,14 +97,14 @@ beforeEach(() => {
   chunkDocumentMock.mockReturnValue([chunk(0), chunk(1)]);
 });
 
-describe("ingestContextItem", () => {
+describe("ingestTeamContextItem", () => {
   it("does nothing when the item is gone", async () => {
     const deps = makeDeps(undefined);
 
-    await ingestContextItem(5, deps);
+    await ingestTeamContextItem(5, deps);
 
-    expect(deps.markContextItemIndexing).not.toHaveBeenCalled();
-    expect(deps.markContextItemFailed).not.toHaveBeenCalled();
+    expect(deps.markTeamContextItemIndexing).not.toHaveBeenCalled();
+    expect(deps.markTeamContextItemFailed).not.toHaveBeenCalled();
   });
 
   // BullMQ re-delivers a stalled job after a worker crash. Re-running an item that already
@@ -114,11 +114,11 @@ describe("ingestContextItem", () => {
     for (const status of ["indexed", "failed"] as const) {
       const deps = makeDeps(makeItem({ status }));
 
-      await ingestContextItem(5, deps);
+      await ingestTeamContextItem(5, deps);
 
-      expect(deps.markContextItemIndexing).not.toHaveBeenCalled();
+      expect(deps.markTeamContextItemIndexing).not.toHaveBeenCalled();
       expect(deps.blobStore.get).not.toHaveBeenCalled();
-      expect(deps.insertContextChunks).not.toHaveBeenCalled();
+      expect(deps.insertTeamContextChunks).not.toHaveBeenCalled();
     }
   });
 
@@ -127,33 +127,33 @@ describe("ingestContextItem", () => {
   it("accepts a redelivered job for an item left at indexing", async () => {
     const deps = makeDeps(makeItem({ status: "indexing" }));
 
-    await ingestContextItem(5, deps);
+    await ingestTeamContextItem(5, deps);
 
-    expect(deps.markContextItemIndexed).toHaveBeenCalledWith(5);
+    expect(deps.markTeamContextItemIndexed).toHaveBeenCalledWith(5);
   });
 
   it("reads the blob, chunks it, and inserts embedded chunks", async () => {
     const deps = makeDeps(makeItem());
 
-    await ingestContextItem(5, deps);
+    await ingestTeamContextItem(5, deps);
 
     expect(deps.blobStore.get).toHaveBeenCalledWith(2, SHA);
     expect(chunkDocumentMock).toHaveBeenCalledWith("Engineering handbook", "# Handbook\n\nBody");
-    expect(deps.insertContextChunks).toHaveBeenCalledWith([
+    expect(deps.insertTeamContextChunks).toHaveBeenCalledWith([
       { itemId: 5, teamId: 4, chunkIdx: 0, text: chunk(0).text, embedding: [0.1, 0.2], embeddingModel: "Xenova/bge-small-en-v1.5" },
       { itemId: 5, teamId: 4, chunkIdx: 1, text: chunk(1).text, embedding: [0.1, 0.2], embeddingModel: "Xenova/bge-small-en-v1.5" },
     ]);
-    expect(deps.markContextItemIndexed).toHaveBeenCalledWith(5);
+    expect(deps.markTeamContextItemIndexed).toHaveBeenCalledWith(5);
   });
 
   it("deletes the item's existing chunks before inserting new ones", async () => {
     const deps = makeDeps(makeItem());
 
-    await ingestContextItem(5, deps);
+    await ingestTeamContextItem(5, deps);
 
-    expect(deps.deleteChunksForItem).toHaveBeenCalledWith(5);
-    expect(deps.deleteChunksForItem.mock.invocationCallOrder[0]).toBeLessThan(
-      deps.insertContextChunks.mock.invocationCallOrder[0],
+    expect(deps.deleteTeamChunksForItem).toHaveBeenCalledWith(5);
+    expect(deps.deleteTeamChunksForItem.mock.invocationCallOrder[0]).toBeLessThan(
+      deps.insertTeamContextChunks.mock.invocationCallOrder[0],
     );
   });
 
@@ -165,32 +165,32 @@ describe("ingestContextItem", () => {
     chunkDocumentMock.mockReturnValue(chunks);
     const deps = makeDeps(makeItem());
 
-    await ingestContextItem(5, deps);
+    await ingestTeamContextItem(5, deps);
 
     const calls = (deps.embedder.embedDocuments as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls).toHaveLength(2);
     expect(calls[0][0]).toHaveLength(EMBED_BATCH_SIZE);
     expect(calls[1][0]).toHaveLength(1);
-    expect(deps.insertContextChunks).toHaveBeenCalledTimes(2);
+    expect(deps.insertTeamContextChunks).toHaveBeenCalledTimes(2);
   });
 
   it("marks the item failed when the blob is missing, without throwing", async () => {
     const deps = makeDeps(makeItem(), undefined);
 
-    await expect(ingestContextItem(5, deps)).resolves.toBeUndefined();
+    await expect(ingestTeamContextItem(5, deps)).resolves.toBeUndefined();
 
-    expect(deps.markContextItemFailed).toHaveBeenCalledWith(5, `Blob ${SHA} is missing from the blob store`);
-    expect(deps.markContextItemIndexed).not.toHaveBeenCalled();
+    expect(deps.markTeamContextItemFailed).toHaveBeenCalledWith(5, `Blob ${SHA} is missing from the blob store`);
+    expect(deps.markTeamContextItemIndexed).not.toHaveBeenCalled();
   });
 
   it("marks the item failed when the mime is not one we extract", async () => {
     const deps = makeDeps(makeItem({ mime: "application/pdf" }));
 
-    await ingestContextItem(5, deps);
+    await ingestTeamContextItem(5, deps);
 
-    expect(deps.markContextItemFailed).toHaveBeenCalledTimes(1);
-    expect(deps.markContextItemFailed.mock.calls[0][0]).toBe(5);
-    expect(deps.markContextItemFailed.mock.calls[0][1]).toContain("application/pdf");
-    expect(deps.insertContextChunks).not.toHaveBeenCalled();
+    expect(deps.markTeamContextItemFailed).toHaveBeenCalledTimes(1);
+    expect(deps.markTeamContextItemFailed.mock.calls[0][0]).toBe(5);
+    expect(deps.markTeamContextItemFailed.mock.calls[0][1]).toContain("application/pdf");
+    expect(deps.insertTeamContextChunks).not.toHaveBeenCalled();
   });
 });
