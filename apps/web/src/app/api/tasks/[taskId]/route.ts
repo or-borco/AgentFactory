@@ -1,7 +1,7 @@
 // Tenant-isolation gap: see /api/tasks/route.ts for the documented caveat.
 import { NextResponse } from "next/server";
 import { deleteTask, getTask, updateTask } from "@agentfactory/db";
-import { enqueueSandboxTeardownJob } from "@agentfactory/queue";
+import { enqueueRepoMapWarmJob, enqueueSandboxTeardownJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
 import type { TaskStatus } from "@agentfactory/core";
 
@@ -27,6 +27,14 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ taskId
   // The worker owns the docker socket, so this only enqueues the job (see the DELETE handler below).
   if (body.status && TERMINAL_TASK_STATUSES.has(task.status) && task.sessionId) {
     await enqueueSandboxTeardownJob(task.sessionId);
+  }
+
+  // A task marked done just merged code (unlike failed/cancelled) — warm the repo map cache so
+  // the next task against this codebase doesn't pay the generation cost against a stale commit.
+  if (body.status === "done" && task.codebase) {
+    enqueueRepoMapWarmJob(task.orgId, task.codebase).catch((err) => {
+      console.error(`Failed to enqueue repo map warm job for task ${task.id}:`, err);
+    });
   }
 
   return NextResponse.json(task);
