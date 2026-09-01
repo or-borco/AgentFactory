@@ -6,6 +6,9 @@ export const SANDBOX_TEARDOWN_QUEUE_NAME = "sandbox-teardown";
 export const REPO_MAP_WARM_QUEUE_NAME = "repo-map-warm";
 export const EVAL_QUEUE_NAME = "evals";
 export const TEAM_CONTEXT_INGEST_QUEUE_NAME = "context-ingest";
+// PR4 registers the worker-side processor for this queue; jobs enqueued before then sit
+// unprocessed, which is the intended state for PR3 ("files persist at pending, no ingestion yet").
+export const TASK_CONTEXT_INGEST_QUEUE_NAME = "task-context-ingest";
 
 export interface RunJobData {
   runId: number;
@@ -30,6 +33,10 @@ export interface ContextIngestJobData {
   itemId: number;
 }
 
+export interface TaskContextIngestJobData {
+  itemId: number;
+}
+
 const redisUrl = process.env.REDIS_URL;
 if (!redisUrl) {
   throw new Error("REDIS_URL is not set");
@@ -44,6 +51,9 @@ const sandboxTeardownQueue = new Queue<SandboxTeardownJobData>(SANDBOX_TEARDOWN_
 const repoMapWarmQueue = new Queue<RepoMapWarmJobData>(REPO_MAP_WARM_QUEUE_NAME, { connection: queueConnection });
 const evalQueue = new Queue<EvalJobData>(EVAL_QUEUE_NAME, { connection: queueConnection });
 const contextIngestQueue = new Queue<ContextIngestJobData>(TEAM_CONTEXT_INGEST_QUEUE_NAME, {
+  connection: queueConnection,
+});
+const taskContextIngestQueue = new Queue<TaskContextIngestJobData>(TASK_CONTEXT_INGEST_QUEUE_NAME, {
   connection: queueConnection,
 });
 
@@ -87,6 +97,23 @@ export async function enqueueEvalJob(evalId: number): Promise<void> {
 // forever.
 export async function enqueueTeamContextIngestJob(itemId: number): Promise<void> {
   await contextIngestQueue.add(
+    "ingest-context-item",
+    { itemId },
+    {
+      jobId: `item-${itemId}`,
+      attempts: 3,
+      backoff: { type: "exponential", delay: 5000 },
+      removeOnComplete: true,
+      removeOnFail: { count: 100 },
+    },
+  );
+}
+
+// Same shape as enqueueTeamContextIngestJob, on its own queue — see TASK_CONTEXT_INGEST_QUEUE_NAME
+// above for why task and team ids can't share one queue's jobId namespace. No processor consumes
+// this queue yet (PR4); until then, jobs enqueued here simply wait.
+export async function enqueueTaskContextIngestJob(itemId: number): Promise<void> {
+  await taskContextIngestQueue.add(
     "ingest-context-item",
     { itemId },
     {
