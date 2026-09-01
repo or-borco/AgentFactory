@@ -169,6 +169,13 @@
       "when": 1788165230042,
       "tag": "0023_busy_azazel",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1788277609224,
+      "tag": "0024_add_task_context_items",
+      "breakpoints": true
     }
   ]
 }
