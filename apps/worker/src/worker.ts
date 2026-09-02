@@ -198,11 +198,14 @@ const runWorker = new Worker<RunJobData>(
 
       // Retrieval never fails a run: every path inside retrieveContext returns an omitted
       // segment with a reason and logs the error itself, exactly as ensureRepoMap degrades to
-      // "". No team means it is not called at all — the embedder is never loaded.
+      // "". Neither a team nor a task means it is not called at all — the embedder is never
+      // loaded. `team || task`, not `team` alone: a teamless task can still have its own
+      // uploaded documents, and without this a teamless task's documents would ingest
+      // successfully but never actually be retrieved for any run.
       let retrieved: RetrievedContext = { text: "", retrievals: [] };
-      if (team) {
+      if (team || task) {
         retrieved = await retrieveContext(
-          team.id,
+          { teamId: team?.id, taskId: task?.id },
           buildRetrievalQuery(task?.title, task?.description, triggeringMessage?.content),
         );
         mark(retrieved.text ? "context retrieval (chunks injected)" : "context retrieval (nothing injected)");
@@ -219,12 +222,13 @@ const runWorker = new Worker<RunJobData>(
       });
       // buildRetrievedContextSegment maps the three states a pair of booleans can describe. A
       // retrieval that threw is the fourth, and only retrieveContext knows about it, so its
-      // reason is used directly for that one case.
+      // reason is used directly for that one case. hasSource is team-or-task, not team alone —
+      // see the retrieveContext call above.
       const retrievedContextSegment: PromptSegment =
         retrieved.omittedReason === "retrieval_failed"
           ? { id: "retrieved_context", text: "", omittedReason: "retrieval_failed" }
           : buildRetrievedContextSegment(
-              Boolean(team),
+              Boolean(team) || Boolean(task),
               retrieved.omittedReason !== "no_indexed_documents",
               retrieved.text,
             );
