@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
-import type { OrgMember, TeamContextItem } from "@agentfactory/core";
+import type { OrgMember, TaskContextItem, TeamContextItem } from "@agentfactory/core";
 import { Badge, EmptyState } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import {
@@ -11,6 +11,41 @@ import {
 } from "@/lib/context-item-status";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
+
+// Which task or team this panel manages documents for. Only the API route base and a handful
+// of copy strings that name the scope explicitly ("this team's documents") differ between the
+// two — everything else (upload/list/delete logic, polling, status badges) is identical, so
+// this is a prop rather than two near-duplicate components.
+export type ContextDocumentsScope = { kind: "team"; teamId: number } | { kind: "task"; taskId: number };
+
+// The team and task items tables are structurally identical except for which foreign key they
+// carry (teamId vs taskId) — this panel never reads that field, so a union covers both without
+// needing a shared core type.
+type ContextItem = TeamContextItem | TaskContextItem;
+
+function basePathForScope(scope: ContextDocumentsScope): string {
+  return scope.kind === "team"
+    ? `/api/teams/${scope.teamId}/context-items`
+    : `/api/tasks/${scope.taskId}/context-items`;
+}
+
+// The only copy that actually names "team" or "task" explicitly; everything else (help text,
+// button labels, size/upload-failed-generic copy) reads fine for either scope unchanged.
+const SCOPE_COPY_KEYS: Record<
+  ContextDocumentsScope["kind"],
+  { emptySub: TranslationKey; uploadFailed: TranslationKey; loadError: TranslationKey }
+> = {
+  team: {
+    emptySub: "teamsV2.documentsEmptySub",
+    uploadFailed: "teamsV2.documentsUploadFailed",
+    loadError: "teamsV2.documentsLoadError",
+  },
+  task: {
+    emptySub: "taskDetail.documentsEmptySub",
+    uploadFailed: "taskDetail.documentsUploadFailed",
+    loadError: "taskDetail.documentsLoadError",
+  },
+};
 
 // Mirrors MAX_UPLOAD_BYTES and ALLOWED_MIMES in
 // apps/web/src/app/api/teams/[teamId]/context-items/route.ts. The route is the enforcement
@@ -35,14 +70,16 @@ function extensionMime(filename: string): "text/markdown" | "text/plain" | null 
 const POLL_MS = 3000;
 
 export function ContextDocumentsPanel({
-  teamId,
+  scope,
   members = [],
 }: {
-  teamId: number;
+  scope: ContextDocumentsScope;
   members?: OrgMember[];
 }) {
   const { t } = useTranslation();
-  const [items, setItems] = useState<TeamContextItem[]>([]);
+  const copy = SCOPE_COPY_KEYS[scope.kind];
+  const basePath = basePathForScope(scope);
+  const [items, setItems] = useState<ContextItem[]>([]);
   const [loadError, setLoadError] = useState(false);
   const [errorKey, setErrorKey] = useState<TranslationKey | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -50,12 +87,12 @@ export function ContextDocumentsPanel({
 
   const reload = useCallback(async () => {
     try {
-      setItems(await apiFetch<TeamContextItem[]>(`/api/teams/${teamId}/context-items`));
+      setItems(await apiFetch<ContextItem[]>(basePath));
       setLoadError(false);
     } catch {
       setLoadError(true);
     }
-  }, [teamId]);
+  }, [basePath]);
 
   useEffect(() => {
     // Initial fetch on mount; reload() is async, so any setState it makes lands in a later
@@ -102,7 +139,7 @@ export function ContextDocumentsPanel({
     body.append("title", file.name);
     setUploading(true);
     try {
-      const item = await apiFetch<TeamContextItem>(`/api/teams/${teamId}/context-items`, {
+      const item = await apiFetch<ContextItem>(basePath, {
         method: "POST",
         body,
       });
@@ -111,7 +148,7 @@ export function ContextDocumentsPanel({
       // The route's 4xx bodies are English server copy; rendering them raw would route around
       // t(), so every server-side rejection lands on one translated line. The duplicate case is
       // the likely one, which is why the copy names it.
-      setErrorKey("teamsV2.documentsUploadFailed");
+      setErrorKey(copy.uploadFailed);
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -121,7 +158,7 @@ export function ContextDocumentsPanel({
   async function handleDelete(itemId: number) {
     setErrorKey(null);
     try {
-      await apiFetch<void>(`/api/teams/${teamId}/context-items/${itemId}`, { method: "DELETE" });
+      await apiFetch<void>(`${basePath}/${itemId}`, { method: "DELETE" });
       setItems((prev) => prev.filter((item) => item.id !== itemId));
     } catch {
       setErrorKey("teamsV2.documentsDeleteFailed");
@@ -147,13 +184,13 @@ export function ContextDocumentsPanel({
 
       <p className="text-xs text-[var(--color-neutral-600)]">{t("teamsV2.documentsHelp")}</p>
       {errorKey && <p className="text-xs text-red-400">{t(errorKey)}</p>}
-      {loadError && <p className="text-xs text-red-400">{t("teamsV2.documentsLoadError")}</p>}
+      {loadError && <p className="text-xs text-red-400">{t(copy.loadError)}</p>}
 
       {items.length === 0 ? (
         <EmptyState
           icon="📄"
           title={t("teamsV2.documentsEmpty")}
-          subtitle={t("teamsV2.documentsEmptySub")}
+          subtitle={t(copy.emptySub)}
         />
       ) : (
         <div className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-divider)]">

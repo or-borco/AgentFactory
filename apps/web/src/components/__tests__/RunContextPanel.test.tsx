@@ -401,4 +401,63 @@ describe("RunContextPanel — the retrieved-documents layer", () => {
       apiFetchMock.mock.calls.filter(([path]) => String(path).endsWith("/retrievals")),
     ).toHaveLength(2);
   });
+
+  // A run whose task had its own documents in addition to (or instead of) its team's — the
+  // merged-retrieval case the split-budget worker change (PR 6) produces.
+  it("tags a task-sourced excerpt but leaves a team-sourced one exactly as before", async () => {
+    const merged: RunContextRetrieval[] = [
+      {
+        id: 10,
+        runId: 7,
+        itemId: 5,
+        itemKind: "task",
+        itemTitle: "Migration runbook",
+        chunkIdx: 1,
+        rank: 1,
+        score: 0.12, // below SIMILARITY_FLOOR — kept anyway, since a task chunk is floor-exempt
+        createdAt: "2026-09-01T10:00:00.000Z",
+      },
+      {
+        id: 11,
+        runId: 7,
+        itemId: 4,
+        itemKind: "team",
+        itemTitle: "Engineering handbook",
+        chunkIdx: 3,
+        rank: 2,
+        score: 0.82,
+        createdAt: "2026-09-01T10:00:00.000Z",
+      },
+    ];
+    mockApi(RETRIEVAL_PROMPT, merged);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("Retrieved documents")).toBeInTheDocument());
+    await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith("/api/runs/7/retrievals"));
+    fireEvent.click(screen.getByText("Retrieved documents"));
+
+    expect(
+      screen.getByText("Migration runbook — chunk 1 · 12% match · task document"),
+    ).toBeInTheDocument();
+    // Team-sourced rows keep their pre-existing text exactly, with no added tag.
+    expect(screen.getByText("Engineering handbook — chunk 3 · 82% match")).toBeInTheDocument();
+  });
+
+  // The new omission reason (PR 6): retrieval never ran at all because neither a team nor a
+  // task resolved for this run, distinct from "ran and found nothing" (no_relevant_chunks) or
+  // "ran but nothing was indexed" (no_indexed_documents).
+  it("shows the new no_context_sources omission reason", async () => {
+    mockApi({
+      runId: 7,
+      promptHash: "d".repeat(64),
+      segments: [{ id: "retrieved_context", text: "", omittedReason: "no_context_sources" }],
+    });
+    renderPanel();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Not included: this run has no team or task to draw context from"),
+      ).toBeInTheDocument(),
+    );
+  });
 });

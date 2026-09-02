@@ -28,7 +28,7 @@ function item(overrides: Partial<TeamContextItem> = {}): TeamContextItem {
 function renderPanel() {
   return render(
     <I18nProvider>
-      <ContextDocumentsPanel teamId={4} />
+      <ContextDocumentsPanel scope={{ kind: "team", teamId: 4 }} />
     </I18nProvider>,
   );
 }

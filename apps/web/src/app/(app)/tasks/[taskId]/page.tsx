@@ -11,6 +11,7 @@ import { AssigneeSelect } from "@/components/AssigneeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CheckIcon, TrashIcon, EditIcon, XIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
+import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
 import { RunContextPanel } from "@/components/RunContextPanel";
 import { RunEvalPanel } from "@/components/RunEvalPanel";
 import type { Run, TaskStatus } from "@agentfactory/core";
@@ -39,8 +40,19 @@ const DESTRUCTIVE_STATUSES: TaskStatus[] = ["done", "failed", "cancelled"];
 export default function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
   const router = useRouter();
-  const { getTask, agents, sessions, messagesForSession, loadMessages, runTask, sendMessage, updateTask, deleteTask, notify } =
-    useMockBackend();
+  const {
+    getTask,
+    agents,
+    sessions,
+    orgMembers,
+    messagesForSession,
+    loadMessages,
+    runTask,
+    sendMessage,
+    updateTask,
+    deleteTask,
+    notify,
+  } = useMockBackend();
   const { t } = useTranslation();
 
   const [starting, setStarting] = useState(false);
@@ -724,11 +736,12 @@ export default function TaskDetailPage() {
               {`Files (${Object.keys(workspace).length})`}
             </TabBtn>
           )}
-          {session && (
-            <TabBtn active={activeTab === "context"} onClick={() => setActiveTab("context")}>
-              {t("taskDetail.contextTab")}
-            </TabBtn>
-          )}
+          {/* Unlike the Evaluation tab below, Context is not gated on a session existing: it
+              now also hosts task document management (ContextDocumentsPanel), which has
+              nothing to do with runs and should be reachable right after task creation. */}
+          <TabBtn active={activeTab === "context"} onClick={() => setActiveTab("context")}>
+            {t("taskDetail.contextTab")}
+          </TabBtn>
           {session && (
             <TabBtn active={activeTab === "evals"} onClick={() => setActiveTab("evals")}>
               {t("taskDetail.evalTab")}
@@ -1048,7 +1061,24 @@ export default function TaskDetailPage() {
           </div>
         )}
 
-        {activeTab === "context" && <RunContextPanel runs={sessionRuns} />}
+        {activeTab === "context" && (
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ padding: "22px 28px 0", flexShrink: 0 }}>
+              <h3
+                style={{
+                  marginBottom: 12,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: "var(--color-neutral-300)",
+                }}
+              >
+                {t("taskDetail.documentsSection")}
+              </h3>
+              <ContextDocumentsPanel scope={{ kind: "task", taskId: task.id }} members={orgMembers} />
+            </div>
+            <RunContextPanel runs={sessionRuns} />
+          </div>
+        )}
         {activeTab === "evals" && <RunEvalPanel runs={sessionRuns} />}
       </div>
 

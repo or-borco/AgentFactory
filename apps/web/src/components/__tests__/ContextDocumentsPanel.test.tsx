@@ -2,9 +2,9 @@
 import "@testing-library/jest-dom/vitest";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OrgMember, TeamContextItem } from "@agentfactory/core";
+import type { OrgMember, TaskContextItem, TeamContextItem } from "@agentfactory/core";
 import { I18nProvider } from "../../lib/i18n/context";
-import { ContextDocumentsPanel } from "../ContextDocumentsPanel";
+import { ContextDocumentsPanel, type ContextDocumentsScope } from "../ContextDocumentsPanel";
 
 const apiFetchMock = vi.fn();
 vi.mock("@/lib/api-client", () => ({ apiFetch: (...args: unknown[]) => apiFetchMock(...args) }));
@@ -34,10 +34,27 @@ const ITEM: TeamContextItem = {
   createdAt: "2026-08-27T10:00:00.000Z",
 };
 
-function renderPanel() {
+const TEAM_SCOPE: ContextDocumentsScope = { kind: "team", teamId: 3 };
+const TASK_SCOPE: ContextDocumentsScope = { kind: "task", taskId: 9 };
+
+const TASK_ITEM: TaskContextItem = {
+  id: 1,
+  taskId: 9,
+  orgId: 1,
+  title: "Migration runbook",
+  sizeBytes: 4200,
+  sha256: "b".repeat(64),
+  mime: "text/markdown",
+  source: "upload",
+  status: "pending",
+  uploadedBy: 5,
+  createdAt: "2026-08-27T10:00:00.000Z",
+};
+
+function renderPanel(scope: ContextDocumentsScope = TEAM_SCOPE) {
   return render(
     <I18nProvider>
-      <ContextDocumentsPanel teamId={3} members={MEMBERS} />
+      <ContextDocumentsPanel scope={scope} members={MEMBERS} />
     </I18nProvider>,
   );
 }
@@ -217,5 +234,78 @@ describe("ContextDocumentsPanel", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+// Same component, task scope: only the route base and the copy naming the scope explicitly
+// should differ from the team-scope suite above — everything else (upload, delete, polling,
+// status badges) is exercised there and is not re-tested here.
+describe("ContextDocumentsPanel with task scope", () => {
+  it("asks for the task's documents and shows a task-specific empty state", async () => {
+    apiFetchMock.mockResolvedValue([]);
+    renderPanel(TASK_SCOPE);
+
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/tasks/9/context-items");
+    expect(
+      screen.getByText("Upload a Markdown or text file to give this task's agent something to draw on."),
+    ).toBeInTheDocument();
+  });
+
+  it("lists a task document", async () => {
+    apiFetchMock.mockResolvedValue([TASK_ITEM]);
+    renderPanel(TASK_SCOPE);
+
+    await waitFor(() => expect(screen.getByText("Migration runbook")).toBeInTheDocument());
+    expect(screen.getByText("Queued")).toBeInTheDocument();
+  });
+
+  it("uploads a file to the task-scoped route", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ ...TASK_ITEM, id: 2, title: "runbook.md", sizeBytes: 9 });
+    renderPanel(TASK_SCOPE);
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Upload document"), { target: { files: [markdownFile()] } });
+
+    await waitFor(() => expect(screen.getByText("runbook.md")).toBeInTheDocument());
+    const [path, init] = apiFetchMock.mock.calls[1] as [string, RequestInit];
+    expect(path).toBe("/api/tasks/9/context-items");
+    expect(init.method).toBe("POST");
+  });
+
+  it("surfaces the task-specific line when the server rejects the upload", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("This document has already been uploaded to this task"));
+    renderPanel(TASK_SCOPE);
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Upload document"), { target: { files: [markdownFile()] } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Couldn't upload that file — it may already be attached to this task."),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it("removes a task document from the task-scoped route", async () => {
+    apiFetchMock.mockResolvedValueOnce([TASK_ITEM]).mockResolvedValueOnce(undefined);
+    renderPanel(TASK_SCOPE);
+    await waitFor(() => expect(screen.getByText("Migration runbook")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+    expect(apiFetchMock).toHaveBeenLastCalledWith("/api/tasks/9/context-items/1", { method: "DELETE" });
+  });
+
+  it("shows the task-specific line when the list can't be loaded", async () => {
+    apiFetchMock.mockRejectedValueOnce(new Error("boom"));
+    renderPanel(TASK_SCOPE);
+
+    await waitFor(() => expect(screen.getByText("Couldn't load this task's documents.")).toBeInTheDocument());
   });
 });
