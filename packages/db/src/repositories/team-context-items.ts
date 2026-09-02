@@ -1,7 +1,7 @@
 import { and, count, eq } from "drizzle-orm";
 import type { TeamContextItem } from "@agentfactory/core";
 import { db } from "../client";
-import { contextChunks, teamContextItems } from "../schema";
+import { contextChunks, runContextRetrievals, teamContextItems } from "../schema";
 
 export interface NewTeamContextItem {
   teamId: number;
@@ -66,13 +66,23 @@ export async function getTeamContextItem(id: number): Promise<TeamContextItem | 
 }
 
 // Same signature and same guarantee as before, now one statement against the denormalized
-// org_id instead of a select-then-delete behind an innerJoin(teams, …).
+// org_id instead of a select-then-delete behind an innerJoin(teams, …). run_context_retrievals
+// no longer has a DB-level FK on item_id (the id space collides with task_context_items), so the
+// old ON DELETE SET NULL is replaced here: explicitly null out matching rows, scoped by itemKind
+// so a task item that happens to share this numeric id is never touched.
 export async function deleteTeamContextItemForOrg(id: number, orgId: number): Promise<boolean> {
   const rows = await db
     .delete(teamContextItems)
     .where(and(eq(teamContextItems.id, id), eq(teamContextItems.orgId, orgId)))
     .returning({ id: teamContextItems.id });
-  return rows.length > 0;
+  if (rows.length === 0) return false;
+
+  await db
+    .update(runContextRetrievals)
+    .set({ itemId: null })
+    .where(and(eq(runContextRetrievals.itemId, id), eq(runContextRetrievals.itemKind, "team")));
+
+  return true;
 }
 
 // The three writes the ingest worker makes. Each is a whole-row status assignment rather than

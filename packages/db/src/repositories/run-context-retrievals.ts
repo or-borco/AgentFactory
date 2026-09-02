@@ -1,11 +1,15 @@
 import { asc, eq } from "drizzle-orm";
-import type { RunContextRetrieval } from "@agentfactory/core";
+import type { ContextItemKind, RunContextRetrieval } from "@agentfactory/core";
 import { db } from "../client";
 import { runContextRetrievals } from "../schema";
 
 export interface NewRunContextRetrieval {
   runId: number;
   itemId: number;
+  // Optional, not required: this PR has no writer that populates task retrievals yet — every
+  // caller today is team-sourced, and the column's own DB default ("team") covers them. A
+  // future task-aware retrieveContext (PR 6) passes this explicitly.
+  itemKind?: ContextItemKind;
   itemTitle: string;
   chunkIdx: number;
   rank: number;
@@ -17,6 +21,7 @@ function toRetrieval(row: typeof runContextRetrievals.$inferSelect): RunContextR
     id: row.id,
     runId: row.runId,
     itemId: row.itemId ?? undefined,
+    itemKind: row.itemKind,
     itemTitle: row.itemTitle,
     chunkIdx: row.chunkIdx,
     rank: row.rank,

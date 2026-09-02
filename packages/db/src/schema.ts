@@ -508,6 +508,10 @@ export const taskContextChunks = pgTable(
   ],
 );
 
+// Disambiguates which items table item_id points into, now that there are two (team and task).
+// See the note on itemId below for why this can't be a DB-level FK.
+export const contextItemKindEnum = pgEnum("context_item_kind", ["team", "task"]);
+
 // What retrieval actually injected into one run. Deliberately its own table, never columns on
 // runs: the task page polls runs on a ~1.5s timer and RUN_COLUMNS exists to keep large per-run
 // payloads off that poll, so this is fetched lazily on tab open — the same arrangement as
@@ -520,8 +524,13 @@ export const runContextRetrievals = pgTable(
     runId: integer("run_id")
       .notNull()
       .references(() => runs.id, { onDelete: "cascade" }),
-    // set null, not cascade: deleting a document must not erase the record of the runs it fed.
-    itemId: integer("item_id").references(() => teamContextItems.id, { onDelete: "set null" }),
+    // No .references() — itemId can point at either team_context_items or task_context_items,
+    // and the two id spaces collide (both are independent identity sequences starting at 1), so
+    // a single FK can't disambiguate which table it targets. Nulled explicitly by both
+    // deleteTeamContextItemForOrg and deleteTaskContextItemForOrg (filtered by itemKind too),
+    // replacing the FK's old ON DELETE SET NULL.
+    itemId: integer("item_id"),
+    itemKind: contextItemKindEnum("item_kind").notNull().default("team"),
     // Snapshot of the document's title at retrieval time — survives the delete above.
     itemTitle: text("item_title").notNull(),
     chunkIdx: integer("chunk_idx").notNull(),

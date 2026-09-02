@@ -242,6 +242,7 @@ describe("RunContextPanel — the retrieved-documents layer", () => {
       id: 2,
       runId: 7,
       itemId: 4,
+      itemKind: "team",
       itemTitle: "Engineering handbook",
       chunkIdx: 3,
       rank: 1,
@@ -253,6 +254,7 @@ describe("RunContextPanel — the retrieved-documents layer", () => {
     {
       id: 3,
       runId: 7,
+      itemKind: "team",
       itemTitle: "Incident runbooks",
       chunkIdx: 0,
       rank: 2,
