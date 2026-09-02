@@ -14,6 +14,16 @@ vi.mock("@agentfactory/db", () => ({
   markTeamContextItemFailed: vi.fn(),
   deleteTeamChunksForItem: vi.fn(),
   insertTeamContextChunks: vi.fn(),
+  // context-ingest.ts also binds these into defaultTaskDbDeps at module load time (for
+  // ingestTaskContextItem, exercised by task-context-ingest.test.ts) — every export the module
+  // destructures at the top level has to exist on the mock even in a file that only tests the
+  // team path, or the import itself throws before any test body runs.
+  getTaskContextItem: vi.fn(),
+  markTaskContextItemIndexing: vi.fn(),
+  markTaskContextItemIndexed: vi.fn(),
+  markTaskContextItemFailed: vi.fn(),
+  deleteTaskChunksForItem: vi.fn(),
+  insertTaskContextChunks: vi.fn(),
 }));
 
 // Same reason repo-map.test.ts mocks it: packages/queue/src/index.ts throws at import when
