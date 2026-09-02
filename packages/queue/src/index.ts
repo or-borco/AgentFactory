@@ -6,8 +6,9 @@ export const SANDBOX_TEARDOWN_QUEUE_NAME = "sandbox-teardown";
 export const REPO_MAP_WARM_QUEUE_NAME = "repo-map-warm";
 export const EVAL_QUEUE_NAME = "evals";
 export const TEAM_CONTEXT_INGEST_QUEUE_NAME = "context-ingest";
-// PR4 registers the worker-side processor for this queue; jobs enqueued before then sit
-// unprocessed, which is the intended state for PR3 ("files persist at pending, no ingestion yet").
+// Own queue, own jobId namespace — see enqueueTaskContextIngestJob below for why it can't share
+// TEAM_CONTEXT_INGEST_QUEUE_NAME's. apps/worker/src/worker.ts registers a processor for this
+// queue alongside the team one.
 export const TASK_CONTEXT_INGEST_QUEUE_NAME = "task-context-ingest";
 
 export interface RunJobData {
@@ -110,8 +111,8 @@ export async function enqueueTeamContextIngestJob(itemId: number): Promise<void>
 }
 
 // Same shape as enqueueTeamContextIngestJob, on its own queue — see TASK_CONTEXT_INGEST_QUEUE_NAME
-// above for why task and team ids can't share one queue's jobId namespace. No processor consumes
-// this queue yet (PR4); until then, jobs enqueued here simply wait.
+// above for why task and team ids can't share one queue's jobId namespace. apps/worker's
+// taskContextIngestWorker consumes this queue, running ingestTaskContextItem per job.
 export async function enqueueTaskContextIngestJob(itemId: number): Promise<void> {
   await taskContextIngestQueue.add(
     "ingest-context-item",

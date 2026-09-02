@@ -1,12 +1,19 @@
-import type { TeamContextItem } from "@agentfactory/core";
+import type { TaskContextItem, TeamContextItem } from "@agentfactory/core";
 import {
+  deleteTaskChunksForItem,
   deleteTeamChunksForItem,
+  getTaskContextItem,
   getTeamContextItem,
+  insertTaskContextChunks,
   insertTeamContextChunks,
+  markTaskContextItemFailed,
+  markTaskContextItemIndexed,
+  markTaskContextItemIndexing,
   markTeamContextItemFailed,
   markTeamContextItemIndexed,
   markTeamContextItemIndexing,
   type NewContextChunk,
+  type NewTaskContextChunk,
 } from "@agentfactory/db";
 import { createBlobStore, type BlobStore } from "@agentfactory/storage";
 import { chunkDocument } from "./chunker";
@@ -45,6 +52,28 @@ const defaultDbDeps: Omit<IngestDeps, "blobStore" | "embedder"> = {
   markTeamContextItemFailed,
   deleteTeamChunksForItem,
   insertTeamContextChunks,
+};
+
+// Same shape as IngestDeps, keyed to the task-scoped repository functions instead — see
+// ingestTaskContextItem below for why the two handlers are otherwise identical.
+export interface TaskIngestDeps {
+  getTaskContextItem: (id: number) => Promise<TaskContextItem | undefined>;
+  markTaskContextItemIndexing: (id: number) => Promise<void>;
+  markTaskContextItemIndexed: (id: number) => Promise<void>;
+  markTaskContextItemFailed: (id: number, error: string) => Promise<void>;
+  deleteTaskChunksForItem: (itemId: number) => Promise<void>;
+  insertTaskContextChunks: (rows: NewTaskContextChunk[]) => Promise<void>;
+  blobStore: BlobStore;
+  embedder: Embedder;
+}
+
+const defaultTaskDbDeps: Omit<TaskIngestDeps, "blobStore" | "embedder"> = {
+  getTaskContextItem,
+  markTaskContextItemIndexing,
+  markTaskContextItemIndexed,
+  markTaskContextItemFailed,
+  deleteTaskChunksForItem,
+  insertTaskContextChunks,
 };
 
 // Never rejects, exactly like processEvalJob: every path past the row lookup ends on a terminal
@@ -114,6 +143,78 @@ export async function ingestTeamContextItem(itemId: number, deps: Partial<Ingest
       // The failure write itself failed — nothing left to record it on. The row stays at
       // "indexing", which a redelivery will pick up.
       console.error(`Context item ${itemId}: failed to record failure:`, writeErr);
+    }
+  }
+}
+
+// ingestTeamContextItem's exact shape — same status guard, same idempotent-redelivery
+// behavior, same never-rejects contract — reading/writing task_context_items/task_context_chunks
+// instead. Kept as a sibling function rather than a shared generic: the two dependency-injection
+// shapes (IngestDeps vs TaskIngestDeps) are already structurally identical, and a shared
+// implementation would need a scope-dispatch parameter threaded through every call site for no
+// behavioral benefit — see the design doc's "parallel tables, not a unified schema" rationale.
+export async function ingestTaskContextItem(itemId: number, deps: Partial<TaskIngestDeps> = {}): Promise<void> {
+  const d = { ...defaultTaskDbDeps, ...deps };
+
+  const item = await d.getTaskContextItem(itemId);
+  if (!item) {
+    // Cascade delete beat the job to it (task or org removed) — nothing to ingest and no row
+    // to record a failure on.
+    console.error(`Task context item ${itemId} not found; dropping job`);
+    return;
+  }
+
+  // The eval-runner's stalled-redelivery guard, loosened by one state. "indexed" and "failed"
+  // are terminal and must stay that way; "indexing" is admitted precisely because a crash
+  // mid-job is what leaves a row there, and the redelivery is how it recovers.
+  if (item.status !== "pending" && item.status !== "indexing") {
+    console.error(`Task context item ${itemId} is already ${item.status}; skipping redelivered job`);
+    return;
+  }
+
+  try {
+    await d.markTaskContextItemIndexing(itemId);
+
+    const blobStore = d.blobStore ?? createBlobStore();
+    const embedder = d.embedder ?? getEmbedder();
+
+    const bytes = await blobStore.get(item.orgId, item.sha256);
+    if (!bytes) throw new Error(`Blob ${item.sha256} is missing from the blob store`);
+
+    const chunks = chunkDocument(item.title, extractText(item.mime, bytes));
+
+    // Idempotency, and the reason a redelivery is safe: this item's previous chunks go before
+    // any new one arrives, so a second pass replaces rather than duplicates.
+    await d.deleteTaskChunksForItem(itemId);
+
+    for (let offset = 0; offset < chunks.length; offset += EMBED_BATCH_SIZE) {
+      const batch = chunks.slice(offset, offset + EMBED_BATCH_SIZE);
+      const embeddings = await embedder.embedDocuments(batch.map((c) => c.text));
+      await d.insertTaskContextChunks(
+        batch.map((c, i) => ({
+          itemId,
+          // Denormalized from the item so retrieval's tenant filter sits on the indexed table.
+          taskId: item.taskId,
+          chunkIdx: c.chunkIdx,
+          text: c.text,
+          embedding: embeddings[i],
+          embeddingModel: embedder.modelId,
+        })),
+      );
+    }
+
+    await d.markTaskContextItemIndexed(itemId);
+  } catch (err) {
+    console.error(`Task context item ${itemId} ingest failed:`, err);
+    // The message, not the stack: it is rendered verbatim under the document's row in the
+    // task detail page's Context tab, and it is the only explanation the uploader ever gets.
+    const message = err instanceof Error ? err.message : String(err);
+    try {
+      await d.markTaskContextItemFailed(itemId, message);
+    } catch (writeErr) {
+      // The failure write itself failed — nothing left to record it on. The row stays at
+      // "indexing", which a redelivery will pick up.
+      console.error(`Task context item ${itemId}: failed to record failure:`, writeErr);
     }
   }
 }
