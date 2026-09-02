@@ -176,6 +176,13 @@
       "when": 1788277609224,
       "tag": "0024_add_task_context_items",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1788277709224,
+      "tag": "0025_wakeful_scarlet_witch",
+      "breakpoints": true
     }
   ]
 }

@@ -58,6 +58,12 @@ export interface TeamContextItem {
   createdAt: ISODateTime;
 }
 
+// Disambiguates which items table a run_context_retrievals row's itemId points into. The two
+// items tables (team_context_items, task_context_items) are independent identity sequences that
+// can collide on the same numeric id, so this tag — not the id alone — is what a reader must use
+// to know which table (and which delete path) an id belongs to.
+export type ContextItemKind = "team" | "task";
+
 // One uploaded document scoped to a task rather than a team. Mirrors TeamContextItem exactly —
 // same addressing scheme, same status machine — but keyed by taskId instead of teamId.
 export interface TaskContextItem {
@@ -408,6 +414,9 @@ export interface RunContextRetrieval {
   // Absent once the source document is deleted — itemTitle below is the snapshot that keeps a
   // historical run's provenance readable after the document is gone.
   itemId?: ID;
+  // Which items table itemId pointed into. Defaults to "team" for rows written before task
+  // documents existed — accurate, since every such row predates this field.
+  itemKind: ContextItemKind;
   itemTitle: string;
   chunkIdx: number;
   // 1-based position in the retrieval result, after the floor and byte budget were applied.

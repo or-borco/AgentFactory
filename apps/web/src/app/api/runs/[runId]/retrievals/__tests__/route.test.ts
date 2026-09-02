@@ -23,6 +23,7 @@ const RETRIEVAL: RunContextRetrieval = {
   id: 1,
   runId: 7,
   itemId: 4,
+  itemKind: "team",
   itemTitle: "Engineering handbook",
   chunkIdx: 3,
   rank: 1,
