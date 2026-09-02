@@ -279,7 +279,7 @@ const en = {
     contextOmittedEmptySharedContext: "Not included: the team's shared context is empty",
     contextOmittedNoCodebase: "Not included: this session has no codebase attached",
     contextOmittedRepoMapPending: "Not included: repo map is still being generated",
-    contextOmittedNoIndexedDocuments: "Not included: this team has no indexed documents",
+    contextOmittedNoIndexedDocuments: "Not included: no indexed documents",
     contextOmittedNoRelevantChunks: "Not included: no document excerpt matched this task",
     contextOmittedRetrievalFailed: "Not included: document retrieval failed for this run",
     contextLayerPlatformPreamble: "Platform preamble",

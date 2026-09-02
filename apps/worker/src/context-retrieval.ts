@@ -1,6 +1,11 @@
-import type { PromptOmissionReason } from "@agentfactory/core";
-import { countIndexedTeamContextItems, searchTeamContextChunks } from "@agentfactory/db";
-import type { ContextChunkMatch, NewRunContextRetrieval } from "@agentfactory/db";
+import type { ContextItemKind, PromptOmissionReason } from "@agentfactory/core";
+import {
+  countIndexedTaskContextItems,
+  countIndexedTeamContextItems,
+  searchTaskContextChunks,
+  searchTeamContextChunks,
+} from "@agentfactory/db";
+import type { ContextChunkMatch, NewRunContextRetrieval, TaskContextChunkMatch } from "@agentfactory/db";
 import { getEmbedder } from "./embedder";
 import type { Embedder } from "./embedder";
 
@@ -20,6 +25,13 @@ export const SIMILARITY_FLOOR = 0.6;
 // Small next to the 16 KB repo map. A run that still overflows is already handled by
 // PromptTooLongError → model escalation; no new budget mechanism is introduced.
 export const RETRIEVAL_BUDGET_BYTES = 8192;
+// Reserved out of RETRIEVAL_BUDGET_BYTES exclusively for task-sourced chunks, which are exempt
+// from SIMILARITY_FLOOR (see retrieveContext below). An unmeasured starting default, like
+// RETRIEVAL_K and the original SIMILARITY_FLOOR before or-borco/AgentFactory#135 — revisit once
+// there is real usage to measure a task's document volume against. Too small and a task with
+// more than one or two substantial documents still loses material a human explicitly attached;
+// too large and team retrieval loses room it has today.
+export const TASK_RESERVED_BUDGET_BYTES = 2048;
 
 // Mirrors the repo map's wrapper (worker.ts:140-147) for the same reason, more urgently: this
 // text came out of a file a user uploaded, which makes it the most directly attacker-controlled
@@ -53,12 +65,12 @@ export function buildRetrievalQuery(
 // and byte-test/character-slice is the live capSharedContext bug in
 // packages/db/src/repositories/teams.ts:13-17), and `break` rather than `continue`, so the kept
 // set stays a contiguous prefix of the ranking and `rank` means what it says.
-export function selectWithinBudget(
-  matches: ContextChunkMatch[],
-  budgetBytes: number,
-): ContextChunkMatch[] {
+//
+// Generic over the match shape (rather than fixed to ContextChunkMatch) because retrieveContext
+// calls this for both team and task matches, which are structurally identical but distinct types.
+export function selectWithinBudget<T extends { text: string }>(matches: T[], budgetBytes: number): T[] {
   const encoder = new TextEncoder();
-  const kept: ContextChunkMatch[] = [];
+  const kept: T[] = [];
   let usedBytes = 0;
   for (const match of matches) {
     const size = encoder.encode(match.text).length;
@@ -69,23 +81,45 @@ export function selectWithinBudget(
   return kept;
 }
 
+// Total encoded byte length of a set of already-kept matches — used to compute how much of
+// RETRIEVAL_BUDGET_BYTES remains for team chunks after the task slice is selected.
+function byteLength(matches: { text: string }[]): number {
+  const encoder = new TextEncoder();
+  return matches.reduce((sum, m) => sum + encoder.encode(m.text).length, 0);
+}
+
 // Narrow function types rather than typeof imports, so unit tests stub each seam with a plain
 // vi.fn() — the production defaults below are structurally compatible. Same shape as
 // EvalRunnerDeps (eval-runner.ts:16-50).
 export interface RetrievalDeps {
   countIndexedTeamContextItems: (teamId: number) => Promise<number>;
+  countIndexedTaskContextItems: (taskId: number) => Promise<number>;
   searchTeamContextChunks: (
     teamId: number,
     embedding: number[],
     limit: number,
   ) => Promise<ContextChunkMatch[]>;
+  searchTaskContextChunks: (
+    taskId: number,
+    embedding: number[],
+    limit: number,
+  ) => Promise<TaskContextChunkMatch[]>;
   embedder: Embedder;
+}
+
+// What retrieveContext is asked to search: a team, a task, or (the common case for a task with
+// an assignee on a team) both. At least one is expected to be present — worker.ts only calls
+// retrieveContext at all when `team || task` — but neither is required by the type, since a
+// caller that got this wrong should see "no_indexed_documents" rather than a thrown error.
+export interface RetrievalScope {
+  teamId?: number;
+  taskId?: number;
 }
 
 export interface RetrievedContext {
   // Already wrapped and delimited, ready to become a PromptSegment's text. "" when omitted.
   text: string;
-  // NewRunContextRetrieval minus runId: retrieval is given a team and a query and is never told
+  // NewRunContextRetrieval minus runId: retrieval is given a scope and a query and is never told
   // which run it is for, so the caller stamps its own run id before inserting.
   retrievals: Omit<NewRunContextRetrieval, "runId">[];
   omittedReason?: PromptOmissionReason;
@@ -102,7 +136,9 @@ const OMITTED = (omittedReason: PromptOmissionReason): RetrievedContext => ({
 function resolveDeps(overrides?: Partial<RetrievalDeps>): RetrievalDeps {
   return {
     countIndexedTeamContextItems,
+    countIndexedTaskContextItems,
     searchTeamContextChunks,
+    searchTaskContextChunks,
     embedder: overrides?.embedder ?? getEmbedder(),
     ...overrides,
   };
@@ -111,25 +147,61 @@ function resolveDeps(overrides?: Partial<RetrievalDeps>): RetrievalDeps {
 // Retrieval NEVER fails a run. Every path here returns a segment — the caller has no error case
 // to handle, exactly as ensureRepoMap degrades to "". The agent is never told a retrieval step
 // exists; this is pre-injected text, like the repo map.
+//
+// Two independent sources, merged with an asymmetric rule rather than one score-ranked,
+// floor-filtered list: a task chunk's relevance was already established by a human explicitly
+// attaching the document, which is a stronger signal than an embedding similarity score, so task
+// chunks are exempt from SIMILARITY_FLOOR and get a reserved, unconditional slice of the byte
+// budget (TASK_RESERVED_BUDGET_BYTES). Team chunks fill whatever budget remains, floor-filtered
+// and ranked exactly as before — the full RETRIEVAL_BUDGET_BYTES when the task has no documents
+// (or none that fit their reserved slice), identical to today's team-only behavior.
 export async function retrieveContext(
-  teamId: number,
+  scope: RetrievalScope,
   query: string,
   deps?: Partial<RetrievalDeps>,
 ): Promise<RetrievedContext> {
+  const { teamId, taskId } = scope;
   // A run with no task title, no description, and no triggering message has nothing to search
   // with; searching on "" would return an arbitrary neighbourhood of the embedding space.
   if (!query.trim()) return OMITTED("no_relevant_chunks");
 
   try {
     const resolved = resolveDeps(deps);
-    if ((await resolved.countIndexedTeamContextItems(teamId)) === 0) {
-      return OMITTED("no_indexed_documents");
-    }
+    const [teamIndexedCount, taskIndexedCount] = await Promise.all([
+      teamId ? resolved.countIndexedTeamContextItems(teamId) : Promise.resolve(0),
+      taskId ? resolved.countIndexedTaskContextItems(taskId) : Promise.resolve(0),
+    ]);
+    if (teamIndexedCount + taskIndexedCount === 0) return OMITTED("no_indexed_documents");
 
     const embedding = await resolved.embedder.embedQuery(query);
-    const matches = await resolved.searchTeamContextChunks(teamId, embedding, RETRIEVAL_K);
-    const relevant = matches.filter((m) => m.score >= SIMILARITY_FLOOR);
-    const kept = selectWithinBudget(relevant, RETRIEVAL_BUDGET_BYTES);
+    const [teamMatches, taskMatches] = await Promise.all([
+      teamId
+        ? resolved.searchTeamContextChunks(teamId, embedding, RETRIEVAL_K)
+        : Promise.resolve<ContextChunkMatch[]>([]),
+      taskId
+        ? resolved.searchTaskContextChunks(taskId, embedding, RETRIEVAL_K)
+        : Promise.resolve<TaskContextChunkMatch[]>([]),
+    ]);
+
+    // Task chunks: no SIMILARITY_FLOOR — attachment by a human is itself the relevance signal.
+    // Own score still orders which chunks of an oversized document win the reserved slice.
+    const keptTask = selectWithinBudget(
+      [...taskMatches].sort((a, b) => b.score - a.score),
+      TASK_RESERVED_BUDGET_BYTES,
+    );
+    // Team chunks: unchanged from the team-only pipeline — floor-filtered, then budget-selected,
+    // now against whatever the task slice left behind. Unused reserved budget (a task with few or
+    // no documents) rolls over to team retrieval rather than going unused.
+    const remainingBudget = RETRIEVAL_BUDGET_BYTES - byteLength(keptTask);
+    const relevantTeam = teamMatches.filter((m) => m.score >= SIMILARITY_FLOOR);
+    const keptTeam = selectWithinBudget(relevantTeam, remainingBudget);
+
+    // Task excerpts presented first — their inclusion is unconditional, so they read as the
+    // material the human chose rather than as an afterthought appended to the team results.
+    const kept: Array<(ContextChunkMatch | TaskContextChunkMatch) & { itemKind: ContextItemKind }> = [
+      ...keptTask.map((m) => ({ ...m, itemKind: "task" as const })),
+      ...keptTeam.map((m) => ({ ...m, itemKind: "team" as const })),
+    ];
     if (kept.length === 0) return OMITTED("no_relevant_chunks");
 
     // The budget governs retrieved document bytes; the heading and the trailing separator are
@@ -145,6 +217,7 @@ export async function retrieveContext(
       text: `${RETRIEVED_CONTEXT_HEADING}\n\n${body}\n\n${RETRIEVED_CONTEXT_FOOTER}\n\n---\n\n`,
       retrievals: kept.map((m, i) => ({
         itemId: m.itemId,
+        itemKind: m.itemKind,
         itemTitle: m.itemTitle,
         chunkIdx: m.chunkIdx,
         rank: i + 1,
@@ -152,7 +225,7 @@ export async function retrieveContext(
       })),
     };
   } catch (err) {
-    console.error(`Context retrieval failed for team ${teamId}:`, err);
+    console.error(`Context retrieval failed for team ${teamId ?? "-"} / task ${taskId ?? "-"}:`, err);
     return OMITTED("retrieval_failed");
   }
 }

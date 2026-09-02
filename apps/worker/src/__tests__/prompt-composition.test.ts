@@ -143,7 +143,7 @@ describe("segment builders", () => {
     expect(buildRetrievedContextSegment(false, false, "")).toEqual({
       id: "retrieved_context",
       text: "",
-      omittedReason: "no_team",
+      omittedReason: "no_context_sources",
     });
     expect(buildRetrievedContextSegment(true, false, "")).toEqual({
       id: "retrieved_context",
@@ -165,10 +165,19 @@ describe("segment builders", () => {
     });
   });
 
-  // No team means retrieval never ran at all — the embedder is not loaded and the index is not
-  // queried — so "no team" outranks whatever the document flag happens to say.
-  it("buildRetrievedContextSegment reports no_team ahead of the document state", () => {
-    expect(buildRetrievedContextSegment(false, true, "").omittedReason).toBe("no_team");
+  // hasSource covers both a resolved team and a resolved task (a teamless task with its own
+  // documents is a real source). Neither resolving means retrieval never ran at all — the
+  // embedder is not loaded and no index is queried — so "no source" outranks whatever the
+  // document flag happens to say. This is a distinct code from the team_context segment's
+  // "no_team", which stays team-specific and untouched.
+  it("buildRetrievedContextSegment reports no_context_sources ahead of the document state", () => {
+    expect(buildRetrievedContextSegment(false, true, "").omittedReason).toBe("no_context_sources");
+  });
+
+  it("buildRetrievedContextSegment treats a task-only source as a real source, not no_context_sources", () => {
+    // hasSource = Boolean(team) || Boolean(task) — a teamless task with its own documents still
+    // passes true here even though there is no team at all.
+    expect(buildRetrievedContextSegment(true, false, "").omittedReason).toBe("no_indexed_documents");
   });
 });
 

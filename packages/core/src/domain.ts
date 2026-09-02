@@ -296,12 +296,17 @@ export type PromptOmissionReason =
   | "empty_shared_context"
   | "no_codebase"
   | "repo_map_pending"
-  // Retrieved context: the team has no document that finished indexing; nothing cleared the
-  // similarity floor; or retrieval itself threw. Adding codes is non-breaking —
-  // RunContextPanel.tsx renders an unknown reason with its generic "not included" label.
+  // Retrieved context: neither the team nor the task has a document that finished indexing;
+  // nothing cleared the similarity floor (team side) or fit the reserved budget (task side); or
+  // retrieval itself threw. Adding codes is non-breaking — RunContextPanel.tsx renders an
+  // unknown reason with its generic "not included" label.
   | "no_indexed_documents"
   | "no_relevant_chunks"
-  | "retrieval_failed";
+  | "retrieval_failed"
+  // Retrieved context only: neither a team nor a task resolved for this run, so retrieval never
+  // ran at all — distinct from no_team (still used by the team_context/Layer-1 segment, where
+  // "no team" alone is a complete and accurate reason).
+  | "no_context_sources";
 
 // One layer of a run's composed system prompt. Invariant (tested in
 // prompt-composition.test.ts): joining segment texts in order reproduces the

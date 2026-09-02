@@ -207,7 +207,7 @@ describe("RunContextPanel — the retrieved-documents layer", () => {
     expect(screen.queryByText("Additional context")).not.toBeInTheDocument();
   });
 
-  it("says the team has no indexed documents when that is why the layer is empty", async () => {
+  it("says there are no indexed documents when that is why the layer is empty, scope-neutral copy", async () => {
     mockApi({
       runId: 7,
       promptHash: "d".repeat(64),
@@ -215,9 +215,7 @@ describe("RunContextPanel — the retrieved-documents layer", () => {
     });
     renderPanel();
 
-    await waitFor(() =>
-      expect(screen.getByText("Not included: this team has no indexed documents")).toBeInTheDocument(),
-    );
+    await waitFor(() => expect(screen.getByText("Not included: no indexed documents")).toBeInTheDocument());
   });
 
   it("distinguishes an empty search from a broken one", async () => {

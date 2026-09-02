@@ -100,17 +100,26 @@ export function buildRepoMapSegment(hasCodebase: boolean, wrapped: string): Prom
 }
 
 // Retrieved-context segment. Three distinguishable "nothing was injected" states, and they are
-// different bugs: no team at all (retrieval never ran), a team that has uploaded nothing that
-// finished indexing, and a team whose documents had nothing above the similarity floor for this
-// task. The fourth state — retrieval threw — is not derivable from these booleans; only
-// retrieveContext knows it, and worker.ts uses its reason directly for that one case.
+// different bugs: no source to search at all (retrieval never ran), a source that has uploaded
+// nothing that finished indexing, and a source whose documents had nothing selected for this
+// task (nothing above the similarity floor on the team side, nothing fit the reserved budget on
+// the task side). The fourth state — retrieval threw — is not derivable from these booleans;
+// only retrieveContext knows it, and worker.ts uses its reason directly for that one case.
+//
+// hasSource is `Boolean(team) || Boolean(task)`, not `Boolean(team)` alone — a teamless task with
+// its own documents is a real source too. This is deliberately a different signal from the
+// team_context (Layer 1 / shared_context) segment's own "no_team", which stays exactly as-is:
+// that segment has no task-sourced equivalent, so "agent has no team" remains completely accurate
+// there. Here, "neither a team nor a task resolved" gets its own code, no_context_sources, so it
+// is never confused with "a team resolved but its shared context is blank" or with the retrieved
+// segment's other omission states.
 export function buildRetrievedContextSegment(
-  hasTeam: boolean,
+  hasSource: boolean,
   hasIndexedDocuments: boolean,
   wrapped: string,
 ): PromptSegment {
   if (wrapped) return { id: "retrieved_context", text: wrapped };
-  if (!hasTeam) return { id: "retrieved_context", text: "", omittedReason: "no_team" };
+  if (!hasSource) return { id: "retrieved_context", text: "", omittedReason: "no_context_sources" };
   if (!hasIndexedDocuments) {
     return { id: "retrieved_context", text: "", omittedReason: "no_indexed_documents" };
   }

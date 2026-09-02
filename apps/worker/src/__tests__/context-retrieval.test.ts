@@ -1,15 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import type { ContextChunkMatch } from "@agentfactory/db";
+import type { ContextChunkMatch, TaskContextChunkMatch } from "@agentfactory/db";
 
 // context-retrieval reaches for the db package (whose client throws at import without
 // DATABASE_URL) and the embedder (which pulls in onnxruntime and would download a model on a
 // fresh clone). The unit project has neither a database nor a network policy, and
 // .husky/pre-push runs it, so both are mocked at import — same pattern as repo-map.test.ts.
 const countIndexedTeamContextItemsMock = vi.fn();
+const countIndexedTaskContextItemsMock = vi.fn();
 const searchTeamContextChunksMock = vi.fn();
+const searchTaskContextChunksMock = vi.fn();
 vi.mock("@agentfactory/db", () => ({
   countIndexedTeamContextItems: (...args: unknown[]) => countIndexedTeamContextItemsMock(...args),
+  countIndexedTaskContextItems: (...args: unknown[]) => countIndexedTaskContextItemsMock(...args),
   searchTeamContextChunks: (...args: unknown[]) => searchTeamContextChunksMock(...args),
+  searchTaskContextChunks: (...args: unknown[]) => searchTaskContextChunksMock(...args),
 }));
 
 const getEmbedderMock = vi.fn();
@@ -23,6 +27,7 @@ const {
   RETRIEVED_CONTEXT_FOOTER,
   RETRIEVED_CONTEXT_HEADING,
   SIMILARITY_FLOOR,
+  TASK_RESERVED_BUDGET_BYTES,
   buildRetrievalQuery,
   retrieveContext,
   selectWithinBudget,
@@ -36,11 +41,33 @@ const match = (over: Partial<ContextChunkMatch> & { id: number; text: string }):
   ...over,
 });
 
+const taskMatch = (
+  over: Partial<TaskContextChunkMatch> & { id: number; text: string },
+): TaskContextChunkMatch => ({
+  itemId: 1,
+  itemTitle: "Attached brief",
+  chunkIdx: 0,
+  score: 0.9,
+  ...over,
+});
+
+// No-op stand-ins for the deps not exercised by a given test — resolveDeps merges these over the
+// real module, so a test only needs to override what it actually asserts on.
+function noopDeps() {
+  return {
+    countIndexedTeamContextItems: vi.fn().mockResolvedValue(0),
+    countIndexedTaskContextItems: vi.fn().mockResolvedValue(0),
+    searchTeamContextChunks: vi.fn().mockResolvedValue([]),
+    searchTaskContextChunks: vi.fn().mockResolvedValue([]),
+  };
+}
+
 describe("retrieval constants", () => {
-  it("pins K, the similarity floor, and the byte budget", () => {
+  it("pins K, the similarity floor, and the byte budgets", () => {
     expect(RETRIEVAL_K).toBe(12);
     expect(SIMILARITY_FLOOR).toBe(0.6);
     expect(RETRIEVAL_BUDGET_BYTES).toBe(8192);
+    expect(TASK_RESERVED_BUDGET_BYTES).toBe(2048);
   });
 });
 
@@ -117,25 +144,30 @@ function fakeEmbedder(vector = [0.1, 0.2, 0.3]) {
   };
 }
 
-describe("retrieveContext", () => {
+describe("retrieveContext — team-only (unchanged behavior)", () => {
   it("wraps the kept chunks as untrusted reference material and ranks them", async () => {
     const embedder = fakeEmbedder();
-    const result = await retrieveContext(7, "how do we handle incidents?", {
-      countIndexedTeamContextItems: vi.fn().mockResolvedValue(2),
-      searchTeamContextChunks: vi.fn().mockResolvedValue([
-        match({ id: 11, itemId: 3, itemTitle: "Runbooks", chunkIdx: 4, text: "Page the on-call.", score: 0.81 }),
-        match({ id: 12, itemId: 3, itemTitle: "Runbooks", chunkIdx: 5, text: "Open an incident channel.", score: 0.62 }),
-      ]),
-      embedder,
-    });
+    const result = await retrieveContext(
+      { teamId: 7 },
+      "how do we handle incidents?",
+      {
+        ...noopDeps(),
+        countIndexedTeamContextItems: vi.fn().mockResolvedValue(2),
+        searchTeamContextChunks: vi.fn().mockResolvedValue([
+          match({ id: 11, itemId: 3, itemTitle: "Runbooks", chunkIdx: 4, text: "Page the on-call.", score: 0.81 }),
+          match({ id: 12, itemId: 3, itemTitle: "Runbooks", chunkIdx: 5, text: "Open an incident channel.", score: 0.62 }),
+        ]),
+        embedder,
+      },
+    );
 
     expect(result.omittedReason).toBeUndefined();
     expect(result.text).toBe(
       `${RETRIEVED_CONTEXT_HEADING}\n\n[Excerpt 0] Page the on-call.\n\n[Excerpt 1] Open an incident channel.\n\n${RETRIEVED_CONTEXT_FOOTER}\n\n---\n\n`,
     );
     expect(result.retrievals).toEqual([
-      { itemId: 3, itemTitle: "Runbooks", chunkIdx: 4, rank: 1, score: 0.81 },
-      { itemId: 3, itemTitle: "Runbooks", chunkIdx: 5, rank: 2, score: 0.62 },
+      { itemId: 3, itemKind: "team", itemTitle: "Runbooks", chunkIdx: 4, rank: 1, score: 0.81 },
+      { itemId: 3, itemKind: "team", itemTitle: "Runbooks", chunkIdx: 5, rank: 2, score: 0.62 },
     ]);
     expect(embedder.embedQuery).toHaveBeenCalledWith("how do we handle incidents?");
   });
@@ -145,7 +177,8 @@ describe("retrieveContext", () => {
   // to detect a judge that silently drops or under-reports excerpts (see
   // countInjectedExcerpts in eval-judge.ts).
   it("numbers each kept excerpt so the judge has a real ordinal to report, not a guess", async () => {
-    const result = await retrieveContext(7, "how do we handle incidents?", {
+    const result = await retrieveContext({ teamId: 7 }, "how do we handle incidents?", {
+      ...noopDeps(),
       countIndexedTeamContextItems: vi.fn().mockResolvedValue(2),
       searchTeamContextChunks: vi.fn().mockResolvedValue([
         match({ id: 11, itemId: 3, itemTitle: "Runbooks", chunkIdx: 4, text: "Page the on-call.", score: 0.81 }),
@@ -160,7 +193,8 @@ describe("retrieveContext", () => {
 
   it("asks the index for exactly RETRIEVAL_K candidates", async () => {
     const searchTeamContextChunks = vi.fn().mockResolvedValue([]);
-    await retrieveContext(7, "anything", {
+    await retrieveContext({ teamId: 7 }, "anything", {
+      ...noopDeps(),
       countIndexedTeamContextItems: vi.fn().mockResolvedValue(1),
       searchTeamContextChunks,
       embedder: fakeEmbedder([0.5]),
@@ -175,7 +209,8 @@ describe("retrieveContext", () => {
     const embedder = fakeEmbedder();
     const searchTeamContextChunks = vi.fn();
 
-    const result = await retrieveContext(7, "anything", {
+    const result = await retrieveContext({ teamId: 7 }, "anything", {
+      ...noopDeps(),
       countIndexedTeamContextItems: vi.fn().mockResolvedValue(0),
       searchTeamContextChunks,
       embedder,
@@ -187,7 +222,8 @@ describe("retrieveContext", () => {
   });
 
   it("omits with no_relevant_chunks when everything is below the similarity floor", async () => {
-    const result = await retrieveContext(7, "anything", {
+    const result = await retrieveContext({ teamId: 7 }, "anything", {
+      ...noopDeps(),
       countIndexedTeamContextItems: vi.fn().mockResolvedValue(3),
       searchTeamContextChunks: vi.fn().mockResolvedValue([
         match({ id: 1, text: "Unrelated paragraph.", score: SIMILARITY_FLOOR - 0.01 }),
@@ -199,21 +235,25 @@ describe("retrieveContext", () => {
     expect(result).toEqual({ text: "", retrievals: [], omittedReason: "no_relevant_chunks" });
   });
 
-  it("keeps a chunk sitting exactly on the floor", async () => {
-    const result = await retrieveContext(7, "anything", {
+  it("keeps a team chunk sitting exactly on the floor, but a chunk below it is still excluded", async () => {
+    const result = await retrieveContext({ teamId: 7 }, "anything", {
+      ...noopDeps(),
       countIndexedTeamContextItems: vi.fn().mockResolvedValue(1),
       searchTeamContextChunks: vi.fn().mockResolvedValue([
-        match({ id: 1, text: "Borderline.", score: SIMILARITY_FLOOR }),
+        match({ id: 1, chunkIdx: 0, text: "Borderline.", score: SIMILARITY_FLOOR }),
+        match({ id: 2, chunkIdx: 1, text: "Off-topic.", score: SIMILARITY_FLOOR - 0.001 }),
       ]),
       embedder: fakeEmbedder(),
     });
 
     expect(result.omittedReason).toBeUndefined();
     expect(result.retrievals).toHaveLength(1);
+    expect(result.retrievals[0].chunkIdx).toBe(0);
   });
 
-  it("applies the byte budget, dropping the chunks that do not fit", async () => {
-    const result = await retrieveContext(7, "anything", {
+  it("applies the full RETRIEVAL_BUDGET_BYTES budget when there is no task, dropping chunks that do not fit", async () => {
+    const result = await retrieveContext({ teamId: 7 }, "anything", {
+      ...noopDeps(),
       countIndexedTeamContextItems: vi.fn().mockResolvedValue(1),
       searchTeamContextChunks: vi.fn().mockResolvedValue([
         match({ id: 1, chunkIdx: 0, text: "a".repeat(RETRIEVAL_BUDGET_BYTES - 10), score: 0.9 }),
@@ -228,9 +268,9 @@ describe("retrieveContext", () => {
 
   it("omits with no_relevant_chunks for an empty query, without touching anything", async () => {
     const countIndexedTeamContextItems = vi.fn();
-    const result = await retrieveContext(7, "   ", {
+    const result = await retrieveContext({ teamId: 7 }, "   ", {
+      ...noopDeps(),
       countIndexedTeamContextItems,
-      searchTeamContextChunks: vi.fn(),
       embedder: fakeEmbedder(),
     });
 
@@ -244,7 +284,8 @@ describe("retrieveContext", () => {
   it("never throws into the run: a failing search becomes retrieval_failed", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    const result = await retrieveContext(7, "anything", {
+    const result = await retrieveContext({ teamId: 7 }, "anything", {
+      ...noopDeps(),
       countIndexedTeamContextItems: vi.fn().mockResolvedValue(2),
       searchTeamContextChunks: vi.fn().mockRejectedValue(new Error("extension \"vector\" is not available")),
       embedder: fakeEmbedder(),
@@ -260,13 +301,169 @@ describe("retrieveContext", () => {
     const embedder = fakeEmbedder();
     embedder.embedQuery.mockRejectedValue(new Error("model load failed"));
 
-    const result = await retrieveContext(7, "anything", {
+    const result = await retrieveContext({ teamId: 7 }, "anything", {
+      ...noopDeps(),
       countIndexedTeamContextItems: vi.fn().mockResolvedValue(2),
-      searchTeamContextChunks: vi.fn(),
       embedder,
     });
 
     expect(result.omittedReason).toBe("retrieval_failed");
     consoleError.mockRestore();
+  });
+});
+
+describe("retrieveContext — task-only", () => {
+  it("keeps a task chunk scored well below the similarity floor, unlike a team chunk", async () => {
+    const result = await retrieveContext({ taskId: 42 }, "anything", {
+      ...noopDeps(),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(1),
+      searchTaskContextChunks: vi.fn().mockResolvedValue([
+        taskMatch({ id: 1, itemId: 9, itemTitle: "Attached brief", chunkIdx: 0, text: "Below-floor but attached.", score: 0.1 }),
+      ]),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.omittedReason).toBeUndefined();
+    expect(result.retrievals).toEqual([
+      { itemId: 9, itemKind: "task", itemTitle: "Attached brief", chunkIdx: 0, rank: 1, score: 0.1 },
+    ]);
+    expect(result.text).toContain("Below-floor but attached.");
+  });
+
+  it("asks the task index for exactly RETRIEVAL_K candidates and never touches the team index", async () => {
+    const searchTaskContextChunks = vi.fn().mockResolvedValue([]);
+    const searchTeamContextChunks = vi.fn();
+    await retrieveContext({ taskId: 42 }, "anything", {
+      ...noopDeps(),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(1),
+      searchTaskContextChunks,
+      searchTeamContextChunks,
+      embedder: fakeEmbedder([0.5]),
+    });
+
+    expect(searchTaskContextChunks).toHaveBeenCalledWith(42, [0.5], RETRIEVAL_K);
+    expect(searchTeamContextChunks).not.toHaveBeenCalled();
+  });
+
+  it("keeps only the highest-scoring task chunks once the task's own documents exceed the reserved budget", async () => {
+    const big = taskMatch({ id: 1, itemId: 9, chunkIdx: 0, text: "a".repeat(TASK_RESERVED_BUDGET_BYTES - 10), score: 0.2 });
+    const bigger = taskMatch({ id: 2, itemId: 9, chunkIdx: 1, text: "b".repeat(TASK_RESERVED_BUDGET_BYTES - 10), score: 0.9 });
+
+    const result = await retrieveContext({ taskId: 42 }, "anything", {
+      ...noopDeps(),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(1),
+      // Returned in arbitrary order — retrieveContext must sort by score itself before budgeting.
+      searchTaskContextChunks: vi.fn().mockResolvedValue([big, bigger]),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.retrievals).toHaveLength(1);
+    expect(result.retrievals[0].chunkIdx).toBe(1);
+  });
+});
+
+describe("retrieveContext — combined team + task", () => {
+  it("includes a below-floor task chunk while still excluding a below-floor team chunk", async () => {
+    const result = await retrieveContext({ teamId: 7, taskId: 42 }, "anything", {
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(1),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(1),
+      searchTeamContextChunks: vi.fn().mockResolvedValue([
+        match({ id: 1, itemId: 3, itemTitle: "Handbook", chunkIdx: 0, text: "Below floor, team-sourced.", score: SIMILARITY_FLOOR - 0.2 }),
+      ]),
+      searchTaskContextChunks: vi.fn().mockResolvedValue([
+        taskMatch({ id: 2, itemId: 9, itemTitle: "Attached brief", chunkIdx: 0, text: "Below floor, task-sourced.", score: 0.05 }),
+      ]),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.retrievals).toEqual([
+      { itemId: 9, itemKind: "task", itemTitle: "Attached brief", chunkIdx: 0, rank: 1, score: 0.05 },
+    ]);
+    expect(result.text).toContain("Below floor, task-sourced.");
+    expect(result.text).not.toContain("Below floor, team-sourced.");
+  });
+
+  it("presents task excerpts before team excerpts, task chunks first in rank order", async () => {
+    const result = await retrieveContext({ teamId: 7, taskId: 42 }, "anything", {
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(1),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(1),
+      searchTeamContextChunks: vi.fn().mockResolvedValue([
+        match({ id: 1, itemId: 3, itemTitle: "Handbook", chunkIdx: 0, text: "Team excerpt.", score: 0.9 }),
+      ]),
+      searchTaskContextChunks: vi.fn().mockResolvedValue([
+        taskMatch({ id: 2, itemId: 9, itemTitle: "Attached brief", chunkIdx: 0, text: "Task excerpt.", score: 0.3 }),
+      ]),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.retrievals.map((r) => r.itemKind)).toEqual(["task", "team"]);
+    expect(result.text.indexOf("Task excerpt.")).toBeLessThan(result.text.indexOf("Team excerpt."));
+  });
+
+  it("rolls unused task budget over to team retrieval instead of wasting it", async () => {
+    // The task has a single small document, using only a sliver of TASK_RESERVED_BUDGET_BYTES —
+    // the remaining ~8 KB (not just the ~6 KB team would get if the split were static) must still
+    // be available to team chunks.
+    const teamText = "x".repeat(RETRIEVAL_BUDGET_BYTES - 100);
+    const result = await retrieveContext({ teamId: 7, taskId: 42 }, "anything", {
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(1),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(1),
+      searchTeamContextChunks: vi.fn().mockResolvedValue([
+        match({ id: 1, itemId: 3, itemTitle: "Handbook", chunkIdx: 0, text: teamText, score: 0.9 }),
+      ]),
+      searchTaskContextChunks: vi.fn().mockResolvedValue([
+        taskMatch({ id: 2, itemId: 9, itemTitle: "Attached brief", chunkIdx: 0, text: "small", score: 0.3 }),
+      ]),
+      embedder: fakeEmbedder(),
+    });
+
+    // Would be dropped under a fixed ~6 KB team allotment (8192 - 2048 = 6144 < teamText's length)
+    // but survives because the task's unused reserved budget rolled over.
+    expect(result.retrievals.map((r) => r.itemKind)).toEqual(["task", "team"]);
+    expect(result.text).toContain(teamText);
+  });
+
+  it("a task with no documents leaves the full budget for team retrieval, matching team-only behavior", async () => {
+    const teamText = "x".repeat(RETRIEVAL_BUDGET_BYTES - 100);
+    const result = await retrieveContext({ teamId: 7, taskId: 42 }, "anything", {
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(1),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(0),
+      searchTeamContextChunks: vi.fn().mockResolvedValue([
+        match({ id: 1, itemId: 3, itemTitle: "Handbook", chunkIdx: 0, text: teamText, score: 0.9 }),
+      ]),
+      searchTaskContextChunks: vi.fn().mockResolvedValue([]),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.retrievals).toEqual([
+      { itemId: 3, itemKind: "team", itemTitle: "Handbook", chunkIdx: 0, rank: 1, score: 0.9 },
+    ]);
+  });
+
+  it("omits with no_indexed_documents only when neither side has anything indexed", async () => {
+    const result = await retrieveContext({ teamId: 7, taskId: 42 }, "anything", {
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(0),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(0),
+      searchTeamContextChunks: vi.fn(),
+      searchTaskContextChunks: vi.fn(),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result).toEqual({ text: "", retrievals: [], omittedReason: "no_indexed_documents" });
+  });
+
+  it("still searches when only one side has anything indexed", async () => {
+    const searchTaskContextChunks = vi.fn().mockResolvedValue([]);
+    await retrieveContext({ teamId: 7, taskId: 42 }, "anything", {
+      countIndexedTeamContextItems: vi.fn().mockResolvedValue(1),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(0),
+      searchTeamContextChunks: vi.fn().mockResolvedValue([]),
+      searchTaskContextChunks,
+      embedder: fakeEmbedder(),
+    });
+
+    // Both sides are still searched once indexed count is nonzero on either — the search calls
+    // happen unconditionally when the id is present, regardless of that id's own indexed count.
+    expect(searchTaskContextChunks).toHaveBeenCalled();
   });
 });
