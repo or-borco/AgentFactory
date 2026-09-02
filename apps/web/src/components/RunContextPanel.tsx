@@ -31,6 +31,7 @@ const OMISSION_LABEL_KEYS: Record<string, TranslationKey> = {
   no_indexed_documents: "taskDetail.contextOmittedNoIndexedDocuments",
   no_relevant_chunks: "taskDetail.contextOmittedNoRelevantChunks",
   retrieval_failed: "taskDetail.contextOmittedRetrievalFailed",
+  no_context_sources: "taskDetail.contextOmittedNoContextSources",
 };
 
 // A run only gets its segments written in the same statement that flips it to `running`, so a
@@ -433,10 +434,14 @@ function ProvenanceGroup({ state, onRetry }: { state: RetrievalsFetchState; onRe
           index: row.chunkIdx,
           percent: (row.score * 100).toFixed(0),
         });
+        // Team-sourced rows were the only kind before task documents existed, so their line
+        // stays exactly as it always has; a task-sourced excerpt gets an explicit tag, since
+        // it was never subject to the similarity floor a team row was and is worth calling out.
+        const kindTag = row.itemKind === "task" ? ` · ${t("taskDetail.contextSourceKindTask")}` : "";
         // One flat string per row so the whole line is a single text node.
         return (
           <p key={row.id} style={{ color: "var(--color-neutral-400)", fontSize: 12, margin: "0 0 4px" }}>
-            {`${title} — ${meta}`}
+            {`${title} — ${meta}${kindTag}`}
           </p>
         );
       })}

@@ -216,7 +216,11 @@ const en = {
       codebaseEmpty: "No repos connected —",
       codebaseEmptyLink: "connect GitHub",
       contextLabel: "Context documents",
-      contextNote: "Layer 2 context — documents specific to this task (upload coming soon)",
+      contextDropHint: "Choose one or more files to attach",
+      contextHelp:
+        "Markdown or plain text, up to 2 MB each. Uploaded once the task is created — you can add more, or retry a failed one, from the task's Context tab.",
+      contextUpload: "Attach context documents",
+      contextRemoveFile: "Remove",
       submit: "Create task",
       cancel: "Cancel",
     },
@@ -282,6 +286,7 @@ const en = {
     contextOmittedNoIndexedDocuments: "Not included: no indexed documents",
     contextOmittedNoRelevantChunks: "Not included: no document excerpt matched this task",
     contextOmittedRetrievalFailed: "Not included: document retrieval failed for this run",
+    contextOmittedNoContextSources: "Not included: this run has no team or task to draw context from",
     contextLayerPlatformPreamble: "Platform preamble",
     contextLayerEnvironment: "Environment brief",
     contextLayerTeamContext: "Team context",
@@ -292,6 +297,7 @@ const en = {
     contextSourcesLabel: "Retrieved from",
     contextSourceMeta: "chunk {index} · {percent}% match",
     contextSourceDeleted: "document deleted",
+    contextSourceKindTask: "task document",
     contextSourcesLoadError: "Couldn't load which documents were retrieved.",
     evalTab: "Evaluation",
     evalIntro:
@@ -335,6 +341,10 @@ const en = {
     confirmStatusMessage: "This will tear down the task's active sandbox. Any unsaved work in the container will be lost.",
     confirmStatusButton: "Change status",
     savingStatus: "Updating…",
+    documentsSection: "Documents",
+    documentsEmptySub: "Upload a Markdown or text file to give this task's agent something to draw on.",
+    documentsUploadFailed: "Couldn't upload that file — it may already be attached to this task.",
+    documentsLoadError: "Couldn't load this task's documents.",
   },
   teamsV2: {
     title: "Teams",
@@ -453,6 +463,7 @@ const en = {
     taskMarkedDone: "Task marked as done",
     taskAssigneeUpdated: "Assignee updated",
     taskStatusUpdated: "Status updated",
+    taskContextUploadFailed: "Couldn't attach {names} to the new task — add them again from its Context tab.",
   },
   relativeTime: {
     justNow: "just now",

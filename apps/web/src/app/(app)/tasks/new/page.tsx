@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button, Breadcrumb, PageHeader, TextInput, Textarea } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
@@ -14,9 +14,27 @@ interface RepoOption {
   fullName: string;
 }
 
+interface StagedFile {
+  id: number;
+  file: File;
+}
+
+// Mirrors ContextDocumentsPanel.tsx's own copy of these — see that file's comments for the
+// reasoning. A task doesn't exist yet at this point in the flow (see handleSubmit), so there is
+// no route to enforce these against client-side; this only corrects an unreliable browser mime
+// before the real upload, after the task is created.
+const ALLOWED_MIMES = ["text/markdown", "text/plain"];
+
+function extensionMime(filename: string): "text/markdown" | "text/plain" | null {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "text/markdown";
+  if (lower.endsWith(".txt")) return "text/plain";
+  return null;
+}
+
 export default function NewTaskPage() {
   const router = useRouter();
-  const { agents, createTask } = useMockBackend();
+  const { agents, createTask, notify } = useMockBackend();
   const { t } = useTranslation();
 
   const [title, setTitle] = useState("");
@@ -30,6 +48,8 @@ export default function NewTaskPage() {
   const [submitting, setSubmitting] = useState(false);
   const [repos, setRepos] = useState<RepoOption[]>([]);
   const [reposLoading, setReposLoading] = useState(true);
+  const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
+  const nextStagedIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +90,20 @@ export default function NewTaskPage() {
     setCodebaseOverride(nextCodebase);
   }
 
+  // Files are staged client-side only — there is no taskId to upload against until the task
+  // itself is created (see handleSubmit). No validation happens here; the real upload after
+  // creation hits the same route the team panel does, and any rejection (size, type, duplicate)
+  // is reported the same way any other failed staged upload is.
+  function handleFilesSelected(fileList: FileList | null) {
+    if (!fileList || fileList.length === 0) return;
+    const staged = Array.from(fileList).map((file) => ({ id: nextStagedIdRef.current++, file }));
+    setStagedFiles((prev) => [...prev, ...staged]);
+  }
+
+  function removeStagedFile(id: number) {
+    setStagedFiles((prev) => prev.filter((staged) => staged.id !== id));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
@@ -96,6 +130,33 @@ export default function NewTaskPage() {
         codebase: codebase.trim() || undefined,
         model,
       });
+
+      // Staged files are POSTed one at a time only now that a real taskId exists. A failed
+      // upload must never block navigation — the task itself already exists — so failures are
+      // just collected and surfaced as a toast that survives the navigation below (the toast
+      // lives in MockBackendProvider, above this page in the (app) layout).
+      const failedNames: string[] = [];
+      for (const staged of stagedFiles) {
+        let mime = staged.file.type;
+        if (!ALLOWED_MIMES.includes(mime)) {
+          const fallback = extensionMime(staged.file.name);
+          if (fallback) mime = fallback;
+        }
+        const uploadFile =
+          mime === staged.file.type ? staged.file : new File([staged.file], staged.file.name, { type: mime });
+        const body = new FormData();
+        body.append("file", uploadFile);
+        body.append("title", staged.file.name);
+        try {
+          await apiFetch(`/api/tasks/${task.id}/context-items`, { method: "POST", body });
+        } catch {
+          failedNames.push(staged.file.name);
+        }
+      }
+      if (failedNames.length > 0) {
+        notify("toast.taskContextUploadFailed", { names: failedNames.join(", ") });
+      }
+
       router.push(`/tasks/${task.id}`);
     } finally {
       setSubmitting(false);
@@ -213,20 +274,82 @@ export default function NewTaskPage() {
           </Field>
         </div>
 
-        {/* Context documents stub */}
+        {/* Context documents — staged locally; uploaded to the task once it's created below. */}
         <Field label={t("tasks.create.contextLabel")}>
-          <div
+          <label
             style={{
+              position: "relative",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
               border: "1.5px dashed var(--color-neutral-700)",
               borderRadius: "var(--radius-md)",
-              padding: "24px 20px",
+              padding: "20px 20px",
               textAlign: "center",
               color: "var(--color-neutral-500)",
               fontSize: 13,
             }}
           >
-            {t("tasks.create.contextNote")}
-          </div>
+            {t("tasks.create.contextDropHint")}
+            <input
+              type="file"
+              multiple
+              accept=".md,.markdown,.txt,text/markdown,text/plain"
+              aria-label={t("tasks.create.contextUpload")}
+              style={{
+                position: "absolute",
+                width: 1,
+                height: 1,
+                padding: 0,
+                margin: -1,
+                overflow: "hidden",
+                clip: "rect(0,0,0,0)",
+                whiteSpace: "nowrap",
+                border: 0,
+              }}
+              onChange={(e) => {
+                handleFilesSelected(e.target.files);
+                e.target.value = "";
+              }}
+            />
+          </label>
+          <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>
+            {t("tasks.create.contextHelp")}
+          </p>
+          {stagedFiles.length > 0 && (
+            <ul style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6, listStyle: "none", padding: 0 }}>
+              {stagedFiles.map((staged) => (
+                <li
+                  key={staged.id}
+                  style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--color-neutral-300)" }}
+                >
+                  <span
+                    style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                  >
+                    {staged.file.name}
+                  </span>
+                  <span style={{ flexShrink: 0, fontSize: 12, color: "var(--color-neutral-500)" }}>
+                    {(staged.file.size / 1024).toFixed(1)} KB
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => removeStagedFile(staged.id)}
+                    style={{
+                      flexShrink: 0,
+                      background: "none",
+                      border: "none",
+                      color: "var(--color-neutral-500)",
+                      cursor: "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    {t("tasks.create.contextRemoveFile")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </Field>
 
         {/* Actions */}

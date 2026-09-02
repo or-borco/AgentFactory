@@ -115,7 +115,7 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
           className="fixed bottom-6 right-6 border border-[var(--color-divider)] bg-[var(--color-surface)] px-4 py-3 text-sm font-medium text-[var(--color-text)]"
           style={{ borderRadius: "var(--radius-md)", boxShadow: "var(--shadow-lg)" }}
         >
-          {t(toast)}
+          {t(toast.key, toast.vars)}
         </div>
       )}
     </div>

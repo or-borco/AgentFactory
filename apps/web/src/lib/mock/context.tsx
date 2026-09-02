@@ -4,7 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import type { Agent, ChatMessage, Connection, OrgMember, OverflowPolicy, Run, Session, Skill, Task, Team } from "@agentfactory/core";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
-import type { TranslationKey } from "@/lib/i18n/paths";
+import type { TranslationKey, TranslationVars } from "@/lib/i18n/paths";
 import { findErrorCodeForRun } from "@/lib/run-errors";
 
 type DisplayMessage = ChatMessage & { streaming?: boolean; error?: boolean };
@@ -46,8 +46,8 @@ interface NewTaskInput {
 }
 
 interface MockBackendValue extends MockState {
-  toast: TranslationKey | null;
-  notify: (key: TranslationKey) => void;
+  toast: { key: TranslationKey; vars?: TranslationVars } | null;
+  notify: (key: TranslationKey, vars?: TranslationVars) => void;
   getAgent: (id: number) => Agent | undefined;
   getTeam: (id: number) => Team | undefined;
   getSession: (id: number) => Session | undefined;
@@ -99,7 +99,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   const [state, setState] = useState<MockState>(EMPTY_STATE);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [toast, setToast] = useState<TranslationKey | null>(null);
+  const [toast, setToast] = useState<{ key: TranslationKey; vars?: TranslationVars } | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -128,8 +128,8 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     };
   }, []);
 
-  const showToast = useCallback((key: TranslationKey) => {
-    setToast(key);
+  const showToast = useCallback((key: TranslationKey, vars?: TranslationVars) => {
+    setToast({ key, vars });
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 3000);
   }, []);

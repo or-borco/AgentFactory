@@ -74,7 +74,7 @@ function MembersTab({ team }: { team: Team }) {
         <h3 className="mb-3 text-sm font-semibold text-[var(--color-neutral-300)]">
           {t("teamsV2.documentsSection")}
         </h3>
-        <ContextDocumentsPanel teamId={team.id} members={orgMembers} />
+        <ContextDocumentsPanel scope={{ kind: "team", teamId: team.id }} members={orgMembers} />
       </section>
     </div>
   );
