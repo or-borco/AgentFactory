@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, lt, notExists } from "drizzle-orm";
 import type { Session } from "@agentfactory/core";
 import { db } from "../client";
-import { sessions } from "../schema";
+import { runs, sessions } from "../schema";
+import { NON_TERMINAL_RUN_STATUSES } from "./runs";
 
 function toSession(row: typeof sessions.$inferSelect): Session {
   return {
@@ -52,4 +53,30 @@ export async function setSessionSandboxId(id: number, sandboxId: string): Promis
 
 export async function clearSessionSandboxId(id: number): Promise<void> {
   await db.update(sessions).set({ sandboxId: null }).where(eq(sessions.id, id));
+}
+
+// Feeds apps/worker's sandboxReapWorker scan: sessions with a warm sandbox that has sat idle
+// since before `cutoff` (caller passes now - SANDBOX_IDLE_THRESHOLD_MS) and no run currently in
+// flight. The non-terminal-run exclusion here is a courtesy — it keeps the scan from bothering to
+// enqueue a teardown job for a session it already knows is mid-run — but it's still a
+// read-then-act race against a run starting a moment later, which is why the teardown worker's
+// processor (hasNonTerminalRun, runs.ts) re-checks immediately before it actually destroys
+// anything. That second check is the one that has to be correct; this one is just triage.
+export async function listIdleSandboxSessions(cutoff: Date): Promise<Session[]> {
+  const rows = await db
+    .select()
+    .from(sessions)
+    .where(
+      and(
+        isNotNull(sessions.sandboxId),
+        lt(sessions.lastActivityAt, cutoff),
+        notExists(
+          db
+            .select({ id: runs.id })
+            .from(runs)
+            .where(and(eq(runs.sessionId, sessions.id), inArray(runs.status, NON_TERMINAL_RUN_STATUSES))),
+        ),
+      ),
+    );
+  return rows.map(toSession);
 }

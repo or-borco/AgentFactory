@@ -1,11 +1,12 @@
 import "dotenv/config";
-import { Worker } from "bullmq";
+import { Queue, Worker } from "bullmq";
 import {
   TASK_CONTEXT_INGEST_QUEUE_NAME,
   TEAM_CONTEXT_INGEST_QUEUE_NAME,
   EVAL_QUEUE_NAME,
   RUN_QUEUE_NAME,
   REPO_MAP_WARM_QUEUE_NAME,
+  SANDBOX_REAP_QUEUE_NAME,
   SANDBOX_TEARDOWN_QUEUE_NAME,
   queueConnection,
   type ContextIngestJobData,
@@ -27,6 +28,7 @@ import {
   getSession,
   getTaskBySessionId,
   getTeamForOrg,
+  hasNonTerminalRun,
   insertRunContextRetrievals,
   setSessionSandboxId,
   touchSessionActivity,
@@ -35,6 +37,7 @@ import {
   updateRunWorkspace,
   updateTask,
 } from "@agentfactory/db";
+import { SANDBOX_REAP_INTERVAL_MS, scanForIdleSandboxes } from "./sandbox-reap";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { type AgentTurnResult, InsufficientCreditError, PromptTooLongError, runAgentTurn } from "./agent-runtime";
 import {
@@ -66,7 +69,8 @@ const sandboxProvider = new DockerSandboxProvider();
 
 // One sandbox per active session, kept warm across runs (ARCHITECTURE.md §4) — the SDK's own
 // resume mechanism needs the same container's filesystem across turns (see the sessions.sandboxId
-// migration). Idle teardown of long-unused sandboxes is a deliberate follow-up, not this slice.
+// migration). Idle teardown of long-unused sandboxes is handled separately by sandboxReapWorker
+// below (sandbox-reap.ts), not here.
 async function ensureSandbox(session: Session): Promise<string> {
   if (session.sandboxId && (await sandboxProvider.exists(session.sandboxId))) {
     return session.sandboxId;
@@ -413,14 +417,20 @@ runWorker.on("failed", (job, err) => {
   console.error(`Run job ${job?.id} failed:`, err);
 });
 
-// Triggered when a task is marked done or deleted (apps/web's task routes) — tears down the
-// session's warm sandbox since it's no longer needed, without touching the run/message history.
+// Triggered by three separate paths — task marked done, task deleted (both apps/web's task
+// routes), and the idle reap scan below — tears down the session's warm sandbox since it's no
+// longer needed, without touching the run/message history.
 const sandboxTeardownWorker = new Worker<SandboxTeardownJobData>(
   SANDBOX_TEARDOWN_QUEUE_NAME,
   async (job) => {
     const { sessionId } = job.data;
     const session = await getSession(sessionId);
     if (!session?.sandboxId) return;
+    // Re-check right before destroying, even though the idle-reap scan already filtered on
+    // this: that scan and this job are separate points in time, and a run can start in
+    // between (or, on the task-done/task-deleted paths, this is the first check at all).
+    // Destroying a sandbox out from under a running turn would fail it outright.
+    if (await hasNonTerminalRun(sessionId)) return;
     await sandboxProvider.destroy(session.sandboxId);
     await clearSessionSandboxId(sessionId);
   },
@@ -430,6 +440,34 @@ const sandboxTeardownWorker = new Worker<SandboxTeardownJobData>(
 sandboxTeardownWorker.on("failed", (job, err) => {
   console.error(`Sandbox teardown job ${job?.id} failed:`, err);
 });
+
+// Idle-reap: the other two teardown triggers (task done, task deleted) are event-driven and
+// miss a session that's simply abandoned mid-task. This scan runs on a repeatable job and
+// enqueues a SANDBOX_TEARDOWN_QUEUE_NAME job for each session it finds idle — the teardown
+// worker's own non-terminal-run check above is what actually protects a run in flight.
+const sandboxReapQueue = new Queue(SANDBOX_REAP_QUEUE_NAME, { connection: queueConnection });
+
+const sandboxReapWorker = new Worker(
+  SANDBOX_REAP_QUEUE_NAME,
+  async () => {
+    await scanForIdleSandboxes();
+  },
+  { connection: queueConnection },
+);
+
+sandboxReapWorker.on("failed", (job, err) => {
+  console.error(`Sandbox reap scan ${job?.id} failed:`, err);
+});
+
+// Fixed jobId so re-registering this repeatable job on every worker start — including a
+// tsx-watch reload in dev — upserts the same schedule instead of piling up a second one running
+// alongside it. BullMQ keys a repeatable job by its name + jobId + repeat pattern together, so
+// re-adding with all three unchanged is a no-op.
+sandboxReapQueue
+  .add("scan-idle-sandboxes", {}, { repeat: { every: SANDBOX_REAP_INTERVAL_MS }, jobId: "sandbox-reap-scan" })
+  .catch((err) => {
+    console.error("Failed to register sandbox reap scan:", err);
+  });
 
 // Triggered when an agent's or team's defaultCodebase is set (apps/web's agent/team routes) —
 // best-effort pre-warm so the first real task against that repo doesn't pay the generation cost
@@ -499,6 +537,6 @@ taskContextIngestWorker.on("failed", (job, err) => {
 
 console.log(
   `apps/worker listening on queues "${RUN_QUEUE_NAME}", "${SANDBOX_TEARDOWN_QUEUE_NAME}", ` +
-    `"${REPO_MAP_WARM_QUEUE_NAME}", "${EVAL_QUEUE_NAME}", "${TEAM_CONTEXT_INGEST_QUEUE_NAME}", ` +
-    `"${TASK_CONTEXT_INGEST_QUEUE_NAME}"`,
+    `"${SANDBOX_REAP_QUEUE_NAME}", "${REPO_MAP_WARM_QUEUE_NAME}", "${EVAL_QUEUE_NAME}", ` +
+    `"${TEAM_CONTEXT_INGEST_QUEUE_NAME}", "${TASK_CONTEXT_INGEST_QUEUE_NAME}"`,
 );

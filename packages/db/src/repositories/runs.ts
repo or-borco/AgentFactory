@@ -1,7 +1,12 @@
-import { and, desc, eq, isNotNull, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import type { ModelSpec, PromptSegment, Run, RunCommitRange, RunPrompt, RunStatus } from "@agentfactory/core";
 import { db } from "../client";
 import { runs } from "../schema";
+
+// Shared with listIdleSandboxSessions (repositories/sessions.ts) — a session is only safe to
+// tear down a sandbox for when none of its runs are in one of these statuses. Kept as one list
+// so the two queries can never drift apart on what "still in flight" means.
+export const NON_TERMINAL_RUN_STATUSES: RunStatus[] = ["queued", "provisioning", "running", "finalizing"];
 
 // Exactly the columns `toRun` reads — never `select()`. `getRun`/`getRunsForSession` sit on the
 // task page's ~1.5s status poll, and prompt_segments is an ~80 KB blob that `toRun` drops on the
@@ -42,6 +47,18 @@ function toRun(row: RunRow): Run {
     createdAt: row.createdAt.toISOString(),
     finishedAt: row.finishedAt ? row.finishedAt.toISOString() : undefined,
   };
+}
+
+// Safety check before a sandbox teardown (idle-reap, task-done, task-deleted — see
+// apps/worker's sandboxTeardownWorker): a session can have a warm sandbox and still be mid-run,
+// and destroying the container out from under a running turn would fail it outright.
+export async function hasNonTerminalRun(sessionId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ id: runs.id })
+    .from(runs)
+    .where(and(eq(runs.sessionId, sessionId), inArray(runs.status, NON_TERMINAL_RUN_STATUSES)))
+    .limit(1);
+  return row !== undefined;
 }
 
 export async function getRunsForSession(sessionId: number): Promise<Run[]> {

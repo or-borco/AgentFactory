@@ -3,6 +3,12 @@ import { Queue } from "bullmq";
 
 export const RUN_QUEUE_NAME = "runs";
 export const SANDBOX_TEARDOWN_QUEUE_NAME = "sandbox-teardown";
+// A single repeatable job ("sandbox-reap-scan", see apps/worker's sandboxReapWorker) fires on
+// this queue every SANDBOX_REAP_INTERVAL_MS and enqueues a SANDBOX_TEARDOWN_QUEUE_NAME job for
+// each session whose sandbox has sat idle past SANDBOX_IDLE_THRESHOLD_MS — the other two
+// teardown triggers (task done, task deleted) are event-driven and don't cover a session that's
+// simply abandoned mid-task.
+export const SANDBOX_REAP_QUEUE_NAME = "sandbox-reap";
 export const REPO_MAP_WARM_QUEUE_NAME = "repo-map-warm";
 export const EVAL_QUEUE_NAME = "evals";
 export const TEAM_CONTEXT_INGEST_QUEUE_NAME = "context-ingest";
