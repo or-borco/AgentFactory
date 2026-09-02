@@ -357,7 +357,9 @@ per-trusted-org host is honest and sufficient.
 
 ### Lifecycle
 
-- **One sandbox per active session**, kept warm with an idle timeout (~15 min), then torn down.
+- **One sandbox per active session**, kept warm with an idle timeout (2h, `SANDBOX_IDLE_THRESHOLD_MS`), then torn
+  down. A repeatable scan (`sandboxReapWorker`, every 15 min) finds sessions past that threshold; task-done and
+  task-deleted trigger teardown immediately instead of waiting on the scan.
 - Workspace = clone at `baseRef` → work on `agent/<session-id>` branch → push → PR. Resume re-clones the branch;
   disk is disposable.
 - Secrets injected as **short-lived, run-scoped tokens** (GitHub App installation tokens), never long-lived PATs.
