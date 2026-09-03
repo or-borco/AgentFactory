@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import { listConnections } from "@agentfactory/db";
 import type { RunCommitRange } from "@agentfactory/core";
 import type { SandboxProvider } from "./sandbox/types";
+import { TASK_DOCUMENT_EXCLUDE_PATTERN } from "./task-document-paths";
 
 const GITHUB_API = "https://api.github.com";
 
@@ -215,10 +216,26 @@ export async function cloneIntoSandbox(
   target: CloneTarget,
 ): Promise<void> {
   const script = `
+# Makes git blind to the directory task documents are materialised into (see
+# task-documents.ts). Load-bearing, not hygiene: pushChangesIfDirty runs \`git add -A\` and
+# decides whether there is anything to push from \`git status --porcelain\`, so without this an
+# attached document would be committed into the user's pull request, and merely attaching one
+# would make a run that changed nothing look dirty. .git/info/exclude is per-clone and never
+# committed — a .gitignore would itself show up in the diff.
+#
+# Idempotent and applied on the already-cloned path too, so a sandbox created before this
+# shipped picks it up on its session's next run rather than pushing a stray directory once.
+ensure_context_dir_excluded() {
+  [ -d /workspace/.git ] || return 0
+  mkdir -p /workspace/.git/info
+  grep -qxF '${TASK_DOCUMENT_EXCLUDE_PATTERN}' /workspace/.git/info/exclude 2>/dev/null && return 0
+  printf '%s\\n' '${TASK_DOCUMENT_EXCLUDE_PATTERN}' >> /workspace/.git/info/exclude
+}
+
 if [ -d /workspace/.git ]; then
   CURRENT_REMOTE=$(cd /workspace && git remote get-url origin 2>/dev/null)
   case "$CURRENT_REMOTE" in
-    *"github.com/$REPO_FULL_NAME.git") echo ALREADY_CLONED ;;
+    *"github.com/$REPO_FULL_NAME.git") ensure_context_dir_excluded; echo ALREADY_CLONED ;;
     *) echo REPO_MISMATCH ;;
   esac
 else
@@ -227,6 +244,7 @@ else
   cd /workspace 2>/dev/null && git checkout -b "$BRANCH_NAME"
   CHECKOUT_STATUS=$?
   cd /workspace 2>/dev/null && git remote set-url origin "https://github.com/$REPO_FULL_NAME.git"
+  ensure_context_dir_excluded
   if [ "$CLONE_STATUS" -eq 0 ] && [ "$CHECKOUT_STATUS" -eq 0 ]; then echo CLONE_OK; else echo CLONE_FAILED; fi
 fi`;
 

@@ -177,6 +177,47 @@ describe("cloneIntoSandbox", () => {
     );
   });
 
+  // The exclude is what stops task documents (task-documents.ts) being swept into the user's PR
+  // by pushChangesIfDirty's `git add -A`. Asserted on the script itself because there is no
+  // container here to run it in; that the pattern actually works is proved separately, against
+  // real git, in task-documents.test.ts.
+  it("teaches git to ignore the task-document directory on a fresh clone", async () => {
+    let captured: string[] = [];
+    const exec = (_id: string, cmd: string[]) => {
+      captured = cmd;
+      return (async function* (): AsyncGenerator<OutputChunk> {
+        yield { stream: "stdout", data: "CLONE_OK\n" };
+      })();
+    };
+    const sandbox = { ...fakeSandbox([]), exec } as unknown as SandboxProvider;
+
+    await cloneIntoSandbox(sandbox, "sandbox-1", target);
+
+    const script = captured[2];
+    expect(script).toContain(".git/info/exclude");
+    expect(script).toContain("/.agentfactory/");
+    expect(script).toContain("ensure_context_dir_excluded");
+  });
+
+  // A session's second run hits the ALREADY_CLONED path. A sandbox created before this shipped
+  // would otherwise never get the exclude and would push a stray directory exactly once.
+  it("applies the exclude on the already-cloned path too", async () => {
+    let captured: string[] = [];
+    const exec = (_id: string, cmd: string[]) => {
+      captured = cmd;
+      return (async function* (): AsyncGenerator<OutputChunk> {
+        yield { stream: "stdout", data: "ALREADY_CLONED\n" };
+      })();
+    };
+    const sandbox = { ...fakeSandbox([]), exec } as unknown as SandboxProvider;
+
+    await cloneIntoSandbox(sandbox, "sandbox-1", target);
+
+    const script = captured[2];
+    expect(script).toMatch(/ALREADY_CLONED/);
+    expect(script).toContain("ensure_context_dir_excluded; echo ALREADY_CLONED");
+  });
+
   it("throws when the clone fails", async () => {
     const sandbox = fakeSandbox([
       { stream: "stderr", data: "fatal: could not read Username\n" },

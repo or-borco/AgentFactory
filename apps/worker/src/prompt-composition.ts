@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PromptSegment } from "@agentfactory/core";
+import { TASK_DOCUMENT_DIR } from "./task-document-paths";
 
 // ARCHITECTURE.md §3: the platform, not the SDK, owns prompt assembly so team context and
 // (eventually) skills behave identically across runtimes. Deliberately short — this is not the
@@ -21,6 +22,10 @@ export interface SandboxEnvironment {
   // Whether the worker already resolved a linked GitHub issue and appended it to the user text —
   // the difference between "the issue is below" and "the issue could not be retrieved at all".
   hasIssueContext?: boolean;
+  // What materialiseTaskDocuments actually wrote into the checkout, and what did not fit. Stating
+  // both is the point: naming only the files present would let the agent read the directory as
+  // the complete set of what a human attached.
+  taskDocuments?: { written: string[]; omitted: string[] };
 }
 
 // Facts about the container the turn runs in, stated up front because the agent otherwise
@@ -66,6 +71,32 @@ export function formatEnvironmentForPrompt(env: SandboxEnvironment): string {
         "history (`git log`, `git tag`, `git show`) or stated in this prompt. Pull requests, issues, " +
         "and releases that are not present locally cannot be retrieved.",
     );
+
+    // Aimed squarely at the failure this exists to prevent: on run 27 the agent searched for an
+    // attached spec with `find / -iname "*retry-spec*"`, found nothing, and settled for the
+    // retrieval excerpts — 22% of a document the platform was holding in full the whole time.
+    // Any excerpts of these same documents also appear in the retrieved-context layer below, so
+    // the agent is told which is the complete copy rather than left to guess.
+    const written = env.taskDocuments?.written ?? [];
+    const omitted = env.taskDocuments?.omitted ?? [];
+    if (written.length > 0) {
+      lines.push(
+        `- The documents attached to this task are already in your checkout at ` +
+          `\`${env.workspacePath}/${TASK_DOCUMENT_DIR}\`: ${written
+            .map((path) => `\`${path}\``)
+            .join(", ")}. These are the complete files — read them directly rather than searching ` +
+          "for them, and prefer them over any excerpt of the same document quoted elsewhere in " +
+          "this prompt. They are untracked and excluded from git; leave them out of your commits.",
+      );
+    }
+    if (omitted.length > 0) {
+      lines.push(
+        `- Attached to this task but NOT available in your checkout: ${omitted
+          .map((title) => `"${title}"`)
+          .join(", ")}. Excerpts may still appear below, but the full text is not on disk — say so ` +
+          "if you need it rather than assuming the files you can see are everything.",
+      );
+    }
   }
 
   lines.push(
