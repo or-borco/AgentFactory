@@ -148,7 +148,11 @@ const runWorker = new Worker<RunJobData>(
         await cloneIntoSandbox(sandboxProvider, sandboxId, workspace);
         mark("clone");
         repoMap = await ensureRepoMap(sandboxProvider, sandboxId, agent.orgId, workspace.repoFullName);
-        mark(repoMap ? "repo map (cache hit)" : "repo map (miss - generation deferred)");
+        // The phase duration separates the two ways a map can arrive: a cache hit returns in
+        // single-digit ms, a poll that caught an in-flight warm takes seconds. A miss now costs
+        // up to CACHE_POLL_TIMEOUT_MS, which is why that shows up here rather than as a bare
+        // "deferred" — see ensureRepoMap's own log lines for which of the two happened.
+        mark(repoMap ? "repo map (available)" : "repo map (miss - generation deferred)");
         // Label and delimit before it hits composeSystemPrompt's raw concatenation — this text is
         // produced by an agent exploring an arbitrary repo with full tool access, so a poisoned
         // README/config file could otherwise get cached and re-presented as platform-authored
