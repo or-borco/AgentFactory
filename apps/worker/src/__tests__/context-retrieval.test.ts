@@ -66,8 +66,25 @@ describe("retrieval constants", () => {
   it("pins K, the similarity floor, and the byte budgets", () => {
     expect(RETRIEVAL_K).toBe(12);
     expect(SIMILARITY_FLOOR).toBe(0.6);
-    expect(RETRIEVAL_BUDGET_BYTES).toBe(8192);
-    expect(TASK_RESERVED_BUDGET_BYTES).toBe(2048);
+    expect(RETRIEVAL_BUDGET_BYTES).toBe(16384);
+    expect(TASK_RESERVED_BUDGET_BYTES).toBe(8192);
+  });
+
+  // The floor is taken OUT of the ceiling, not added alongside it — team chunks get whatever the
+  // task slice leaves behind. A floor at or above the ceiling would starve team retrieval to
+  // nothing on any task with documents, which is the failure mode that made these two constants
+  // impossible to reason about separately.
+  it("leaves team retrieval real room once the task slice is fully spent", () => {
+    expect(TASK_RESERVED_BUDGET_BYTES).toBeLessThan(RETRIEVAL_BUDGET_BYTES);
+    expect(RETRIEVAL_BUDGET_BYTES - TASK_RESERVED_BUDGET_BYTES).toBeGreaterThanOrEqual(8192);
+  });
+
+  // The pair of documents task T-070 actually needed: the attached spec (6,736 B chunked) and the
+  // engineering handbook its description named by name (~1,450 B). At the old 8 KB ceiling these
+  // did not both fit, before a single other team chunk was considered.
+  it("fits the two documents T-070 needed", () => {
+    expect(6736 + 1450).toBeLessThanOrEqual(RETRIEVAL_BUDGET_BYTES);
+    expect(6736).toBeLessThanOrEqual(TASK_RESERVED_BUDGET_BYTES);
   });
 });
 
@@ -85,6 +102,30 @@ describe("buildRetrievalQuery", () => {
 
   it("returns an empty string when there is nothing to search with", () => {
     expect(buildRetrievalQuery(undefined, "", "  \n ")).toBe("");
+  });
+});
+
+describe("selectWithinBudget — skipOversized", () => {
+  const chunk = (id: number, bytes: number) => ({ id, text: "x".repeat(bytes) });
+
+  // Run 27: 1,504 bytes kept of 2,048, and a 388-byte chunk that fit in the remaining 544 was
+  // dropped because the loop stopped at the first overflow.
+  it("keeps a later chunk that fits after skipping one that does not", () => {
+    const kept = selectWithinBudget([chunk(1, 400), chunk(2, 900), chunk(3, 80)], 500, true);
+    expect(kept.map((c) => c.id)).toEqual([1, 3]);
+  });
+
+  it("still stops at the first overflow by default, preserving the contiguous prefix", () => {
+    const kept = selectWithinBudget([chunk(1, 400), chunk(2, 900), chunk(3, 80)], 500);
+    expect(kept.map((c) => c.id)).toEqual([1]);
+  });
+
+  it("never exceeds the budget in either mode", () => {
+    for (const skip of [true, false]) {
+      const kept = selectWithinBudget([chunk(1, 400), chunk(2, 900), chunk(3, 80)], 500, skip);
+      const used = kept.reduce((sum, c) => sum + c.text.length, 0);
+      expect(used).toBeLessThanOrEqual(500);
+    }
   });
 });
 
@@ -312,6 +353,115 @@ describe("retrieveContext — team-only (unchanged behavior)", () => {
   });
 });
 
+// The change these tests exist for: similarity ranking should choose AMONG competing material,
+// not WITHIN one document a human attached. On run 27 it chose that document's Rollout, Non-goals
+// and Testing-tail sections over every normative one, because the task description's procedural
+// half embedded closer to them.
+describe("retrieveContext — task document ordering and coverage", () => {
+  // Builds a document as N chunks of `chunkBytes` each, scored so that document order and score
+  // order deliberately disagree: the LAST chunk scores highest, exactly as on run 27.
+  function document(itemId: number, itemTitle: string, chunks: number, chunkBytes: number) {
+    return Array.from({ length: chunks }, (_, i) =>
+      taskMatch({
+        id: itemId * 100 + i,
+        itemId,
+        itemTitle,
+        chunkIdx: i,
+        text: "x".repeat(chunkBytes),
+        score: 0.5 + i * 0.01,
+      }),
+    );
+  }
+
+  it("injects a document that fits whole in chunk_idx order, not score order", async () => {
+    const result = await retrieveContext({ taskId: 70 }, "add a retry layer", {
+      ...noopDeps(),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(1),
+      searchTaskContextChunks: vi.fn().mockResolvedValue(document(9, "spec.md", 5, 200)),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.retrievals.map((r) => r.chunkIdx)).toEqual([0, 1, 2, 3, 4]);
+    expect(result.retrievals.map((r) => r.rank)).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  // The T-070 regression, to scale: 9 chunks totalling 6,736 bytes. Under the old 2,048-byte
+  // reserved slice this delivered 3 chunks and 22.3% of the document.
+  it("injects all of a T-070-sized attached document", async () => {
+    const chunks = [749, 853, 975, 1143, 388, 1124, 561, 510, 433].map((bytes, i) =>
+      taskMatch({
+        id: i,
+        itemId: 9,
+        itemTitle: "transcriber-retry-spec.md",
+        chunkIdx: i,
+        text: "x".repeat(bytes),
+        // The real run's scores: the tail outranked every normative section.
+        score: i >= 6 ? 0.8 + i * 0.01 : 0.5,
+      }),
+    );
+
+    const result = await retrieveContext({ taskId: 70 }, "add a retry layer", {
+      ...noopDeps(),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(1),
+      searchTaskContextChunks: vi.fn().mockResolvedValue(chunks),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.retrievals).toHaveLength(9);
+    expect(result.retrievals.map((r) => r.chunkIdx)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+    // The normative sections — the retry policy and the error classifiers — are chunks 1 and 2,
+    // and both were excluded before this change.
+    expect(result.retrievals.some((r) => r.chunkIdx === 1)).toBe(true);
+    expect(result.retrievals.some((r) => r.chunkIdx === 2)).toBe(true);
+  });
+
+  it("gives the most relevant document first claim when two cannot both fit whole", async () => {
+    const lowScoring = document(1, "background.md", 10, 600);
+    const highScoring = document(2, "spec.md", 5, 600).map((m) => ({ ...m, score: m.score + 0.4 }));
+
+    const result = await retrieveContext({ taskId: 70 }, "add a retry layer", {
+      ...noopDeps(),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(2),
+      searchTaskContextChunks: vi.fn().mockResolvedValue([...lowScoring, ...highScoring]),
+      embedder: fakeEmbedder(),
+    });
+
+    // spec.md (3,000 B) fits whole and leads; background.md (6,000 B) does not fit in what is
+    // left, so its chunks fall through to the score-ranked path.
+    expect(result.retrievals.slice(0, 5).map((r) => r.itemTitle)).toEqual(Array(5).fill("spec.md"));
+    expect(result.retrievals.slice(0, 5).map((r) => r.chunkIdx)).toEqual([0, 1, 2, 3, 4]);
+  });
+
+  // A document too large to fit whole still gets ranked chunk-by-chunk, exactly as before.
+  it("falls back to score order within a document that cannot fit whole", async () => {
+    const result = await retrieveContext({ taskId: 70 }, "add a retry layer", {
+      ...noopDeps(),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(1),
+      searchTaskContextChunks: vi.fn().mockResolvedValue(document(9, "huge.md", 12, 1000)),
+      embedder: fakeEmbedder(),
+    });
+
+    const idxs = result.retrievals.map((r) => r.chunkIdx);
+    expect(idxs.length).toBeLessThan(12);
+    // Highest-scoring chunk is the last one, so score order puts it first.
+    expect(idxs[0]).toBe(11);
+  });
+
+  it("keeps rank contiguous from 1, which the eval judge counts against", async () => {
+    const result = await retrieveContext({ taskId: 70 }, "add a retry layer", {
+      ...noopDeps(),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(1),
+      searchTaskContextChunks: vi.fn().mockResolvedValue(document(9, "spec.md", 6, 300)),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.retrievals.map((r) => r.rank)).toEqual([1, 2, 3, 4, 5, 6]);
+    for (let i = 0; i < result.retrievals.length; i += 1) {
+      expect(result.text).toContain(`[Excerpt ${i}] `);
+    }
+  });
+});
+
 describe("retrieveContext — task-only", () => {
   it("keeps a task chunk scored well below the similarity floor, unlike a team chunk", async () => {
     const result = await retrieveContext({ taskId: 42 }, "anything", {
@@ -402,7 +552,7 @@ describe("retrieveContext — combined team + task", () => {
 
   it("rolls unused task budget over to team retrieval instead of wasting it", async () => {
     // The task has a single small document, using only a sliver of TASK_RESERVED_BUDGET_BYTES —
-    // the remaining ~8 KB (not just the ~6 KB team would get if the split were static) must still
+    // the remaining ~16 KB (not just the 8 KB team would get if the split were static) must still
     // be available to team chunks.
     const teamText = "x".repeat(RETRIEVAL_BUDGET_BYTES - 100);
     const result = await retrieveContext({ teamId: 7, taskId: 42 }, "anything", {
@@ -417,7 +567,7 @@ describe("retrieveContext — combined team + task", () => {
       embedder: fakeEmbedder(),
     });
 
-    // Would be dropped under a fixed ~6 KB team allotment (8192 - 2048 = 6144 < teamText's length)
+    // Would be dropped under a fixed 8 KB team allotment (16384 - 8192 = 8192 < teamText's length)
     // but survives because the task's unused reserved budget rolled over.
     expect(result.retrievals.map((r) => r.itemKind)).toEqual(["task", "team"]);
     expect(result.text).toContain(teamText);

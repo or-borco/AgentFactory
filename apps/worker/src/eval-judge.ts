@@ -33,9 +33,10 @@ export const MAX_ARTEFACT_CHARS = 120_000;
 // permanently ungradeable run, and anything a user actually typed as an instruction fits.
 export const MAX_REQUEST_CHARS = 8_000;
 
-// The retrieved layer is byte-budgeted at source (RETRIEVAL_BUDGET_BYTES = 8192 in
+// The retrieved layer is byte-budgeted at source (RETRIEVAL_BUDGET_BYTES = 16384 in
 // context-retrieval.ts), so this cap is a backstop against a budget change upstream rather than
-// a live constraint, and is set well above it.
+// a live constraint, and is set above it. Headroom is 2x rather than the 4x it was before the
+// ceiling moved — worth raising alongside any further increase to that budget.
 export const MAX_RETRIEVED_CHARS = 32_000;
 
 export const JUDGE_MAX_TOKENS = 8_192;

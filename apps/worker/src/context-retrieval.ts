@@ -22,16 +22,43 @@ export const RETRIEVAL_K = 12;
 // at 0.556, while every genuinely on-topic query's best-scoring chunk started at 0.642 or higher.
 // 0.6 sits in that gap.
 export const SIMILARITY_FLOOR = 0.6;
-// Small next to the 16 KB repo map. A run that still overflows is already handled by
-// PromptTooLongError → model escalation; no new budget mechanism is introduced.
-export const RETRIEVAL_BUDGET_BYTES = 8192;
+// The ceiling on retrieved bytes, and the number team retrieval is actually measured against:
+// team chunks get RETRIEVAL_BUDGET_BYTES minus whatever the task slice used (see retrieveContext),
+// not a fixed slice of their own. That coupling is why this had to move together with
+// TASK_RESERVED_BUDGET_BYTES below — raising the floor alone transfers room rather than creating
+// it, and would have starved team retrieval down to ~1.4 KB.
+//
+// 8192 was wrong by a clear margin, and task T-070 shows it without any argument about the task
+// slice: the two documents that task needed — the spec a human attached (6,736 B) and the
+// engineering handbook its description named by name (~1,450 B) — total ~8.2 KB. They did not
+// both fit in the entire retrieval budget, before a single other team chunk was considered.
+//
+// Headroom is not the constraint. Run 27's whole composed prompt was 10,679 characters, roughly
+// 2,700 tokens against Sonnet 5's 1M-token window — 0.27%. With every budget in the system full a
+// prompt reaches ~2%. These constants predate having anything real to size them against.
+//
+// 16 KB rather than 32 KB deliberately: it fixes the task side completely (22% of an attached
+// document delivered → 100%) while holding the team side near where it is today (9.4 KB against
+// 6.5 KB). A larger ceiling would have bought roughly four times more of a corpus that run 27
+// established was actively harmful for that task (or-borco/AgentFactory#138). Revisit the ceiling
+// once team retrieval selects sensibly — that is the version whose outcome is genuinely unknown,
+// and so the version worth measuring.
+export const RETRIEVAL_BUDGET_BYTES = 16384;
 // Reserved out of RETRIEVAL_BUDGET_BYTES exclusively for task-sourced chunks, which are exempt
-// from SIMILARITY_FLOOR (see retrieveContext below). An unmeasured starting default, like
-// RETRIEVAL_K and the original SIMILARITY_FLOOR before or-borco/AgentFactory#135 — revisit once
-// there is real usage to measure a task's document volume against. Too small and a task with
-// more than one or two substantial documents still loses material a human explicitly attached;
-// too large and team retrieval loses room it has today.
-export const TASK_RESERVED_BUDGET_BYTES = 2048;
+// from SIMILARITY_FLOOR (see retrieveContext below).
+//
+// The previous value (2048) was an explicitly unmeasured default whose own comment asked to
+// revisit it "once there is real usage to measure a task's document volume against", and
+// predicted the exact failure that arrived: "too small and a task with more than one or two
+// substantial documents still loses material a human explicitly attached". Task T-070 is that
+// usage, and the prediction was conservative — it took ONE document. A 5,635-byte markdown file
+// (6,736 B chunked) delivered 1,504 B: 22.3%, and every normative requirement in it was in the
+// 78% that did not arrive.
+//
+// 8192 fits that document whole with room for a second. Unlike the ceiling above, this side needs
+// no measurement to justify: a document a human explicitly attached going from 22% delivered to
+// 100% has no configuration in which it is worse.
+export const TASK_RESERVED_BUDGET_BYTES = 8192;
 
 // Mirrors the repo map's wrapper (worker.ts:140-147) for the same reason, more urgently: this
 // text came out of a file a user uploaded, which makes it the most directly attacker-controlled
@@ -68,16 +95,76 @@ export function buildRetrievalQuery(
 //
 // Generic over the match shape (rather than fixed to ContextChunkMatch) because retrieveContext
 // calls this for both team and task matches, which are structurally identical but distinct types.
-export function selectWithinBudget<T extends { text: string }>(matches: T[], budgetBytes: number): T[] {
+// `skipOversized` opts into `continue` instead. Task selection passes it; team selection does
+// not. On run 27 the kept set used 1,504 of its 2,048 reserved bytes and chunk 4 (388 B) fit in
+// the 544 that were left, but was dropped because the loop stopped at the first chunk that
+// overflowed. For material a human explicitly attached, coverage is worth more than an ordering
+// property nothing reads. The team path keeps the `break`, where the contiguous-prefix invariant
+// still earns its place.
+export function selectWithinBudget<T extends { text: string }>(
+  matches: T[],
+  budgetBytes: number,
+  skipOversized = false,
+): T[] {
   const encoder = new TextEncoder();
   const kept: T[] = [];
   let usedBytes = 0;
   for (const match of matches) {
     const size = encoder.encode(match.text).length;
-    if (usedBytes + size > budgetBytes) break;
+    if (usedBytes + size > budgetBytes) {
+      if (skipOversized) continue;
+      break;
+    }
     kept.push(match);
     usedBytes += size;
   }
+  return kept;
+}
+
+// Similarity ranking exists to choose AMONG competing material. It should not be arbitrating
+// WITHIN a single document a human attached — on run 27 it selected that document's tail
+// (Rollout, Non-goals, the end of Testing requirements) over every normative section, because the
+// task description's procedural half embedded closer to them.
+//
+// So: any attached document whose chunks fit whole in the remaining reserved budget is injected
+// entire, in the order it was written. Documents are considered in descending best-chunk score,
+// so the most relevant attachment gets first claim. Anything too large to fit whole falls through
+// to the score-ranked path, where ranking is doing the job it is actually good at.
+function selectTaskChunks<T extends { text: string; itemId: number; chunkIdx: number; score: number }>(
+  matches: T[],
+  budgetBytes: number,
+): T[] {
+  const encoder = new TextEncoder();
+  const byItem = new Map<number, T[]>();
+  for (const match of matches) {
+    const group = byItem.get(match.itemId);
+    if (group) group.push(match);
+    else byItem.set(match.itemId, [match]);
+  }
+
+  const documents = [...byItem.values()]
+    .map((chunks) => ({
+      chunks,
+      bytes: chunks.reduce((sum, c) => sum + encoder.encode(c.text).length, 0),
+      bestScore: Math.max(...chunks.map((c) => c.score)),
+    }))
+    .sort((a, b) => b.bestScore - a.bestScore);
+
+  const kept: T[] = [];
+  const leftovers: T[] = [];
+  let remaining = budgetBytes;
+  for (const doc of documents) {
+    if (doc.bytes <= remaining) {
+      kept.push(...[...doc.chunks].sort((a, b) => a.chunkIdx - b.chunkIdx));
+      remaining -= doc.bytes;
+    } else {
+      leftovers.push(...doc.chunks);
+    }
+  }
+
+  // Whatever is left of the slice still goes to the best-scoring individual chunks of the
+  // documents that could not fit whole — exactly the previous behaviour, now with `continue`.
+  kept.push(...selectWithinBudget([...leftovers].sort((a, b) => b.score - a.score), remaining, true));
   return kept;
 }
 
@@ -184,11 +271,9 @@ export async function retrieveContext(
     ]);
 
     // Task chunks: no SIMILARITY_FLOOR — attachment by a human is itself the relevance signal.
-    // Own score still orders which chunks of an oversized document win the reserved slice.
-    const keptTask = selectWithinBudget(
-      [...taskMatches].sort((a, b) => b.score - a.score),
-      TASK_RESERVED_BUDGET_BYTES,
-    );
+    // Whole documents that fit go in document order; score only decides between documents, and
+    // within one that is too large to fit whole. See selectTaskChunks.
+    const keptTask = selectTaskChunks(taskMatches, TASK_RESERVED_BUDGET_BYTES);
     // Team chunks: unchanged from the team-only pipeline — floor-filtered, then budget-selected,
     // now against whatever the task slice left behind. Unused reserved budget (a task with few or
     // no documents) rolls over to team retrieval rather than going unused.
