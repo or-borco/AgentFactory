@@ -1,0 +1,141 @@
+import type { TaskContextItem } from "@agentfactory/core";
+import { listTaskContextItemsForOrg } from "@agentfactory/db";
+import { createBlobStore, type BlobStore } from "@agentfactory/storage";
+import type { SandboxProvider } from "./sandbox/types";
+import { TASK_DOCUMENT_DIR } from "./task-document-paths";
+
+export { TASK_DOCUMENT_DIR, TASK_DOCUMENT_EXCLUDE_PATTERN } from "./task-document-paths";
+
+// Total across every document on the task, not per document — the upload route already caps a
+// single file at 2 MB (apps/web's tasks/[taskId]/context-items/route.ts:18). This bounds what a
+// task with many attachments can push through a tar into the container: 1 MB is ~150x the 6.7 KB
+// document that motivated this work, and still an order of magnitude under one maximal upload.
+export const TASK_DOCUMENTS_BUDGET_BYTES = 1024 * 1024;
+
+export interface MaterialisedTaskDocuments {
+  // Paths relative to /workspace, in the order they were written.
+  written: string[];
+  // Document titles that did not make it, so the prompt can say so rather than letting the agent
+  // read the directory as the complete set.
+  omitted: string[];
+}
+
+const EMPTY: MaterialisedTaskDocuments = { written: [], omitted: [] };
+
+// Narrow function types rather than typeof imports, so unit tests stub each seam with a plain
+// vi.fn() — same shape as RetrievalDeps (context-retrieval.ts:94-108).
+export interface TaskDocumentDeps {
+  listTaskContextItemsForOrg: (taskId: number, orgId: number) => Promise<TaskContextItem[]>;
+  blobStore: BlobStore;
+}
+
+// createBlobStore() reads env on every call, so it is resolved lazily and only when the caller
+// did not inject one — a test with a stub store never touches the real module.
+function resolveDeps(overrides?: Partial<TaskDocumentDeps>): TaskDocumentDeps {
+  return {
+    listTaskContextItemsForOrg,
+    blobStore: overrides?.blobStore ?? createBlobStore(),
+    ...overrides,
+  };
+}
+
+// `title` is whatever the uploader named the file, so it reaches here as untrusted text that is
+// about to become a path. Everything outside a conservative allowlist collapses to a dash, path
+// separators included, and a leading dot is stripped so a document cannot land as a hidden file
+// or climb out of the directory as "..".
+export function sanitiseDocumentName(title: string, fallbackId: number): string {
+  const base = title.split(/[\\/]/).pop() ?? "";
+  const cleaned = base
+    .replace(/[^A-Za-z0-9._-]/g, "-")
+    .replace(/^[.\-]+/, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 120);
+  return cleaned || `document-${fallbackId}`;
+}
+
+// Two uploads can legitimately share a filename — the items table is unique on (task_id, sha256),
+// not on title. Suffix before the extension so "spec.md" and "spec.md" become "spec.md" and
+// "spec-2.md" rather than a name git and the agent would both read as extensionless.
+function deduplicate(name: string, taken: Set<string>): string {
+  if (!taken.has(name)) return name;
+  const dot = name.lastIndexOf(".");
+  const stem = dot > 0 ? name.slice(0, dot) : name;
+  const ext = dot > 0 ? name.slice(dot) : "";
+  for (let n = 2; ; n += 1) {
+    const candidate = `${stem}-${n}${ext}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+}
+
+// Writes the task's indexed documents into the sandbox before the turn, so the agent can read the
+// whole of what a human attached instead of only the excerpts that won a similarity ranking.
+//
+// Never fails a run. Every path returns a result and logs its own error, exactly as ensureRepoMap
+// degrades to "" and retrieveContext degrades to an omitted segment — a document that cannot be
+// written leaves the run behaving as it did before this existed.
+export async function materialiseTaskDocuments(
+  sandboxProvider: SandboxProvider,
+  sandboxId: string,
+  taskId: number,
+  orgId: number,
+  deps?: Partial<TaskDocumentDeps>,
+): Promise<MaterialisedTaskDocuments> {
+  try {
+    const resolved = resolveDeps(deps);
+    const items = await resolved.listTaskContextItemsForOrg(taskId, orgId);
+    // Only indexed items. A document still ingesting has no guarantee its bytes are complete or
+    // its extraction succeeded, and a failed one has nothing worth handing over.
+    const indexed = items.filter((item) => item.status === "indexed");
+    if (indexed.length === 0) return EMPTY;
+
+    const files: Record<string, string> = {};
+    const written: string[] = [];
+    const omitted: string[] = [];
+    const taken = new Set<string>();
+    let usedBytes = 0;
+
+    for (const item of indexed) {
+      // `continue`, not `break`: one oversized attachment should not hide every smaller one
+      // behind it. Same reasoning as the task-side budget selection in context-retrieval.ts.
+      if (usedBytes + item.sizeBytes > TASK_DOCUMENTS_BUDGET_BYTES) {
+        omitted.push(item.title);
+        continue;
+      }
+      const bytes = await resolved.blobStore.get(orgId, item.sha256);
+      if (!bytes) {
+        console.error(`Task document ${item.id} (${item.title}) has no blob under ${item.sha256}`);
+        omitted.push(item.title);
+        continue;
+      }
+      const name = deduplicate(sanitiseDocumentName(item.title, item.id), taken);
+      taken.add(name);
+      // Uploads are constrained to text/markdown and text/plain by the upload route, so decoding
+      // as UTF-8 is safe here and writeFiles takes strings.
+      files[`${TASK_DOCUMENT_DIR}/${name}`] = new TextDecoder().decode(bytes);
+      written.push(`${TASK_DOCUMENT_DIR}/${name}`);
+      usedBytes += item.sizeBytes;
+    }
+
+    if (written.length === 0) return { written: [], omitted };
+
+    // Created explicitly rather than relying on the archive extraction to materialise parent
+    // directories for us — this is writeFiles' first production caller, and a missing directory
+    // would fail silently as "the agent didn't find the files".
+    await execToCompletion(sandboxProvider, sandboxId, ["mkdir", "-p", `/workspace/${TASK_DOCUMENT_DIR}`]);
+    await sandboxProvider.writeFiles(sandboxId, files);
+    return { written, omitted };
+  } catch (err) {
+    console.error(`Failed to materialise task documents for task ${taskId}:`, err);
+    return EMPTY;
+  }
+}
+
+async function execToCompletion(
+  sandboxProvider: SandboxProvider,
+  sandboxId: string,
+  cmd: string[],
+): Promise<void> {
+  for await (const _chunk of sandboxProvider.exec(sandboxId, cmd)) {
+    // Drained rather than collected: the caller only needs the command to have finished.
+  }
+}

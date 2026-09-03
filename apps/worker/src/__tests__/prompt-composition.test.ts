@@ -222,6 +222,62 @@ describe("formatEnvironmentForPrompt", () => {
     expect(result).not.toContain("branch");
   });
 
+  // Run 27's agent ran `find / -iname "*retry-spec*"` looking for a document the platform was
+  // holding in full, then settled for 22% of it via retrieval excerpts. These lines are what
+  // stop that turn happening again, so they assert content, not just presence.
+  it("names the attached documents and says they are complete", () => {
+    const result = formatEnvironmentForPrompt({
+      workspacePath: "/workspace",
+      taskDocuments: { written: [".agentfactory/context/spec.md"], omitted: [] },
+    });
+
+    expect(result).toContain("/workspace/.agentfactory/context");
+    expect(result).toContain("`.agentfactory/context/spec.md`");
+    expect(result).toContain("complete files");
+    expect(result).toContain("rather than searching");
+  });
+
+  it("tells the agent the files are untracked so they stay out of its commits", () => {
+    const result = formatEnvironmentForPrompt({
+      workspacePath: "/workspace",
+      taskDocuments: { written: [".agentfactory/context/spec.md"], omitted: [] },
+    });
+
+    expect(result).toContain("excluded from git");
+  });
+
+  it("names documents that did not fit, so the directory is not read as the whole set", () => {
+    const result = formatEnvironmentForPrompt({
+      workspacePath: "/workspace",
+      taskDocuments: { written: [".agentfactory/context/small.md"], omitted: ["huge.md"] },
+    });
+
+    expect(result).toContain('"huge.md"');
+    expect(result).toContain("not on disk");
+  });
+
+  it("says nothing about attached documents when the task has none", () => {
+    const noneWritten = formatEnvironmentForPrompt({ workspacePath: "/workspace" });
+    const emptyResult = formatEnvironmentForPrompt({
+      workspacePath: "/workspace",
+      taskDocuments: { written: [], omitted: [] },
+    });
+
+    for (const result of [noneWritten, emptyResult]) {
+      expect(result).not.toContain(".agentfactory");
+      expect(result).not.toContain("attached");
+    }
+  });
+
+  // No checkout means no /workspace to have written into, so claiming a path would be a lie.
+  it("never claims a document path for a session with no checkout", () => {
+    const result = formatEnvironmentForPrompt({
+      taskDocuments: { written: [".agentfactory/context/spec.md"], omitted: [] },
+    });
+
+    expect(result).not.toContain(".agentfactory");
+  });
+
   it("still ends with a separator so the next section cannot read as part of it", () => {
     expect(formatEnvironmentForPrompt({ workspacePath: "/workspace" })).toMatch(/\n\n---\n\n$/);
   });

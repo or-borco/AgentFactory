@@ -61,6 +61,7 @@ import {
 import { resolveEscalation } from "./model-escalation";
 import { ensureRepoMap, warmRepoMap } from "./repo-map";
 import { buildRetrievalQuery, retrieveContext, type RetrievedContext } from "./context-retrieval";
+import { materialiseTaskDocuments, type MaterialisedTaskDocuments } from "./task-documents";
 import { processEvalJob } from "./eval-runner";
 import { ingestTaskContextItem, ingestTeamContextItem } from "./context-ingest";
 
@@ -138,6 +139,7 @@ const runWorker = new Worker<RunJobData>(
       const task = await getTaskBySessionId(session.id);
       let workspace: CloneTarget | undefined;
       let repoMap = "";
+      let taskDocuments: MaterialisedTaskDocuments = { written: [], omitted: [] };
       if (task?.codebase) {
         workspace = await resolveCloneTarget(agent.orgId, task.codebase, `agent/session-${session.id}`);
         if (!workspace) {
@@ -147,6 +149,15 @@ const runWorker = new Worker<RunJobData>(
         }
         await cloneIntoSandbox(sandboxProvider, sandboxId, workspace);
         mark("clone");
+        // After the clone, because it writes into the checkout and depends on cloneIntoSandbox
+        // having added the directory to .git/info/exclude first. Fail-soft like ensureRepoMap
+        // below: a document that cannot be written leaves the run exactly as it was before.
+        taskDocuments = await materialiseTaskDocuments(sandboxProvider, sandboxId, task.id, agent.orgId);
+        mark(
+          taskDocuments.written.length > 0
+            ? `task documents (${taskDocuments.written.length} written)`
+            : "task documents (none)",
+        );
         repoMap = await ensureRepoMap(sandboxProvider, sandboxId, agent.orgId, workspace.repoFullName);
         mark(repoMap ? "repo map (cache hit)" : "repo map (miss - generation deferred)");
         // Label and delimit before it hits composeSystemPrompt's raw concatenation — this text is
@@ -223,6 +234,7 @@ const runWorker = new Worker<RunJobData>(
         workspacePath: workspace ? "/workspace" : undefined,
         branch: workspace?.branch,
         hasIssueContext: issueContext.length > 0,
+        taskDocuments,
       });
       // buildRetrievedContextSegment maps the three states a pair of booleans can describe. A
       // retrieval that threw is the fourth, and only retrieveContext knows about it, so its
