@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { getOrg, createOrg } from "../../repositories/orgs.js";
-import { getUserByEmail, getUserById, createUser } from "../../repositories/users.js";
+import { getUserByEmail, getUserById, createUser, updateUserPreferences } from "../../repositories/users.js";
 import { getPrimaryMembership, listOrgMembers } from "../../repositories/memberships.js";
 import { hashPassword } from "../../password.js";
 import { insertMembership, insertOrg, insertUser } from "../fixtures.js";
@@ -37,6 +37,42 @@ describe("users repository", () => {
     await expect(
       createUser({ email: "dup@example.com", name: "Second", passwordHash }),
     ).rejects.toThrow();
+  });
+
+  it("creates a user with empty preferences by default", async () => {
+    const user = await insertUser();
+    expect(user.preferences).toEqual({});
+  });
+});
+
+describe("updateUserPreferences", () => {
+  it("sets a preference on a user with none yet", async () => {
+    const user = await insertUser();
+
+    const updated = await updateUserPreferences(user.id, { theme: "dark" });
+
+    expect(updated.preferences).toEqual({ theme: "dark" });
+    await expect(getUserById(user.id)).resolves.toEqual(updated);
+  });
+
+  it("merges into existing preferences rather than overwriting other keys", async () => {
+    const user = await insertUser();
+    await updateUserPreferences(user.id, { theme: "dark" });
+
+    // Cast: UserPreferences only declares `theme` today, but the merge itself must not know or
+    // care about the key set — it should preserve any key already present in the jsonb blob.
+    const updated = await updateUserPreferences(user.id, { extra: "kept" } as never);
+
+    expect(updated.preferences).toEqual({ theme: "dark", extra: "kept" });
+  });
+
+  it("overwrites only the patched key, leaving others untouched", async () => {
+    const user = await insertUser();
+    await updateUserPreferences(user.id, { theme: "dark" });
+
+    const updated = await updateUserPreferences(user.id, { theme: "light" });
+
+    expect(updated.preferences).toEqual({ theme: "light" });
   });
 });
 
