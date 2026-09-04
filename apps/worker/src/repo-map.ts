@@ -7,15 +7,20 @@ const RESULT_MARKER = "__RESULT__";
 const MAX_CONTENT_LENGTH = 16384;
 // How long a cache miss waits for a warm job to land before giving up and running without a map.
 //
-// Generation is measured at 33-38s, so waiting alone would still lose the race. What makes 20
-// seconds enough is that the warm now starts when the task is created rather than when the run
-// misses (apps/web's POST /api/tasks) — on task T-070 that was a 17-second head start, and the
-// map was cached 54 seconds into the run. Head start plus poll closes that gap; either alone
-// does not.
+// This is a partial, best-effort mitigation, not a fix for the race it was originally written
+// for. Generation is measured at 33-38s even on an 884KB repo — about as small as they get — so
+// a run with no head start (created and started back-to-back) will not catch a fresh generation
+// inside this window. On task T-070 the 17-second head start from warming at task creation plus
+// this poll happened to land inside the 33-38s range, but that is a coincidence of that specific
+// gap, not a general guarantee.
 //
-// Bounded wall-clock against a run that took eight minutes, and the agent demonstrably spent
-// longer than 20 seconds orienting by hand without a map — at the cost of model tokens, which
-// waiting does not consume. The value here is a better-oriented agent, not a faster run.
+// The actual fix — an explicit wait-or-proceed choice surfaced at the moment a codebase is set,
+// so the user decides instead of a guessed constant — is tracked in
+// docs/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md. Once that ships for both
+// places a codebase can be set (task creation and the task edit page), this poll will be removed
+// in the same change, since there is no other path left for it to cover. Until then it stays as
+// a strictly-better-than-nothing chance of catching a warm that was already substantially
+// underway from an earlier trigger.
 export const CACHE_POLL_TIMEOUT_MS = 20_000;
 export const CACHE_POLL_INTERVAL_MS = 1_000;
 // Design spec's "its own short wall-clock cap (e.g. 2 minutes), independent of the triggering
