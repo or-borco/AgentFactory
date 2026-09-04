@@ -23,6 +23,7 @@ import type {
   RunCommitRange,
   RunEvalResult,
   ToolPolicy,
+  UserPreferences,
 } from "@agentfactory/core";
 
 // `generatedByDefaultAsIdentity` (not `generatedAlways`) so seed.ts can still assign explicit,
@@ -40,6 +41,10 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
+  // Per-user settings blob (theme today) — jsonb, not a dedicated column per setting, so more
+  // preferences can land later without another migration. See
+  // 2026-09-04-user-theme-preference-design.md.
+  preferences: jsonb("preferences").$type<UserPreferences>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

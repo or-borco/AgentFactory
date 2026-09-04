@@ -10,11 +10,20 @@ export interface Org {
   createdAt: ISODateTime;
 }
 
+// Per-user settings, stored as a single jsonb blob (packages/db/src/schema.ts users.preferences)
+// rather than a dedicated column per setting — see 2026-09-04-user-theme-preference-design.md.
+export type ThemePreference = "light" | "dark" | "system";
+
+export interface UserPreferences {
+  theme?: ThemePreference; // absent = "system"
+}
+
 export interface User {
   id: ID;
   email: string;
   name: string;
   avatarUrl?: string;
+  preferences?: UserPreferences;
 }
 
 export interface Membership {
