@@ -13,9 +13,9 @@ The deeper issue: today the system silently picks a tradeoff on the user's behal
 
 ## Goal
 
-When a user creates a task against a codebase with no cached repo map for its current commit, tell them so in plain terms and let them choose: wait for the map to finish generating before the task is created, or create it immediately without one. Make this an explicit, informed choice at task-creation time — not a hidden constant, and not a pause inserted into a running agent.
+When a user sets a codebase with no cached repo map for its current commit — whether creating a task or editing one before it's been run — tell them so in plain terms and let them choose: wait for the map to finish generating before the change is saved, or proceed immediately without one. Make this an explicit, informed choice at the moment the codebase is set — not a hidden constant, and not a pause inserted into a running agent.
 
-This is additive to PR #156, not a replacement. Everything PR #156 built stays exactly as merged and continues to be what protects every other path: "start now" tasks, tasks against already-cached repos, and any run that reaches `ensureRepoMap` for a repo this new UI never saw (e.g. a run started from an existing session, not a fresh task).
+This is additive to PR #156, not a replacement. Everything PR #156 built stays exactly as merged; see "What's left for PR #156's poll to cover" below for how its scope narrows once this ships.
 
 ## Ground truth this design relies on
 
@@ -26,18 +26,26 @@ This is additive to PR #156, not a replacement. Everything PR #156 built stays e
 - **`enqueueRepoMapWarmJob(orgId, repoFullName)`** (`packages/queue/src/index.ts`) needs no task to exist — it's already called this way from agent and team routes when their `defaultCodebase` is set.
 - **GitHub API access from `apps/web` already exists and follows an established duplication pattern.** `apps/web/src/server/github-app.ts` independently implements the same GitHub App JWT → installation-token flow as `apps/worker/src/scm-provider.ts`, with an explicit comment on the worker side explaining the duplication is deliberate ("apps/worker and apps/web are separate processes/packages with no shared-code path between them today, and this is ~20 lines"). `apps/web`'s own `/api/connections/github/repos` route already resolves an org's GitHub installation(s) via `listConnections` + `listInstallationRepos` to populate the task-creation codebase picker. Resolving a default-branch sha (mirroring the worker's `resolveDefaultBranchSha`, `scm-provider.ts:148-169`: `GET /repos/{full_name}` for `default_branch`, then `GET /repos/{full_name}/commits/{branch}` for `sha`) needs no new credential plumbing — just a small new function in `apps/web/src/server/github-app.ts` following the same pattern.
 - **The codebase field in the task-creation form is a `<select>` populated from connected repos** (`apps/web/src/app/(app)/tasks/new/page.tsx`), not a free-text or autocomplete field — a mapped-status check fires once per selection, not per keystroke.
+- **There is exactly one other place a task's codebase can be set: the task edit page** (`apps/web/src/app/(app)/tasks/[taskId]/edit/page.tsx`), which `PATCH`es `/api/tasks/[taskId]`. It's only reachable before a task has a session (`useEffect` at the top of that file redirects to the read-only detail page once `task.sessionId` is set) — i.e. only before the task has ever been run. Its codebase field is the same `<select>`-over-connected-repos shape as the creation form.
+- **No external/programmatic way to create or update a task exists today.** Both `POST /api/tasks` and `PATCH /api/tasks/[taskId]` authenticate purely via the browser session cookie (`requireAuthContext` → `apps/web/src/server/auth.ts`), with no API-key or token path. `ARCHITECTURE.md` explicitly defers a public API (`apps/api`) "until there's a real caller," and the `Trigger` domain type (github/slack/jira/monday/cron sources) has no backing table or wired-up code anywhere. Confirmed by searching the whole repo for other callers of these two routes: none exist besides the creation form and the edit page. This means covering those two UI surfaces covers 100% of today's task-creation/update paths, not "most" of them.
 
 ## Scope
 
 - `apps/web/src/server/github-app.ts` — add a `findInstallationForRepo(orgId, repoFullName)` helper (mirroring the module-private one in `apps/worker/src/scm-provider.ts`, not currently exported so not reusable as-is) and `resolveDefaultBranchSha(orgId, repoFullName)` built on it, mirroring the worker's two-call GitHub API sequence.
 - New route, `GET /api/repos/map-status?codebase=owner/repo` — resolves the sha via the function above, checks `getRepoMap(orgId, repoFullName, sha)`, returns `{ mapped: boolean }`. Fails open (see Design decisions) rather than surfacing an error to the caller.
 - Same route (or a sibling action) accepts triggering the warm job — the frontend needs a way to call `enqueueRepoMapWarmJob(orgId, repoFullName)` before a task exists. Exact shape (a second query param / method on the same route vs. a separate endpoint) is an implementation-planning decision, not fixed here.
-- `apps/web/src/app/(app)/tasks/new/page.tsx` — on codebase selection, call the map-status check; render the inline banner on a miss (see Mechanism); "Wait" triggers the warm job and polls map-status; escape hatch and "start now" both fall through to the existing, unchanged submit path.
+- `apps/web/src/app/(app)/tasks/new/page.tsx` **and** `apps/web/src/app/(app)/tasks/[taskId]/edit/page.tsx` — on codebase selection, call the map-status check; render the inline banner on a miss (see Mechanism); "Wait" triggers the warm job and polls map-status; escape hatch and "start now" both fall through to the existing, unchanged submit path (`POST /api/tasks` on the creation form, `PATCH /api/tasks/[taskId]` on the edit page — the banner/wait/escape-hatch behavior is identical, only which request it eventually fires differs).
 - Tests for the new `resolveDefaultBranchSha` function and the new route, following the mocking convention already used in `apps/web/src/app/api/tasks/__tests__/route.test.ts` (added by PR #156).
+
+## What's left for PR #156's poll to cover
+
+Once both UI surfaces above carry the wait-choice banner, there is **no known remaining case** the poll uniquely protects — every path that can set a task's codebase today is one of these two forms (confirmed above: no external API, no other caller of either route). This is a meaningful correction from this design's earlier draft, which assumed "tasks created via the API" as a real case justifying keeping the poll as a placeholder; that case doesn't exist in this codebase.
+
+This leaves an open call for whoever finalizes this design: drop `ensureRepoMap`'s poll from PR #156 entirely (nothing left to place-hold for), or keep it anyway as defense-in-depth against a future caller (e.g. if `apps/api` or a `Trigger` integration ever ships and bypasses both forms). Either way, PR #156's description and the `CACHE_POLL_TIMEOUT_MS` comment should stop claiming the poll "closes the gap" for an immediate run — that claim doesn't hold once you account for how little of the 33-38s generation window a fresh, un-headstarted poll can cover.
 
 ## Out of scope
 
-- **Any change to `Task`'s domain type, the DB schema, `TaskStatus`/`RunStatus`, `POST /api/tasks`, `POST /api/tasks/[taskId]/run`, the worker, or `ensureRepoMap`'s existing poll.** All of PR #156 stays exactly as merged; this design adds a new decision point before task creation, nothing more.
+- **Any change to `Task`'s domain type, the DB schema, `TaskStatus`/`RunStatus`, `POST /api/tasks`, `POST /api/tasks/[taskId]/run`, or the worker.** All of PR #156 stays exactly as merged apart from the poll's fate (see above) and its own description/comments being corrected.
 - **A configurable poll/wait timeout.** Considered and rejected — see Design decisions.
 - **Blocking a run mid-execution, or any new "waiting" status on `Task` or `Run`.** Considered and rejected — see Design decisions.
 - **New end-to-end test coverage.** PR #156 already documented the e2e suite as flaky in this environment for unrelated reasons; whether a new spec is worth adding is an implementation-planning decision, not committed to here.
@@ -46,14 +54,14 @@ This is additive to PR #156, not a replacement. Everything PR #156 built stays e
 
 ## Design decisions
 
-- **The choice happens before the task exists, not mid-run and not by gating the "Run" button.** Three mechanisms were considered:
-  1. Block the `POST /api/tasks` request itself until the map is ready — rejected: ties up an HTTP request for 30+ seconds, and no other part of this system works that way (both the run pipeline and the existing warm job are queue-based/async).
-  2. Create the task immediately, but gate the "Run" button/action on a stored per-task flag until the map lands — rejected: needs a new `Task` field, a new "waiting" concept with no existing `TaskStatus` value to represent it, and a task left sitting in a state that means nothing if the user simply never returns to click Run.
-  3. **(Chosen)** Delay creating the task at all. The warm job only needs an org and a repo name, not a task, so it can be triggered from the creation form directly. The frontend polls a small status check and only calls `POST /api/tasks` once the map is ready, or once the user hits the escape hatch. If the user abandons the wait (closes the tab), nothing was ever created — no orphaned state, no cleanup, no schema change.
+- **The choice happens before the codebase is actually saved, not mid-run and not by gating the "Run" button.** Three mechanisms were considered:
+  1. Block the `POST`/`PATCH` request itself until the map is ready — rejected: ties up an HTTP request for 30+ seconds, and no other part of this system works that way (both the run pipeline and the existing warm job are queue-based/async).
+  2. Save immediately, but gate the "Run" button/action on a stored per-task flag until the map lands — rejected: needs a new `Task` field, a new "waiting" concept with no existing `TaskStatus` value to represent it, and (on the creation form specifically) a task left sitting in a state that means nothing if the user simply never returns to click Run.
+  3. **(Chosen)** Delay the submit itself. The warm job only needs an org and a repo name, not a task, so it can be triggered directly from either form. The frontend polls a small status check and only fires the form's normal submit — `POST /api/tasks` on the creation form, `PATCH /api/tasks/[taskId]` on the edit page — once the map is ready, or once the user hits the escape hatch. On the creation form, abandoning the wait (closing the tab) leaves nothing behind — no task was ever created. On the edit page, the task already exists regardless; abandoning the wait just means the codebase field's edit was never saved, same as navigating away from any unsaved form.
 - **The choice is binary — wait or start now — with no configurable timeout.** A numeric knob (see the review comment on PR #156) just relocates the same problem: PR #156's own `CACHE_POLL_TIMEOUT_MS = 20_000` was already "a judgement call, not a measurement" from one data point, and a bigger constant is still a guess about how long every future repo will take to map. Making the number user-facing doesn't fix that it's a guess; it just asks the user to guess instead. Letting the user directly choose "wait until it's actually done" or "don't wait at all" sidesteps needing the number to be right.
 - **No automatic timeout while waiting — the escape hatch is the only way out.** If generation is simply slow, this matches the "no configured number" reasoning above. If generation has failed outright (see Error handling), that's a distinct case: the UI detects it explicitly and offers the same fallback proactively, rather than making the user wait for a guessed cutoff.
 - **Inline banner, not a modal dialog.** Chosen after comparing both directly as mockups: the banner keeps the rest of the form visible and fillable, where a modal interrupts and blocks it. Both convey the same information; the banner is less disruptive for a decision that isn't urgent.
-- **No new idempotency work for triggering the warm job twice.** Choosing "wait" triggers `enqueueRepoMapWarmJob` before the task exists; if the task is then created, `POST /api/tasks`'s existing PR #156 logic triggers it again. This is safe as-is: `warmRepoMap` already checks the cache before provisioning a sandbox (`apps/worker/src/repo-map.ts:144`), so the second call is a cheap no-op, not a duplicated generation cost.
+- **No new idempotency work for triggering the warm job twice.** Choosing "wait" triggers `enqueueRepoMapWarmJob` before the form submits; the eventual `POST /api/tasks` or `PATCH /api/tasks/[taskId]` call then triggers it again via their own existing (PR #156 and pre-existing, respectively) logic. This is safe as-is: `warmRepoMap` already checks the cache before provisioning a sandbox (`apps/worker/src/repo-map.ts:144`), so the second call is a cheap no-op, not a duplicated generation cost.
 - **Every new piece fails open.** If the map-status check can't run at all (no GitHub connection, GitHub API error), skip the banner entirely and let task creation proceed exactly as it does today — this feature must never become a new way for task creation to break. This mirrors the failure posture already established throughout `apps/worker/src/repo-map.ts` ("never throws... the run proceeds exactly as it did before this feature existed").
 
 ## Mechanism
@@ -112,13 +120,13 @@ export async function GET(request: Request) {
 
 Triggering the warm job (needed only for the "Wait" choice) reuses the same authenticated org context; exact request shape (e.g. `POST` to the same route) is left to implementation planning.
 
-### Task-creation form flow
+### Form flow (creation form and edit page, identical apart from the final request)
 
 1. On codebase selection change, call `GET /api/repos/map-status?codebase=...`. If `mapped: true` or `checkable: false`, no banner — form behaves exactly as today.
-2. If `mapped: false` and `checkable: true`, show the inline banner (see mockup) with "Wait for the map, then create task" / "Start now without it".
-3. **Start now** → submit via the existing, unchanged `POST /api/tasks` flow.
+2. If `mapped: false` and `checkable: true`, show the inline banner (see mockup) with "Wait for the map, then create/save task" / "Start now without it" (copy adjusts slightly on the edit page — "save" rather than "create").
+3. **Start now** → submit via the existing, unchanged flow (`POST /api/tasks` on creation, `PATCH /api/tasks/[taskId]` on edit).
 4. **Wait** → trigger the warm job, show the waiting state (spinner, explanatory copy, escape hatch — see mockup), poll `map-status` every ~2–3s.
-   - Poll returns `mapped: true` → auto-submit via the existing `POST /api/tasks` flow.
+   - Poll returns `mapped: true` → auto-submit via the same unchanged flow as "Start now."
    - User clicks the escape hatch → same as "Start now."
    - Warm-job trigger fails synchronously, or polling fails repeatedly → show a short explanatory message and fall through to "Start now" automatically (see Error handling), rather than leaving the user to find the escape hatch themselves.
 
@@ -126,7 +134,7 @@ Triggering the warm job (needed only for the "Wait" choice) reuses the same auth
 
 Two states, approved via mockup during design:
 
-- **Decision banner** (inline, appears below the codebase field, rest of form stays visible/fillable): explains the tradeoff in one or two sentences, offers "Wait for the map, then create task" and "Start now without it".
+- **Decision banner** (inline, appears below the codebase field, rest of form stays visible/fillable): explains the tradeoff in one or two sentences, offers "Wait for the map, then create/save task" and "Start now without it".
 - **Waiting state** (same location, form disabled underneath): spinner, "Preparing repo context…" with a rough time expectation, progress indicator, and "Never mind, start without it" always visible.
 
 ## Error handling
@@ -137,12 +145,12 @@ Two states, approved via mockup during design:
 | Triggering the warm job fails synchronously (queue down) | Show a brief message ("couldn't start mapping — continuing without it") and fall through to "Start now" automatically. |
 | Polling fails repeatedly while waiting | Stop polling, show the same fallback message, fall through to "Start now" automatically. |
 | Generation never finishes (crash, unusually large repo) | No automatic timeout — the escape hatch is the only way out, by design (see Design decisions). |
-| User closes the tab while waiting | No cleanup needed — the task was never created. |
+| User closes the tab while waiting | No cleanup needed either way: on the creation form, no task was ever created; on the edit page, the task already existed and simply keeps its prior codebase (or lack of one) — same as abandoning any unsaved edit. |
 
 ## Testing
 
 - `resolveDefaultBranchSha` (apps/web): installation not found → `undefined`; GitHub repo lookup fails → `undefined`; commit lookup fails → `undefined`; happy path returns the resolved sha.
 - `GET /api/repos/map-status`: unauthorized → 401; missing `codebase` → 400; cache hit → `{ mapped: true }`; cache miss → `{ mapped: false, checkable: true }`; sha resolution failure → `{ mapped: false, checkable: false }`.
 - `warmRepoMap`'s existing cache-check-before-sandbox behavior already has coverage from PR #156 — no new test needed; implementation should confirm (not assume) that calling it twice in quick succession for the same repo+sha only provisions a sandbox once.
-- Frontend interaction tests (banner appears on miss, polling stops on hit, escape hatch works) — approach to be determined during implementation planning.
+- Frontend interaction tests (banner appears on miss, polling stops on hit, escape hatch works, and — since the flow is shared — that the edit page's version fires `PATCH` rather than `POST` on submit) — approach to be determined during implementation planning.
 - No new end-to-end spec committed to in this design (see Out of scope).
