@@ -16,3 +16,6 @@ coverage/
 .worktrees/
 .blobs/
 .models/
+
+# Superpowers brainstorming companion (local, ephemeral)
+.superpowers/
