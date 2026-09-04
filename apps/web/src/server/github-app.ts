@@ -1,3 +1,4 @@
+import { listConnections } from "@agentfactory/db";
 import jwt from "jsonwebtoken";
 
 const GITHUB_API = "https://api.github.com";
@@ -91,4 +92,42 @@ export function dedupeRepos(lists: InstallationRepo[][]): InstallationRepo[] {
     seen.add(repo.id);
     return true;
   });
+}
+
+// Finds which of the org's GitHub connections has an installation that can see repoFullName.
+// Mirrors apps/worker/src/scm-provider.ts's function of the same name — deliberately duplicated,
+// not imported, matching this file's existing precedent (see signAppJwt above).
+export async function findInstallationForRepo(orgId: number, repoFullName: string): Promise<number | undefined> {
+  const githubConnections = (await listConnections(orgId)).filter((c) => c.provider === "github");
+  for (const connection of githubConnections) {
+    const installationId = connection.config.installationId;
+    if (typeof installationId !== "number") continue;
+    const repos = await listInstallationRepos(installationId).catch(() => []);
+    if (repos.some((repo) => repo.fullName === repoFullName)) return installationId;
+  }
+  return undefined;
+}
+
+// Resolves a repo's default branch HEAD sha via the GitHub API alone, no sandbox and no clone —
+// used by the map-status route to answer "is this repo mapped?" from apps/web directly. Mirrors
+// apps/worker/src/scm-provider.ts's resolveDefaultBranchSha; failures return undefined here
+// rather than throwing, since every caller in this feature treats "can't tell" the same as
+// "not mapped, but skip the prompt" (see the map-status route).
+export async function resolveDefaultBranchSha(orgId: number, repoFullName: string): Promise<string | undefined> {
+  const installationId = await findInstallationForRepo(orgId, repoFullName);
+  if (installationId === undefined) return undefined;
+
+  const { token } = await getInstallationToken(installationId);
+  const repoRes = await fetch(`${GITHUB_API}/repos/${repoFullName}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+  });
+  if (!repoRes.ok) return undefined;
+  const { default_branch: branch } = (await repoRes.json()) as { default_branch: string };
+
+  const commitRes = await fetch(`${GITHUB_API}/repos/${repoFullName}/commits/${branch}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+  });
+  if (!commitRes.ok) return undefined;
+  const { sha } = (await commitRes.json()) as { sha: string };
+  return sha;
 }
