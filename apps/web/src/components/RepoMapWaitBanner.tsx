@@ -1,11 +1,43 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Button } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import type { RepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
+import type { TranslationKey } from "@/lib/i18n/paths";
 
 interface RepoMapWaitBannerProps {
   gate: RepoMapWaitGate;
+}
+
+// Perceived-progress only — the backend exposes no real per-stage signal (see
+// docs/superpowers/specs/2026-09-05-repo-map-wait-progress-design.md). These boundaries are a
+// rough approximation weighted toward the real proportions (provisioning+clone is quick,
+// generation dominates at 33-38s), not a claim of accurate telemetry.
+function progressLabelKey(elapsedSeconds: number): TranslationKey {
+  if (elapsedSeconds < 5) return "tasks.repoMapWait.progressSettingUp";
+  if (elapsedSeconds < 30) return "tasks.repoMapWait.progressGenerating";
+  return "tasks.repoMapWait.progressTakingLonger";
+}
+
+function useElapsedWhileWaiting(waiting: boolean): number {
+  const [elapsed, setElapsed] = useState(0);
+  // Reset the ticker synchronously during render on the transition into or out of "waiting" —
+  // React's own recommended alternative to setState-in-effect for this exact case, see the same
+  // pattern in apps/web/src/app/(app)/tasks/[taskId]/edit/page.tsx.
+  const [wasWaiting, setWasWaiting] = useState(waiting);
+  if (waiting !== wasWaiting) {
+    setWasWaiting(waiting);
+    setElapsed(0);
+  }
+
+  useEffect(() => {
+    if (!waiting) return;
+    const interval = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [waiting]);
+
+  return elapsed;
 }
 
 // Renders the two states from docs/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md's
@@ -13,6 +45,7 @@ interface RepoMapWaitBannerProps {
 // both the task-creation and task-edit forms.
 export function RepoMapWaitBanner({ gate }: RepoMapWaitBannerProps) {
   const { t } = useTranslation();
+  const elapsed = useElapsedWhileWaiting(gate.state === "waiting");
 
   if (gate.state === "hidden" || gate.state === "checking") return null;
 
@@ -41,9 +74,30 @@ export function RepoMapWaitBanner({ gate }: RepoMapWaitBannerProps) {
           ? t(`tasks.repoMapWait.${gate.fallbackMessage === "enqueue-failed" ? "enqueueFailed" : "pollFailed"}`)
           : t("tasks.repoMapWait.waitingBody")}
       </p>
+      {!gate.fallbackMessage && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <span
+            style={{
+              flexShrink: 0,
+              width: 14,
+              height: 14,
+              borderRadius: "50%",
+              border: "1.5px solid var(--color-accent)",
+              borderTopColor: "transparent",
+              animation: "repoMapWaitSpin 0.8s linear infinite",
+            }}
+          />
+          <span style={{ fontSize: 12, color: "var(--color-neutral-500)" }}>{t(progressLabelKey(elapsed))}</span>
+        </div>
+      )}
       <Button type="button" variant="secondary" onClick={gate.startNow}>
         {t("tasks.repoMapWait.escapeHatch")}
       </Button>
+      <style>{`
+        @keyframes repoMapWaitSpin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }

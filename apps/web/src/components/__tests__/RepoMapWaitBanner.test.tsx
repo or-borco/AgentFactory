@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { I18nProvider } from "../../lib/i18n/context";
 import { RepoMapWaitBanner } from "../RepoMapWaitBanner";
 import type { RepoMapWaitGate } from "../../lib/use-repo-map-wait-gate";
@@ -73,5 +73,70 @@ describe("RepoMapWaitBanner", () => {
     renderBanner(gate({ state: "waiting", startNow }));
     fireEvent.click(screen.getByText("Never mind, start without it"));
     expect(startNow).toHaveBeenCalledOnce();
+  });
+
+  describe("progress indicator", () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("shows the setting-up phase immediately on entering waiting", () => {
+      renderBanner(gate({ state: "waiting" }));
+      expect(screen.getByText("Setting up…")).toBeInTheDocument();
+    });
+
+    it("transitions to the generating phase after 5s", () => {
+      renderBanner(gate({ state: "waiting" }));
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(screen.getByText("Generating the map…")).toBeInTheDocument();
+    });
+
+    it("transitions to the taking-longer phase after 30s and stays there", () => {
+      renderBanner(gate({ state: "waiting" }));
+      act(() => {
+        vi.advanceTimersByTime(30000);
+      });
+      expect(screen.getByText("Still working — this one's taking a bit longer…")).toBeInTheDocument();
+
+      act(() => {
+        vi.advanceTimersByTime(30000);
+      });
+      expect(screen.getByText("Still working — this one's taking a bit longer…")).toBeInTheDocument();
+    });
+
+    it("does not show the progress indicator when a fallback message is set", () => {
+      renderBanner(gate({ state: "waiting", fallbackMessage: "poll-failed" }));
+      expect(screen.queryByText("Setting up…")).not.toBeInTheDocument();
+    });
+
+    it("resets to the setting-up phase when re-entering waiting after leaving it", () => {
+      const { rerender } = render(
+        <I18nProvider>
+          <RepoMapWaitBanner gate={gate({ state: "waiting" })} />
+        </I18nProvider>,
+      );
+      act(() => {
+        vi.advanceTimersByTime(30000);
+      });
+      expect(screen.getByText("Still working — this one's taking a bit longer…")).toBeInTheDocument();
+
+      rerender(
+        <I18nProvider>
+          <RepoMapWaitBanner gate={gate({ state: "hidden" })} />
+        </I18nProvider>,
+      );
+      rerender(
+        <I18nProvider>
+          <RepoMapWaitBanner gate={gate({ state: "waiting" })} />
+        </I18nProvider>,
+      );
+      expect(screen.getByText("Setting up…")).toBeInTheDocument();
+    });
   });
 });

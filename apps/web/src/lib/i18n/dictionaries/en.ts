@@ -240,6 +240,9 @@ const en = {
       escapeHatch: "Never mind, start without it",
       enqueueFailed: "Couldn't start mapping — continuing without it.",
       pollFailed: "Couldn't check on the map — continuing without it.",
+      progressSettingUp: "Setting up…",
+      progressGenerating: "Generating the map…",
+      progressTakingLonger: "Still working — this one's taking a bit longer…",
     },
   },
   activity: {
