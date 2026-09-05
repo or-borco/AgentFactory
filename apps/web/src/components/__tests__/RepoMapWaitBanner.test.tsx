@@ -7,7 +7,14 @@ import { RepoMapWaitBanner } from "../RepoMapWaitBanner";
 import type { RepoMapWaitGate } from "../../lib/use-repo-map-wait-gate";
 
 function gate(overrides: Partial<RepoMapWaitGate>): RepoMapWaitGate {
-  return { state: "hidden", fallbackMessage: null, startWaiting: vi.fn(), startNow: vi.fn(), ...overrides };
+  return {
+    state: "hidden",
+    fallbackMessage: null,
+    requestSubmit: vi.fn(),
+    startWaiting: vi.fn(),
+    startNow: vi.fn(),
+    ...overrides,
+  };
 }
 
 function renderBanner(g: RepoMapWaitGate, submitVerb: "create" | "save" = "create") {

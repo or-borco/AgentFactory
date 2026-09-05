@@ -77,9 +77,6 @@ export default function NewTaskPage() {
     defaultCodebase && repos.some((repo) => repo.fullName === defaultCodebase) ? defaultCodebase : "";
   const codebase = codebaseOverride ?? preselectedCodebase;
 
-  const gate = useRepoMapWaitGate(codebase, () => void doSubmit());
-  const gateBlocking = gate.state === "prompt" || gate.state === "waiting";
-
   function handleAssigneeChange(nextId: number | undefined) {
     setAssigneeAgentId(nextId);
     const nextAgent = agents.find((a) => a.id === nextId);
@@ -167,10 +164,19 @@ export default function NewTaskPage() {
     }
   }
 
+  // Declared after doSubmit so the callback below doesn't reference it before its declaration
+  // (which this project's react-hooks/immutability lint rule rejects).
+  const gate = useRepoMapWaitGate(codebase, () => void doSubmit());
+  const gateBlocking = gate.state === "checking" || gate.state === "prompt" || gate.state === "waiting";
+
+  // The repo-map check runs on the submit *attempt*, after this form's own validation — the gate
+  // then calls doSubmit() via onProceed, either immediately or once the user has made their
+  // wait/start-now choice. doSubmit is never called directly from here.
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!title.trim()) return;
     if (gateBlocking) return;
-    void doSubmit();
+    gate.requestSubmit();
   }
 
   return (

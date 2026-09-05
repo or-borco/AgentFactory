@@ -90,16 +90,19 @@ export default function EditTaskPage() {
   }
 
   const gate = useRepoMapWaitGate(codebase, () => void doSubmit());
-  const gateBlocking = gate.state === "prompt" || gate.state === "waiting";
+  const gateBlocking = gate.state === "checking" || gate.state === "prompt" || gate.state === "waiting";
 
   if (!task) {
     return <div style={{ padding: "40px", color: "var(--color-neutral-500)" }}>Task not found.</div>;
   }
 
+  // The repo-map check runs on the submit *attempt* — the gate calls doSubmit() via onProceed,
+  // either immediately or once the user has made their wait/start-now choice. Opening this page
+  // with an unmapped repo selected must not put a banner up before the user asks to save.
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (gateBlocking) return;
-    void doSubmit();
+    gate.requestSubmit();
   }
 
   return (

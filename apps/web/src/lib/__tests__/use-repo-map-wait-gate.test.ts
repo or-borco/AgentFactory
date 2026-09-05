@@ -28,50 +28,83 @@ async function flush() {
   });
 }
 
-it("stays hidden when there is no codebase", () => {
-  const { result } = renderHook(() => useRepoMapWaitGate("", vi.fn()));
-  expect(result.current.state).toBe("hidden");
-  expect(apiFetchMock).not.toHaveBeenCalled();
-});
+async function advance(ms: number) {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(ms);
+  });
+}
 
-it("goes hidden after a checkable, mapped result", async () => {
-  apiFetchMock.mockResolvedValue({ mapped: true, checkable: true });
-  const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", vi.fn()));
-  expect(result.current.state).toBe("checking");
-  await flush();
-  expect(result.current.state).toBe("hidden");
-  expect(apiFetchMock).toHaveBeenCalledWith("/api/repos/map-status?codebase=acme%2Fwidgets");
-});
+describe("requestSubmit", () => {
+  it("stays hidden and never checks until a submit is attempted", async () => {
+    apiFetchMock.mockResolvedValue({ mapped: false, checkable: true });
+    const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", vi.fn()));
+    await flush();
+    expect(result.current.state).toBe("hidden");
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
 
-it("goes hidden when the initial check isn't checkable", async () => {
-  apiFetchMock.mockResolvedValue({ mapped: false, checkable: false });
-  const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", vi.fn()));
-  await flush();
-  expect(result.current.state).toBe("hidden");
-});
+  it("proceeds immediately with no codebase, without fetching", () => {
+    const onProceed = vi.fn();
+    const { result } = renderHook(() => useRepoMapWaitGate("", onProceed));
+    act(() => result.current.requestSubmit());
+    expect(onProceed).toHaveBeenCalledOnce();
+    expect(result.current.state).toBe("hidden");
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
 
-it("goes hidden when the initial check throws", async () => {
-  apiFetchMock.mockRejectedValue(new Error("network error"));
-  const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", vi.fn()));
-  await flush();
-  expect(result.current.state).toBe("hidden");
-});
+  it("proceeds without prompting when the repo is already mapped", async () => {
+    apiFetchMock.mockResolvedValue({ mapped: true, checkable: true });
+    const onProceed = vi.fn();
+    const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", onProceed));
+    act(() => result.current.requestSubmit());
+    expect(result.current.state).toBe("checking");
+    await flush();
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/repos/map-status?codebase=acme%2Fwidgets");
+    expect(onProceed).toHaveBeenCalledOnce();
+    expect(result.current.state).toBe("hidden");
+  });
 
-it("shows the prompt on a checkable miss", async () => {
-  apiFetchMock.mockResolvedValue({ mapped: false, checkable: true });
-  const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", vi.fn()));
-  await flush();
-  expect(result.current.state).toBe("prompt");
-});
+  it("proceeds without prompting when the check isn't checkable", async () => {
+    apiFetchMock.mockResolvedValue({ mapped: false, checkable: false });
+    const onProceed = vi.fn();
+    const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", onProceed));
+    act(() => result.current.requestSubmit());
+    await flush();
+    expect(onProceed).toHaveBeenCalledOnce();
+    expect(result.current.state).toBe("hidden");
+  });
 
-describe("startNow", () => {
-  it("hides the banner and calls onProceed immediately", async () => {
+  it("proceeds without prompting when the check throws", async () => {
+    apiFetchMock.mockRejectedValue(new Error("network error"));
+    const onProceed = vi.fn();
+    const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", onProceed));
+    act(() => result.current.requestSubmit());
+    await flush();
+    expect(onProceed).toHaveBeenCalledOnce();
+    expect(result.current.state).toBe("hidden");
+  });
+
+  it("shows the prompt on a checkable miss", async () => {
     apiFetchMock.mockResolvedValue({ mapped: false, checkable: true });
     const onProceed = vi.fn();
     const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", onProceed));
+    act(() => result.current.requestSubmit());
+    await flush();
+    expect(result.current.state).toBe("prompt");
+    expect(onProceed).not.toHaveBeenCalled();
+  });
+});
+
+describe("startNow", () => {
+  it("hides the banner and calls onProceed exactly once", async () => {
+    apiFetchMock.mockResolvedValue({ mapped: false, checkable: true });
+    const onProceed = vi.fn();
+    const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", onProceed));
+    act(() => result.current.requestSubmit());
     await flush();
     expect(result.current.state).toBe("prompt");
 
+    act(() => result.current.startNow());
     act(() => result.current.startNow());
 
     expect(result.current.state).toBe("hidden");
@@ -80,71 +113,171 @@ describe("startNow", () => {
 });
 
 describe("startWaiting", () => {
+  async function toPrompt(onProceed: () => void) {
+    const rendered = renderHook(() => useRepoMapWaitGate("acme/widgets", onProceed));
+    act(() => rendered.result.current.requestSubmit());
+    await flush();
+    expect(rendered.result.current.state).toBe("prompt");
+    return rendered;
+  }
+
   it("triggers the warm job, polls, and calls onProceed once mapped", async () => {
     apiFetchMock
-      .mockResolvedValueOnce({ mapped: false, checkable: true }) // initial check
+      .mockResolvedValueOnce({ mapped: false, checkable: true }) // requestSubmit check
       .mockResolvedValueOnce(undefined) // POST trigger warm
-      .mockResolvedValueOnce({ mapped: false, checkable: true }) // poll 1: still miss
+      .mockResolvedValueOnce({ mapped: false, checkable: true }) // poll 1: still a miss
       .mockResolvedValueOnce({ mapped: true, checkable: true }); // poll 2: hit
     const onProceed = vi.fn();
-    const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", onProceed));
-    await flush();
-    expect(result.current.state).toBe("prompt");
+    const { result } = await toPrompt(onProceed);
 
     await act(async () => result.current.startWaiting());
     expect(result.current.state).toBe("waiting");
-    expect(apiFetchMock).toHaveBeenCalledWith(
-      "/api/repos/map-status",
-      expect.objectContaining({ method: "POST" }),
-    );
+    expect(apiFetchMock).toHaveBeenCalledWith("/api/repos/map-status", expect.objectContaining({ method: "POST" }));
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2500);
-    });
+    await advance(2500);
     expect(result.current.state).toBe("waiting");
+    expect(onProceed).not.toHaveBeenCalled();
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(2500);
-    });
+    await advance(2500);
     expect(onProceed).toHaveBeenCalledOnce();
     expect(result.current.state).toBe("hidden");
   });
 
-  it("falls back to startNow when triggering the warm job fails", async () => {
+  // Regression test for the double-submit bug: overlapping poll ticks both resolving `mapped:
+  // true` must still submit the form exactly once.
+  it("calls onProceed once even when poll ticks overlap on a hit", async () => {
+    let resolvePoll: ((value: unknown) => void) | undefined;
     apiFetchMock
-      .mockResolvedValueOnce({ mapped: false, checkable: true }) // initial check
-      .mockRejectedValueOnce(new Error("redis down")); // POST trigger warm fails
+      .mockResolvedValueOnce({ mapped: false, checkable: true }) // requestSubmit check
+      .mockResolvedValueOnce(undefined) // POST trigger warm
+      // First poll hangs until we resolve it by hand, so a second tick fires meanwhile.
+      .mockImplementationOnce(() => new Promise((resolve) => (resolvePoll = resolve)))
+      .mockResolvedValue({ mapped: true, checkable: true });
     const onProceed = vi.fn();
-    const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", onProceed));
+    const { result } = await toPrompt(onProceed);
+
+    await act(async () => result.current.startWaiting());
+    await advance(2500); // tick 1 -> hangs
+    await advance(2500); // tick 2 -> skipped, previous request still in flight
+
+    await act(async () => {
+      resolvePoll?.({ mapped: true, checkable: true });
+      await vi.advanceTimersByTimeAsync(2500);
+    });
+    await advance(2500);
+
+    expect(onProceed).toHaveBeenCalledOnce();
+    expect(result.current.state).toBe("hidden");
+  });
+
+  // Regression test for stale in-flight work: a poll started for the previous codebase must not
+  // submit the form now that a different repo is selected.
+  it("resets and ignores an in-flight poll when the codebase changes", async () => {
+    let resolvePoll: ((value: unknown) => void) | undefined;
+    apiFetchMock
+      .mockResolvedValueOnce({ mapped: false, checkable: true }) // requestSubmit check
+      .mockResolvedValueOnce(undefined) // POST trigger warm
+      .mockImplementationOnce(() => new Promise((resolve) => (resolvePoll = resolve)));
+    const onProceed = vi.fn();
+    const { result, rerender } = renderHook(({ codebase }) => useRepoMapWaitGate(codebase, onProceed), {
+      initialProps: { codebase: "acme/widgets" },
+    });
+    act(() => result.current.requestSubmit());
     await flush();
-    expect(result.current.state).toBe("prompt");
+    await act(async () => result.current.startWaiting());
+    await advance(2500); // poll for acme/widgets is now in flight
+
+    rerender({ codebase: "acme/other" });
+    expect(result.current.state).toBe("hidden");
+
+    await act(async () => {
+      resolvePoll?.({ mapped: true, checkable: true });
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+
+    expect(onProceed).not.toHaveBeenCalled();
+    expect(result.current.state).toBe("hidden");
+  });
+
+  it("shows the enqueue-failed message before proceeding", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({ mapped: false, checkable: true }) // requestSubmit check
+      .mockRejectedValueOnce(new Error("redis down")) // POST trigger warm fails
+      .mockResolvedValue({ mapped: false, checkable: true }); // any straggler poll
+    const onProceed = vi.fn();
+    const { result } = await toPrompt(onProceed);
 
     await act(async () => result.current.startWaiting());
     await flush();
+
+    // The message is actually on screen (state stays "waiting") before anything submits.
+    expect(result.current.state).toBe("waiting");
+    expect(result.current.fallbackMessage).toBe("enqueue-failed");
+    expect(onProceed).not.toHaveBeenCalled();
+
+    await advance(2500);
     expect(onProceed).toHaveBeenCalledOnce();
     expect(result.current.state).toBe("hidden");
-    expect(result.current.fallbackMessage).toBe("enqueue-failed");
   });
 
-  it("falls back to startNow after repeated poll failures", async () => {
+  it("treats repeated poll failures as the fallback path", async () => {
     apiFetchMock
-      .mockResolvedValueOnce({ mapped: false, checkable: true }) // initial check
+      .mockResolvedValueOnce({ mapped: false, checkable: true }) // requestSubmit check
       .mockResolvedValueOnce(undefined) // POST trigger warm
       .mockRejectedValueOnce(new Error("network")) // poll 1
       .mockRejectedValueOnce(new Error("network")) // poll 2
       .mockRejectedValueOnce(new Error("network")); // poll 3 -> give up
     const onProceed = vi.fn();
-    const { result } = renderHook(() => useRepoMapWaitGate("acme/widgets", onProceed));
-    await flush();
-    expect(result.current.state).toBe("prompt");
+    const { result } = await toPrompt(onProceed);
 
     await act(async () => result.current.startWaiting());
-    for (let i = 0; i < 3; i++) {
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(2500);
-      });
-    }
-    expect(onProceed).toHaveBeenCalledOnce();
+    for (let i = 0; i < 3; i++) await advance(2500);
+
+    expect(result.current.state).toBe("waiting");
     expect(result.current.fallbackMessage).toBe("poll-failed");
+    expect(onProceed).not.toHaveBeenCalled();
+
+    await advance(2500);
+    expect(onProceed).toHaveBeenCalledOnce();
+  });
+
+  it("treats repeated uncheckable poll results the same as failures", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({ mapped: false, checkable: true }) // requestSubmit check
+      .mockResolvedValueOnce(undefined) // POST trigger warm
+      .mockResolvedValue({ mapped: false, checkable: false }); // every poll: can't determine
+    const onProceed = vi.fn();
+    const { result } = await toPrompt(onProceed);
+
+    await act(async () => result.current.startWaiting());
+    for (let i = 0; i < 3; i++) await advance(2500);
+
+    expect(result.current.fallbackMessage).toBe("poll-failed");
+    expect(result.current.state).toBe("waiting");
+    expect(onProceed).not.toHaveBeenCalled();
+
+    await advance(2500);
+    expect(onProceed).toHaveBeenCalledOnce();
+  });
+
+  it("lets the escape hatch proceed immediately while a fallback message is showing", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce({ mapped: false, checkable: true }) // requestSubmit check
+      .mockRejectedValueOnce(new Error("redis down")) // POST trigger warm fails
+      .mockResolvedValue({ mapped: false, checkable: true });
+    const onProceed = vi.fn();
+    const { result } = await toPrompt(onProceed);
+
+    await act(async () => result.current.startWaiting());
+    await flush();
+    expect(result.current.fallbackMessage).toBe("enqueue-failed");
+
+    act(() => result.current.startNow());
+    expect(onProceed).toHaveBeenCalledOnce();
+    expect(result.current.state).toBe("hidden");
+
+    // The pending fallback timer was cancelled, so it can't submit a second time.
+    await advance(5000);
+    expect(onProceed).toHaveBeenCalledOnce();
   });
 });
