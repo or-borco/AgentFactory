@@ -6,13 +6,12 @@ import type { RepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
 
 interface RepoMapWaitBannerProps {
   gate: RepoMapWaitGate;
-  submitVerb: "create" | "save";
 }
 
 // Renders the two states from docs/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md's
 // approved mockups: the decision prompt, and the waiting screen with its escape hatch. Shared by
-// both the task-creation and task-edit forms — `submitVerb` only changes the wait button's copy.
-export function RepoMapWaitBanner({ gate, submitVerb }: RepoMapWaitBannerProps) {
+// both the task-creation and task-edit forms.
+export function RepoMapWaitBanner({ gate }: RepoMapWaitBannerProps) {
   const { t } = useTranslation();
 
   if (gate.state === "hidden" || gate.state === "checking") return null;
@@ -24,7 +23,7 @@ export function RepoMapWaitBanner({ gate, submitVerb }: RepoMapWaitBannerProps) 
         <p style={{ margin: "0 0 12px 0", fontSize: 13, opacity: 0.85 }}>{t("tasks.repoMapWait.body")}</p>
         <div style={{ display: "flex", gap: 10 }}>
           <Button type="button" variant="primary" onClick={gate.startWaiting}>
-            {t(submitVerb === "create" ? "tasks.repoMapWait.waitAndCreate" : "tasks.repoMapWait.waitAndSave")}
+            {t("tasks.repoMapWait.startMapping")}
           </Button>
           <Button type="button" variant="secondary" onClick={gate.startNow}>
             {t("tasks.repoMapWait.startNow")}

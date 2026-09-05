@@ -290,7 +290,7 @@ export default function NewTaskPage() {
           </Field>
         </div>
 
-        <RepoMapWaitBanner gate={gate} submitVerb="create" />
+        <RepoMapWaitBanner gate={gate} />
 
         {/* Context documents — staged locally; uploaded to the task once it's created below. */}
         <Field label={t("tasks.create.contextLabel")}>

@@ -17,10 +17,10 @@ function gate(overrides: Partial<RepoMapWaitGate>): RepoMapWaitGate {
   };
 }
 
-function renderBanner(g: RepoMapWaitGate, submitVerb: "create" | "save" = "create") {
+function renderBanner(g: RepoMapWaitGate) {
   return render(
     <I18nProvider>
-      <RepoMapWaitBanner gate={g} submitVerb={submitVerb} />
+      <RepoMapWaitBanner gate={g} />
     </I18nProvider>,
   );
 }
@@ -39,19 +39,14 @@ describe("RepoMapWaitBanner", () => {
   it("shows the prompt with both choices on a miss", () => {
     renderBanner(gate({ state: "prompt" }));
     expect(screen.getByText("This repo hasn't been mapped yet")).toBeInTheDocument();
-    expect(screen.getByText("Map it out, then create task")).toBeInTheDocument();
+    expect(screen.getByText("Start mapping")).toBeInTheDocument();
     expect(screen.getByText("Start now without it")).toBeInTheDocument();
-  });
-
-  it("uses save-flavored copy on the edit page", () => {
-    renderBanner(gate({ state: "prompt" }), "save");
-    expect(screen.getByText("Map it out, then save")).toBeInTheDocument();
   });
 
   it("calls startWaiting when the wait button is clicked", () => {
     const startWaiting = vi.fn();
     renderBanner(gate({ state: "prompt", startWaiting }));
-    fireEvent.click(screen.getByText("Map it out, then create task"));
+    fireEvent.click(screen.getByText("Start mapping"));
     expect(startWaiting).toHaveBeenCalledOnce();
   });
 

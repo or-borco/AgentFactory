@@ -163,7 +163,7 @@ export default function EditTaskPage() {
           </Field>
         </div>
 
-        <RepoMapWaitBanner gate={gate} submitVerb="save" />
+        <RepoMapWaitBanner gate={gate} />
 
         <div style={{ display: "flex", gap: 10, paddingBottom: 40 }}>
           <Button variant="primary" type="submit" disabled={submitting || gateBlocking}>
