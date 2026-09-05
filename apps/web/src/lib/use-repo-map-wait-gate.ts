@@ -145,7 +145,11 @@ export function useRepoMapWaitGate(codebase: string, onProceed: () => void): Rep
   }
 
   // Both choice buttons only mean anything while the banner is actually up; ignoring them
-  // otherwise keeps a stray call from starting a submit the user never asked for.
+  // otherwise keeps a stray call from starting a submit the user never asked for. Unlike the
+  // other proceed() callers, this reads `state` from the render closure rather than a ref, so
+  // it can only be stale across a commit boundary — safe for direct click handlers (each click
+  // is its own task, always sees a committed `state`), not a substitute for the generation guard
+  // if this were ever invoked from inside another async callback's continuation.
   function startNow() {
     if (state !== "prompt" && state !== "waiting") return;
     proceed(generationRef.current);
