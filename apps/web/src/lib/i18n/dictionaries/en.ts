@@ -233,8 +233,8 @@ const en = {
     repoMapWait: {
       title: "This repo hasn't been mapped yet",
       body: "Mapping takes about 30 seconds and helps the agent orient faster. Skipping it means the agent spends time — and cost — exploring the codebase manually first.",
-      waitAndCreate: "Wait for the map, then create task",
-      waitAndSave: "Wait for the map, then save",
+      waitAndCreate: "Map it out, then create task",
+      waitAndSave: "Map it out, then save",
       startNow: "Start now without it",
       waitingTitle: "Preparing repo context…",
       waitingBody: "Usually takes about 30 seconds. You can keep waiting, or start now without the extra context.",

@@ -39,19 +39,19 @@ describe("RepoMapWaitBanner", () => {
   it("shows the prompt with both choices on a miss", () => {
     renderBanner(gate({ state: "prompt" }));
     expect(screen.getByText("This repo hasn't been mapped yet")).toBeInTheDocument();
-    expect(screen.getByText("Wait for the map, then create task")).toBeInTheDocument();
+    expect(screen.getByText("Map it out, then create task")).toBeInTheDocument();
     expect(screen.getByText("Start now without it")).toBeInTheDocument();
   });
 
   it("uses save-flavored copy on the edit page", () => {
     renderBanner(gate({ state: "prompt" }), "save");
-    expect(screen.getByText("Wait for the map, then save")).toBeInTheDocument();
+    expect(screen.getByText("Map it out, then save")).toBeInTheDocument();
   });
 
   it("calls startWaiting when the wait button is clicked", () => {
     const startWaiting = vi.fn();
     renderBanner(gate({ state: "prompt", startWaiting }));
-    fireEvent.click(screen.getByText("Wait for the map, then create task"));
+    fireEvent.click(screen.getByText("Map it out, then create task"));
     expect(startWaiting).toHaveBeenCalledOnce();
   });
 
