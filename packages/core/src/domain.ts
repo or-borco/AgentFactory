@@ -10,11 +10,22 @@ export interface Org {
   createdAt: ISODateTime;
 }
 
+// Per-user light/dark theme preference (see docs/superpowers/specs/2026-09-04-user-theme-preference-design.md).
+// Only the type lives here today — persistence (schema column, repository, PATCH route) lands
+// separately; until that lands, `User.preferences` is always undefined at runtime, which is a
+// safe no-op (falls back to "system"/OS prefers-color-scheme everywhere).
+export type ThemePreference = "light" | "dark" | "system";
+
+export interface UserPreferences {
+  theme?: ThemePreference; // absent = "system"
+}
+
 export interface User {
   id: ID;
   email: string;
   name: string;
   avatarUrl?: string;
+  preferences?: UserPreferences;
 }
 
 export interface Membership {

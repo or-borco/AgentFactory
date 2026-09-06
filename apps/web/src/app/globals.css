@@ -6,64 +6,84 @@
    never get generated unless this package's source is registered explicitly. */
 @source "../../../../packages/shared/src";
 
+/* Theme tokens
+   ------------
+   Bare :root is the LIGHT palette (default — no data-theme attribute, no OS preference means
+   light). Dark values live in two places that must stay identical:
+     - `@media (prefers-color-scheme: dark)` — OS says dark and the user hasn't explicitly
+       overridden with data-theme="light" (that's what the :not() guard is for).
+     - `[data-theme="dark"]` — the user explicitly chose dark (SSR-stamped on <html> per their
+       account preference), which wins regardless of the OS setting.
+   `[data-theme="light"]` re-asserts the light values explicitly (same values as bare :root) so a
+   user who explicitly picked Light while their OS is set to dark isn't left depending solely on
+   the :not() guard above.
+   Every light value below was chosen to mirror the dark palette's token structure and relative
+   hierarchy (inverting lightness, not hue) and was checked for WCAG AA contrast — see the design
+   spec for the neutral-scale rationale (the 500/600 tiers needed hand-tuned lightness, not a
+   literal reversed copy of the dark scale, to clear 4.5:1 against a near-white surface). */
 :root {
   /* Core */
-  --color-bg: #161826;
-  --color-surface: #232532;
-  --color-text: #e9e9ed;
-  --color-accent: #9184d9;
-  --color-accent-2: #a7a1db;
-  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+  --color-bg: #f6f6fb;
+  --color-surface: #ffffff;
+  --color-text: #1a1c27;
+  --color-accent: #5d5294;
+  --color-accent-2: #5c5783;
+  --color-divider: color-mix(in srgb, #1a1c27 12%, transparent);
 
-  /* Neutral scale */
-  --color-neutral-100: #f3f5fe;
-  --color-neutral-200: #e4e7f5;
-  --color-neutral-300: #cfd3e5;
-  --color-neutral-400: #b2b6ca;
-  --color-neutral-500: #9397ab;
-  --color-neutral-600: #75798c;
-  --color-neutral-700: #595d6c;
-  --color-neutral-800: #3f424d;
-  --color-neutral-900: #292b31;
+  /* Neutral scale (100 = darkest/most prominent text, 900 = lightest/subtle bg tint) */
+  --color-neutral-100: #1e2029;
+  --color-neutral-200: #323548;
+  --color-neutral-300: #454a63;
+  --color-neutral-400: #585e7e;
+  --color-neutral-500: #666d93;
+  --color-neutral-600: #878cab;
+  --color-neutral-700: #b1b4c9;
+  --color-neutral-800: #d8dae4;
+  --color-neutral-900: #f0f1f5;
 
-  /* Accent scale */
-  --color-accent-100: #f5f4ff;
-  --color-accent-200: #e7e5fe;
-  --color-accent-300: #d2cefd;
-  --color-accent-400: #b5abfc;
+  /* Accent scale (same 9 values as the dark scale, index reversed — badges/pills pairing e.g.
+     accent-800 background with accent-200 text flip correctly with no component changes) */
+  --color-accent-100: #2b2741;
+  --color-accent-200: #423a6a;
+  --color-accent-300: #5d5294;
+  --color-accent-400: #796cbf;
   --color-accent-500: #968ae0;
-  --color-accent-600: #796cbf;
-  --color-accent-700: #5d5294;
-  --color-accent-800: #423a6a;
-  --color-accent-900: #2b2741;
+  --color-accent-600: #b5abfc;
+  --color-accent-700: #d2cefd;
+  --color-accent-800: #e7e5fe;
+  --color-accent-900: #f5f4ff;
 
-  /* Accent-2 scale */
-  --color-accent-2-100: #f5f4ff;
-  --color-accent-2-200: #e7e5fe;
-  --color-accent-2-300: #d2cefd;
-  --color-accent-2-400: #b5afe8;
+  /* Accent-2 scale (index reversed, same rationale as the accent scale above) */
+  --color-accent-2-100: #2b293a;
+  --color-accent-2-200: #423e5d;
+  --color-accent-2-300: #5c5783;
+  --color-accent-2-400: #7972a9;
   --color-accent-2-500: #9690c9;
-  --color-accent-2-600: #7972a9;
-  --color-accent-2-700: #5c5783;
-  --color-accent-2-800: #423e5d;
-  --color-accent-2-900: #2b293a;
+  --color-accent-2-600: #b5afe8;
+  --color-accent-2-700: #d2cefd;
+  --color-accent-2-800: #e7e5fe;
+  --color-accent-2-900: #f5f4ff;
 
-  /* Section */
-  --color-section: #262a60;
-  --color-section-glow: #353b80;
-  --color-section-ghost: #4c5397;
+  /* Section (not yet consumed by any component today — kept structurally parallel to the dark
+     values so it's ready whenever it is) */
+  --color-section: #c7cdf5;
+  --color-section-glow: #b3bbf3;
+  --color-section-ghost: #e3e6fb;
 
-  /* Semantic status (used directly, not as Tailwind utilities) */
-  --color-status-blue: #5ba3d9;
-  --color-status-green: #4eca8b;
-  --color-status-amber: #e8a44a;
-  --color-status-red: #e06060;
-  --color-status-teal: #4ecab8;
+  /* Semantic status (used directly, not as Tailwind utilities) — darkened relative to the dark
+     theme's values, since the dark theme's brighter hues drop well under 4.5:1 against a white
+     surface */
+  --color-status-blue: #2b7bb8;
+  --color-status-green: #288556;
+  --color-status-amber: #a36615;
+  --color-status-red: #d93a3a;
+  --color-status-teal: #278174;
 
-  /* Shadows */
-  --shadow-sm: 0 0 0 1px #3f424d;
-  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
-  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
+  /* Shadows (soft dark elevation for cards on a near-white surface, vs. the dark theme's pale
+     rings) */
+  --shadow-sm: 0 0 0 1px rgba(26,28,39,0.08);
+  --shadow-md: 0 0 0 1px rgba(26,28,39,0.08), 0 6px 18px rgba(26,28,39,0.10);
+  --shadow-lg: 0 0 0 1px rgba(26,28,39,0.10), 0 16px 40px rgba(26,28,39,0.14);
 
   /* Radius */
   --radius-sm: 4px;
@@ -82,6 +102,169 @@
   --font-heading: "Inter", system-ui, sans-serif;
   --font-heading-weight: 500;
   --font-body: "Inter", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  /* :not([data-theme="light"]) so an explicit Light choice (SSR-stamped on <html>) still wins
+     even when the OS itself is set to dark. */
+  :root:not([data-theme="light"]) {
+    --color-bg: #161826;
+    --color-surface: #232532;
+    --color-text: #e9e9ed;
+    --color-accent: #9184d9;
+    --color-accent-2: #a7a1db;
+    --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+
+    --color-neutral-100: #f3f5fe;
+    --color-neutral-200: #e4e7f5;
+    --color-neutral-300: #cfd3e5;
+    --color-neutral-400: #b2b6ca;
+    --color-neutral-500: #9397ab;
+    --color-neutral-600: #75798c;
+    --color-neutral-700: #595d6c;
+    --color-neutral-800: #3f424d;
+    --color-neutral-900: #292b31;
+
+    --color-accent-100: #f5f4ff;
+    --color-accent-200: #e7e5fe;
+    --color-accent-300: #d2cefd;
+    --color-accent-400: #b5abfc;
+    --color-accent-500: #968ae0;
+    --color-accent-600: #796cbf;
+    --color-accent-700: #5d5294;
+    --color-accent-800: #423a6a;
+    --color-accent-900: #2b2741;
+
+    --color-accent-2-100: #f5f4ff;
+    --color-accent-2-200: #e7e5fe;
+    --color-accent-2-300: #d2cefd;
+    --color-accent-2-400: #b5afe8;
+    --color-accent-2-500: #9690c9;
+    --color-accent-2-600: #7972a9;
+    --color-accent-2-700: #5c5783;
+    --color-accent-2-800: #423e5d;
+    --color-accent-2-900: #2b293a;
+
+    --color-section: #262a60;
+    --color-section-glow: #353b80;
+    --color-section-ghost: #4c5397;
+
+    --color-status-blue: #5ba3d9;
+    --color-status-green: #4eca8b;
+    --color-status-amber: #e8a44a;
+    --color-status-red: #e06060;
+    --color-status-teal: #4ecab8;
+
+    --shadow-sm: 0 0 0 1px #3f424d;
+    --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
+    --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-bg: #161826;
+  --color-surface: #232532;
+  --color-text: #e9e9ed;
+  --color-accent: #9184d9;
+  --color-accent-2: #a7a1db;
+  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+
+  --color-neutral-100: #f3f5fe;
+  --color-neutral-200: #e4e7f5;
+  --color-neutral-300: #cfd3e5;
+  --color-neutral-400: #b2b6ca;
+  --color-neutral-500: #9397ab;
+  --color-neutral-600: #75798c;
+  --color-neutral-700: #595d6c;
+  --color-neutral-800: #3f424d;
+  --color-neutral-900: #292b31;
+
+  --color-accent-100: #f5f4ff;
+  --color-accent-200: #e7e5fe;
+  --color-accent-300: #d2cefd;
+  --color-accent-400: #b5abfc;
+  --color-accent-500: #968ae0;
+  --color-accent-600: #796cbf;
+  --color-accent-700: #5d5294;
+  --color-accent-800: #423a6a;
+  --color-accent-900: #2b2741;
+
+  --color-accent-2-100: #f5f4ff;
+  --color-accent-2-200: #e7e5fe;
+  --color-accent-2-300: #d2cefd;
+  --color-accent-2-400: #b5afe8;
+  --color-accent-2-500: #9690c9;
+  --color-accent-2-600: #7972a9;
+  --color-accent-2-700: #5c5783;
+  --color-accent-2-800: #423e5d;
+  --color-accent-2-900: #2b293a;
+
+  --color-section: #262a60;
+  --color-section-glow: #353b80;
+  --color-section-ghost: #4c5397;
+
+  --color-status-blue: #5ba3d9;
+  --color-status-green: #4eca8b;
+  --color-status-amber: #e8a44a;
+  --color-status-red: #e06060;
+  --color-status-teal: #4ecab8;
+
+  --shadow-sm: 0 0 0 1px #3f424d;
+  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
+  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
+}
+
+:root[data-theme="light"] {
+  --color-bg: #f6f6fb;
+  --color-surface: #ffffff;
+  --color-text: #1a1c27;
+  --color-accent: #5d5294;
+  --color-accent-2: #5c5783;
+  --color-divider: color-mix(in srgb, #1a1c27 12%, transparent);
+
+  --color-neutral-100: #1e2029;
+  --color-neutral-200: #323548;
+  --color-neutral-300: #454a63;
+  --color-neutral-400: #585e7e;
+  --color-neutral-500: #666d93;
+  --color-neutral-600: #878cab;
+  --color-neutral-700: #b1b4c9;
+  --color-neutral-800: #d8dae4;
+  --color-neutral-900: #f0f1f5;
+
+  --color-accent-100: #2b2741;
+  --color-accent-200: #423a6a;
+  --color-accent-300: #5d5294;
+  --color-accent-400: #796cbf;
+  --color-accent-500: #968ae0;
+  --color-accent-600: #b5abfc;
+  --color-accent-700: #d2cefd;
+  --color-accent-800: #e7e5fe;
+  --color-accent-900: #f5f4ff;
+
+  --color-accent-2-100: #2b293a;
+  --color-accent-2-200: #423e5d;
+  --color-accent-2-300: #5c5783;
+  --color-accent-2-400: #7972a9;
+  --color-accent-2-500: #9690c9;
+  --color-accent-2-600: #b5afe8;
+  --color-accent-2-700: #d2cefd;
+  --color-accent-2-800: #e7e5fe;
+  --color-accent-2-900: #f5f4ff;
+
+  --color-section: #c7cdf5;
+  --color-section-glow: #b3bbf3;
+  --color-section-ghost: #e3e6fb;
+
+  --color-status-blue: #2b7bb8;
+  --color-status-green: #288556;
+  --color-status-amber: #a36615;
+  --color-status-red: #d93a3a;
+  --color-status-teal: #278174;
+
+  --shadow-sm: 0 0 0 1px rgba(26,28,39,0.08);
+  --shadow-md: 0 0 0 1px rgba(26,28,39,0.08), 0 6px 18px rgba(26,28,39,0.10);
+  --shadow-lg: 0 0 0 1px rgba(26,28,39,0.10), 0 16px 40px rgba(26,28,39,0.14);
 }
 
 @theme inline {
