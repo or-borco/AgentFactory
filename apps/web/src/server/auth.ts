@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import type { User } from "@agentfactory/core";
 import { createAuthSession, deleteAuthSession, getPrimaryMembership, getUserByTokenHash } from "@agentfactory/db";
 
@@ -27,12 +28,14 @@ export async function createSession(userId: number): Promise<void> {
   });
 }
 
-export async function getCurrentUser(): Promise<User | undefined> {
+// cache()-wrapped so the root layout and (app)/layout.tsx — both of which need the current user
+// on every request — share one DB round trip instead of two.
+export const getCurrentUser = cache(async (): Promise<User | undefined> => {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
   if (!token) return undefined;
   return getUserByTokenHash(hashToken(token));
-}
+});
 
 export interface AuthContext {
   user: User;

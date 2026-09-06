@@ -10,11 +10,18 @@ export interface Org {
   createdAt: ISODateTime;
 }
 
+export type ThemePreference = "light" | "dark" | "system";
+
+export interface UserPreferences {
+  theme?: ThemePreference; // absent = "system"
+}
+
 export interface User {
   id: ID;
   email: string;
   name: string;
   avatarUrl?: string;
+  preferences?: UserPreferences;
 }
 
 export interface Membership {
