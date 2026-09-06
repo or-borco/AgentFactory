@@ -233,8 +233,21 @@ describe("TASK_DOCUMENT_EXCLUDE_PATTERN against real git", () => {
     for (const dir of repos.splice(0)) rmSync(dir, { recursive: true, force: true });
   });
 
+  // `-C dir` alone isn't enough to isolate these from the repo actually running the test suite:
+  // when this file runs from .husky/pre-push, git has already set GIT_DIR (and friends) in the
+  // process env for the push it's hooking, and those env vars override `-C`'s repository
+  // discovery for every child git process — silently redirecting these commits into the real
+  // repo instead of the freshly `git init`'d temp dir. Scrub them so each helper repo is genuinely
+  // self-contained regardless of what invoked the test run.
   function git(dir: string, ...args: string[]): string {
-    return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8" });
+    const env = { ...process.env };
+    delete env.GIT_DIR;
+    delete env.GIT_WORK_TREE;
+    delete env.GIT_INDEX_FILE;
+    delete env.GIT_COMMON_DIR;
+    delete env.GIT_OBJECT_DIRECTORY;
+    delete env.GIT_ALTERNATE_OBJECT_DIRECTORIES;
+    return execFileSync("git", ["-C", dir, ...args], { encoding: "utf8", env });
   }
 
   // A checkout with one committed file and a clean tree — the state a run starts from.
