@@ -7,7 +7,11 @@ const PROMPT =
   "Explore this repository and produce a concise map for a coding agent that has never seen it " +
   "before: the directory structure and what each top-level area is for, key entry points, " +
   "build/test/lint commands, and any non-obvious conventions a new contributor would need. " +
-  "Do not describe files one by one. Stay under 800 words.";
+  "For each major functional area (e.g. UI/styling, testing, data access), note existing " +
+  "implementation conventions an agent would otherwise have to grep for from scratch — not " +
+  "exhaustive docs, just enough to short-circuit obvious discovery (e.g. how styling/theming is " +
+  "structured, test file conventions, naming patterns). " +
+  "Do not describe files one by one. Stay under 1500 words.";
 
 async function main(): Promise<void> {
   let resultText: string | undefined;
