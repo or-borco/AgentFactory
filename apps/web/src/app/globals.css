@@ -6,64 +6,93 @@
    never get generated unless this package's source is registered explicitly. */
 @source "../../../../packages/shared/src";
 
+/* Theme tokens
+   ─────────────
+   `:root` below is the LIGHT palette and is the default — it mirrors the dark palette's token
+   structure (same names, same relative hierarchy) with lightness inverted per the design spec
+   (2026-09-04-user-theme-preference-design.md), not a hue change, so every consumer of these
+   custom properties (packages/shared + apps/web components) needs no changes.
+
+   Precedence, lowest to highest specificity:
+     1. `:root`                                        → light (default, and the (auth) routes'
+                                                           only palette, since they have no user).
+     2. `@media (prefers-color-scheme: dark)`           → OS says dark and the user hasn't
+        `:root:not([data-theme="light"])`                 explicitly picked light → follow the OS.
+     3. `:root[data-theme="dark"]`                      → user explicitly picked dark → wins
+                                                           regardless of OS setting.
+     4. `:root[data-theme="light"]`                     → user explicitly picked light while the
+                                                           OS prefers dark → this block's higher
+                                                           specificity than the bare `:root` makes
+                                                           that override explicit rather than
+                                                           relying solely on the `:not()` above.
+
+   `data-theme` is stamped on `<html>` server-side (apps/web/src/app/layout.tsx) from the
+   session's stored preference, before any HTML reaches the client — that's what avoids a flash
+   of the wrong theme for users with an explicit choice. "system" and logged-out requests stamp
+   nothing, so rule 2 (pure CSS, correct on first paint by construction) decides instead. */
 :root {
   /* Core */
-  --color-bg: #161826;
-  --color-surface: #232532;
-  --color-text: #e9e9ed;
-  --color-accent: #9184d9;
-  --color-accent-2: #a7a1db;
-  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+  --color-bg: #d9dbe9;
+  --color-surface: #cdcfdc;
+  --color-text: #121216;
+  --color-accent: #5642c4;
+  --color-accent-2: #5347b9;
+  --color-divider: color-mix(in srgb, #121216 16%, transparent);
 
   /* Neutral scale */
-  --color-neutral-100: #f3f5fe;
-  --color-neutral-200: #e4e7f5;
-  --color-neutral-300: #cfd3e5;
-  --color-neutral-400: #b2b6ca;
-  --color-neutral-500: #9397ab;
-  --color-neutral-600: #75798c;
-  --color-neutral-700: #595d6c;
-  --color-neutral-800: #3f424d;
-  --color-neutral-900: #292b31;
+  --color-neutral-100: #01030c;
+  --color-neutral-200: #0a0d1b;
+  --color-neutral-300: #1a1e30;
+  --color-neutral-400: #35394d;
+  --color-neutral-500: #54576b;
+  --color-neutral-600: #555867;
+  --color-neutral-700: #9397a6;
+  --color-neutral-800: #b2b5c0;
+  --color-neutral-900: #ced0d6;
 
   /* Accent scale */
-  --color-accent-100: #f5f4ff;
-  --color-accent-200: #e7e5fe;
-  --color-accent-300: #d2cefd;
-  --color-accent-400: #b5abfc;
-  --color-accent-500: #968ae0;
-  --color-accent-600: #796cbf;
-  --color-accent-700: #5d5294;
-  --color-accent-800: #423a6a;
-  --color-accent-900: #2b2741;
+  --color-accent-100: #01000b;
+  --color-accent-200: #03011a;
+  --color-accent-300: #060231;
+  --color-accent-400: #0d0354;
+  --color-accent-500: #2b1f75;
+  --color-accent-600: #4d4093;
+  --color-accent-700: #766bad;
+  --color-accent-800: #9d95c5;
+  --color-accent-900: #c2bed8;
 
   /* Accent-2 scale */
-  --color-accent-2-100: #f5f4ff;
-  --color-accent-2-200: #e7e5fe;
-  --color-accent-2-300: #d2cefd;
-  --color-accent-2-400: #b5afe8;
-  --color-accent-2-500: #9690c9;
-  --color-accent-2-600: #7972a9;
-  --color-accent-2-700: #5c5783;
-  --color-accent-2-800: #423e5d;
-  --color-accent-2-900: #2b293a;
+  --color-accent-2-100: #01000b;
+  --color-accent-2-200: #03011a;
+  --color-accent-2-300: #060231;
+  --color-accent-2-400: #1d1750;
+  --color-accent-2-500: #3c366f;
+  --color-accent-2-600: #5d568d;
+  --color-accent-2-700: #817ca8;
+  --color-accent-2-800: #a6a2c1;
+  --color-accent-2-900: #c7c5d6;
 
   /* Section */
-  --color-section: #262a60;
-  --color-section-glow: #353b80;
-  --color-section-ghost: #4c5397;
+  --color-section: #9fa3d9;
+  --color-section-glow: #7f85ca;
+  --color-section-ghost: #686fb3;
 
-  /* Semantic status (used directly, not as Tailwind utilities) */
-  --color-status-blue: #5ba3d9;
-  --color-status-green: #4eca8b;
-  --color-status-amber: #e8a44a;
-  --color-status-red: #e06060;
-  --color-status-teal: #4ecab8;
+  /* Semantic status (used directly, not as Tailwind utilities) — darkened relative to the dark
+     palette's values (a straight lightness-invert fails WCAG AA for these saturated hues, since
+     HSL lightness doesn't track perceptual/relative luminance the way it does for the neutral
+     and accent scales above) so each still clears 4.5:1 against --color-surface. */
+  --color-status-blue: #205c8a;
+  --color-status-green: #1e6441;
+  --color-status-amber: #7d4e10;
+  --color-status-red: #ab2121;
+  --color-status-teal: #1d6358;
 
-  /* Shadows */
-  --shadow-sm: 0 0 0 1px #3f424d;
-  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
-  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
+  /* Shadows (decorative definition rings/elevation, not text — not subject to the AA text
+     contrast requirement above, just re-tuned so they read as "ink on light" instead of
+     "light on ink"). */
+  --shadow-sm: 0 0 0 1px rgba(18,18,22,0.12);
+  --shadow-md: 0 0 0 1px rgba(18,18,22,0.16), 0 6px 18px rgba(18,18,22,0.10);
+  --shadow-lg: 0 0 0 1px rgba(18,18,22,0.20), 0 16px 40px rgba(18,18,22,0.16);
 
   /* Radius */
   --radius-sm: 4px;
@@ -82,6 +111,172 @@
   --font-heading: "Inter", system-ui, sans-serif;
   --font-heading-weight: 500;
   --font-body: "Inter", system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* Today's original values, unchanged — see the precedence note above. */
+    --color-bg: #161826;
+    --color-surface: #232532;
+    --color-text: #e9e9ed;
+    --color-accent: #9184d9;
+    --color-accent-2: #a7a1db;
+    --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+
+    --color-neutral-100: #f3f5fe;
+    --color-neutral-200: #e4e7f5;
+    --color-neutral-300: #cfd3e5;
+    --color-neutral-400: #b2b6ca;
+    --color-neutral-500: #9397ab;
+    --color-neutral-600: #75798c;
+    --color-neutral-700: #595d6c;
+    --color-neutral-800: #3f424d;
+    --color-neutral-900: #292b31;
+
+    --color-accent-100: #f5f4ff;
+    --color-accent-200: #e7e5fe;
+    --color-accent-300: #d2cefd;
+    --color-accent-400: #b5abfc;
+    --color-accent-500: #968ae0;
+    --color-accent-600: #796cbf;
+    --color-accent-700: #5d5294;
+    --color-accent-800: #423a6a;
+    --color-accent-900: #2b2741;
+
+    --color-accent-2-100: #f5f4ff;
+    --color-accent-2-200: #e7e5fe;
+    --color-accent-2-300: #d2cefd;
+    --color-accent-2-400: #b5afe8;
+    --color-accent-2-500: #9690c9;
+    --color-accent-2-600: #7972a9;
+    --color-accent-2-700: #5c5783;
+    --color-accent-2-800: #423e5d;
+    --color-accent-2-900: #2b293a;
+
+    --color-section: #262a60;
+    --color-section-glow: #353b80;
+    --color-section-ghost: #4c5397;
+
+    --color-status-blue: #5ba3d9;
+    --color-status-green: #4eca8b;
+    --color-status-amber: #e8a44a;
+    --color-status-red: #e06060;
+    --color-status-teal: #4ecab8;
+
+    --shadow-sm: 0 0 0 1px #3f424d;
+    --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
+    --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
+  }
+}
+
+:root[data-theme="dark"] {
+  /* Same dark values again, at higher specificity than the bare `:root` light default, so an
+     explicit choice wins regardless of the OS setting. */
+  --color-bg: #161826;
+  --color-surface: #232532;
+  --color-text: #e9e9ed;
+  --color-accent: #9184d9;
+  --color-accent-2: #a7a1db;
+  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+
+  --color-neutral-100: #f3f5fe;
+  --color-neutral-200: #e4e7f5;
+  --color-neutral-300: #cfd3e5;
+  --color-neutral-400: #b2b6ca;
+  --color-neutral-500: #9397ab;
+  --color-neutral-600: #75798c;
+  --color-neutral-700: #595d6c;
+  --color-neutral-800: #3f424d;
+  --color-neutral-900: #292b31;
+
+  --color-accent-100: #f5f4ff;
+  --color-accent-200: #e7e5fe;
+  --color-accent-300: #d2cefd;
+  --color-accent-400: #b5abfc;
+  --color-accent-500: #968ae0;
+  --color-accent-600: #796cbf;
+  --color-accent-700: #5d5294;
+  --color-accent-800: #423a6a;
+  --color-accent-900: #2b2741;
+
+  --color-accent-2-100: #f5f4ff;
+  --color-accent-2-200: #e7e5fe;
+  --color-accent-2-300: #d2cefd;
+  --color-accent-2-400: #b5afe8;
+  --color-accent-2-500: #9690c9;
+  --color-accent-2-600: #7972a9;
+  --color-accent-2-700: #5c5783;
+  --color-accent-2-800: #423e5d;
+  --color-accent-2-900: #2b293a;
+
+  --color-section: #262a60;
+  --color-section-glow: #353b80;
+  --color-section-ghost: #4c5397;
+
+  --color-status-blue: #5ba3d9;
+  --color-status-green: #4eca8b;
+  --color-status-amber: #e8a44a;
+  --color-status-red: #e06060;
+  --color-status-teal: #4ecab8;
+
+  --shadow-sm: 0 0 0 1px #3f424d;
+  --shadow-md: 0 0 0 1px #595d6c, 0 6px 18px rgba(0,0,0,0.55);
+  --shadow-lg: 0 0 0 1px #9397ab, 0 16px 40px rgba(0,0,0,0.65);
+}
+
+:root[data-theme="light"] {
+  /* Same light values as the bare `:root` default, restated at higher specificity than the dark
+     media query above so a user who picks Light while their OS prefers dark still gets light. */
+  --color-bg: #d9dbe9;
+  --color-surface: #cdcfdc;
+  --color-text: #121216;
+  --color-accent: #5642c4;
+  --color-accent-2: #5347b9;
+  --color-divider: color-mix(in srgb, #121216 16%, transparent);
+
+  --color-neutral-100: #01030c;
+  --color-neutral-200: #0a0d1b;
+  --color-neutral-300: #1a1e30;
+  --color-neutral-400: #35394d;
+  --color-neutral-500: #54576b;
+  --color-neutral-600: #555867;
+  --color-neutral-700: #9397a6;
+  --color-neutral-800: #b2b5c0;
+  --color-neutral-900: #ced0d6;
+
+  --color-accent-100: #01000b;
+  --color-accent-200: #03011a;
+  --color-accent-300: #060231;
+  --color-accent-400: #0d0354;
+  --color-accent-500: #2b1f75;
+  --color-accent-600: #4d4093;
+  --color-accent-700: #766bad;
+  --color-accent-800: #9d95c5;
+  --color-accent-900: #c2bed8;
+
+  --color-accent-2-100: #01000b;
+  --color-accent-2-200: #03011a;
+  --color-accent-2-300: #060231;
+  --color-accent-2-400: #1d1750;
+  --color-accent-2-500: #3c366f;
+  --color-accent-2-600: #5d568d;
+  --color-accent-2-700: #817ca8;
+  --color-accent-2-800: #a6a2c1;
+  --color-accent-2-900: #c7c5d6;
+
+  --color-section: #9fa3d9;
+  --color-section-glow: #7f85ca;
+  --color-section-ghost: #686fb3;
+
+  --color-status-blue: #205c8a;
+  --color-status-green: #1e6441;
+  --color-status-amber: #7d4e10;
+  --color-status-red: #ab2121;
+  --color-status-teal: #1d6358;
+
+  --shadow-sm: 0 0 0 1px rgba(18,18,22,0.12);
+  --shadow-md: 0 0 0 1px rgba(18,18,22,0.16), 0 6px 18px rgba(18,18,22,0.10);
+  --shadow-lg: 0 0 0 1px rgba(18,18,22,0.20), 0 16px 40px rgba(18,18,22,0.16);
 }
 
 @theme inline {
