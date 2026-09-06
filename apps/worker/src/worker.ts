@@ -364,6 +364,13 @@ const runWorker = new Worker<RunJobData>(
             }),
           );
           await updateTask(task.id, { prNumber: pr.number, prUrl: pr.url, status: "pr_open" });
+          // Dev-only diagnostic for optimizing the pipeline, not a persisted metric: session.createdAt
+          // is stamped once, at the moment "Run agent" is clicked (createSession's only call site),
+          // so this is the true end-to-end time even when the push happens on a later run in the
+          // same session (e.g. a follow-up reply), not necessarily this one.
+          console.log(
+            `[run ${runId}] PR opened for task ${task.ref}: ${Date.now() - new Date(session.createdAt).getTime()}ms since Run Agent was clicked`,
+          );
         }
       }
 
