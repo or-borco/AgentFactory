@@ -5,6 +5,7 @@ import { Button } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import type { RepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
 import type { TranslationKey } from "@/lib/i18n/paths";
+import styles from "./RepoMapWaitBanner.module.css";
 
 interface RepoMapWaitBannerProps {
   gate: RepoMapWaitGate;
@@ -51,10 +52,10 @@ export function RepoMapWaitBanner({ gate }: RepoMapWaitBannerProps) {
 
   if (gate.state === "prompt") {
     return (
-      <div style={bannerStyle}>
-        <p style={{ margin: "0 0 6px 0", fontWeight: 600 }}>{t("tasks.repoMapWait.title")}</p>
-        <p style={{ margin: "0 0 12px 0", fontSize: 13, opacity: 0.85 }}>{t("tasks.repoMapWait.body")}</p>
-        <div style={{ display: "flex", gap: 10 }}>
+      <div className={styles.banner}>
+        <p className={styles.title}>{t("tasks.repoMapWait.title")}</p>
+        <p className={styles.body}>{t("tasks.repoMapWait.body")}</p>
+        <div className={styles.choices}>
           <Button type="button" variant="primary" onClick={gate.startWaiting}>
             {t("tasks.repoMapWait.startMapping")}
           </Button>
@@ -67,44 +68,22 @@ export function RepoMapWaitBanner({ gate }: RepoMapWaitBannerProps) {
   }
 
   return (
-    <div style={bannerStyle}>
-      <p style={{ margin: "0 0 8px 0", fontWeight: 600 }}>{t("tasks.repoMapWait.waitingTitle")}</p>
-      <p style={{ margin: "0 0 12px 0", fontSize: 13, opacity: 0.85 }}>
+    <div className={styles.banner}>
+      <p className={styles.waitingTitle}>{t("tasks.repoMapWait.waitingTitle")}</p>
+      <p className={styles.body}>
         {gate.fallbackMessage
           ? t(`tasks.repoMapWait.${gate.fallbackMessage === "enqueue-failed" ? "enqueueFailed" : "pollFailed"}`)
           : t("tasks.repoMapWait.waitingBody")}
       </p>
       {!gate.fallbackMessage && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <span
-            style={{
-              flexShrink: 0,
-              width: 14,
-              height: 14,
-              borderRadius: "50%",
-              border: "1.5px solid var(--color-accent)",
-              borderTopColor: "transparent",
-              animation: "repoMapWaitSpin 0.8s linear infinite",
-            }}
-          />
-          <span style={{ fontSize: 12, color: "var(--color-neutral-500)" }}>{t(progressLabelKey(elapsed))}</span>
+        <div className={styles.progress}>
+          <span className={styles.spinner} />
+          <span className={styles.progressLabel}>{t(progressLabelKey(elapsed))}</span>
         </div>
       )}
       <Button type="button" variant="secondary" onClick={gate.startNow}>
         {t("tasks.repoMapWait.escapeHatch")}
       </Button>
-      <style>{`
-        @keyframes repoMapWaitSpin {
-          to { transform: rotate(360deg); }
-        }
-      `}</style>
     </div>
   );
 }
-
-const bannerStyle: React.CSSProperties = {
-  border: "1px solid var(--color-neutral-700)",
-  borderRadius: "var(--radius-md)",
-  padding: 14,
-  background: "var(--color-surface)",
-};

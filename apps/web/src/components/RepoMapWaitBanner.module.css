@@ -1,0 +1,55 @@
+.banner {
+  border: 1px solid var(--color-neutral-700);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: var(--color-surface);
+}
+
+.title {
+  margin: 0 0 6px 0;
+  font-weight: 600;
+}
+
+.waitingTitle {
+  margin: 0 0 8px 0;
+  font-weight: 600;
+}
+
+.body {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.choices {
+  display: flex;
+  gap: 10px;
+}
+
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.spinner {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-accent);
+  border-top-color: transparent;
+  animation: repoMapWaitSpin 0.8s linear infinite;
+}
+
+.progressLabel {
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+
+@keyframes repoMapWaitSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
