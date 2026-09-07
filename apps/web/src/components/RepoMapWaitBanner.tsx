@@ -5,6 +5,7 @@ import { Button } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import type { RepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
 import type { TranslationKey } from "@/lib/i18n/paths";
+import confirmationStyles from "./ConfirmationBanner.module.css";
 import styles from "./RepoMapWaitBanner.module.css";
 
 interface RepoMapWaitBannerProps {
@@ -52,10 +53,10 @@ export function RepoMapWaitBanner({ gate }: RepoMapWaitBannerProps) {
 
   if (gate.state === "prompt") {
     return (
-      <div className={styles.banner}>
-        <p className={styles.title}>{t("tasks.repoMapWait.title")}</p>
-        <p className={styles.body}>{t("tasks.repoMapWait.body")}</p>
-        <div className={styles.choices}>
+      <div className={confirmationStyles.banner}>
+        <p className={confirmationStyles.title}>{t("tasks.repoMapWait.title")}</p>
+        <p className={confirmationStyles.body}>{t("tasks.repoMapWait.body")}</p>
+        <div className={confirmationStyles.choices}>
           <Button type="button" variant="primary" onClick={gate.startWaiting}>
             {t("tasks.repoMapWait.startMapping")}
           </Button>
@@ -68,9 +69,9 @@ export function RepoMapWaitBanner({ gate }: RepoMapWaitBannerProps) {
   }
 
   return (
-    <div className={styles.banner}>
-      <p className={styles.waitingTitle}>{t("tasks.repoMapWait.waitingTitle")}</p>
-      <p className={styles.body}>
+    <div className={confirmationStyles.banner}>
+      <p className={confirmationStyles.title}>{t("tasks.repoMapWait.waitingTitle")}</p>
+      <p className={confirmationStyles.body}>
         {gate.fallbackMessage
           ? t(`tasks.repoMapWait.${gate.fallbackMessage === "enqueue-failed" ? "enqueueFailed" : "pollFailed"}`)
           : t("tasks.repoMapWait.waitingBody")}
