@@ -26,7 +26,15 @@ vi.mock("../scm-provider", () => ({
   cloneIntoSandbox: (...args: unknown[]) => cloneIntoSandboxMock(...args),
 }));
 
-const { ensureRepoMap, warmRepoMap } = await import("../repo-map");
+const { CACHE_POLL_INTERVAL_MS, CACHE_POLL_TIMEOUT_MS, ensureRepoMap, warmRepoMap } = await import(
+  "../repo-map"
+);
+
+// A cache miss now polls for CACHE_POLL_TIMEOUT_MS before giving up. Every miss-path test injects
+// this so the loop runs its full attempt count instantly instead of taking 20 real seconds; the
+// number of calls is still exactly what production would do.
+const instantSleep = () => Promise.resolve();
+const POLL_ATTEMPTS = Math.floor(20_000 / 1_000);
 
 function fakeSandbox(execResults: Record<string, OutputChunk[]>): SandboxProvider {
   return {
@@ -76,7 +84,7 @@ describe("ensureRepoMap", () => {
       [HEAD_CMD]: [{ stream: "stdout", data: "abc123\n" }],
     });
 
-    const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets");
+    const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets", { sleep: instantSleep });
 
     expect(result).toBe("");
     expect(enqueueRepoMapWarmJobMock).toHaveBeenCalledWith(1, "acme/widgets");
@@ -90,7 +98,9 @@ describe("ensureRepoMap", () => {
       [HEAD_CMD]: [{ stream: "stdout", data: "abc123\n" }],
     });
 
-    await expect(ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets")).resolves.toBe("");
+    await expect(
+      ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets", { sleep: instantSleep }),
+    ).resolves.toBe("");
   });
 
   it("returns an empty string without throwing when the generation exec itself throws", async () => {
@@ -112,7 +122,7 @@ describe("ensureRepoMap", () => {
       resetMemory: vi.fn(),
     };
 
-    const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets");
+    const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets", { sleep: instantSleep });
     expect(result).toBe("");
   });
 
@@ -137,6 +147,89 @@ describe("ensureRepoMap", () => {
     const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets");
     expect(result).toBe("");
     expect(insertRepoMapMock).not.toHaveBeenCalled();
+  });
+
+  // The whole point of the poll: on task T-070 the map was cached 54 seconds into an 8-minute
+  // run and never read, because the segment was composed once, before it existed.
+  it("returns the map when a warm job lands mid-poll", async () => {
+    // Miss on the first check, miss on the first two polls, then the warm job finishes.
+    getRepoMapMock
+      .mockReset()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue({ content: "warmed map" });
+    enqueueRepoMapWarmJobMock.mockReset().mockResolvedValue(undefined);
+    const sleep = vi.fn(instantSleep);
+    const sandbox = fakeSandbox({ [HEAD_CMD]: [{ stream: "stdout", data: "abc123\n" }] });
+
+    const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets", { sleep });
+
+    expect(result).toBe("warmed map");
+    // Stopped as soon as it landed rather than polling out the full window.
+    expect(sleep).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledWith(CACHE_POLL_INTERVAL_MS);
+  });
+
+  it("gives up after the full poll window rather than waiting forever", async () => {
+    getRepoMapMock.mockReset().mockResolvedValue(undefined);
+    enqueueRepoMapWarmJobMock.mockReset().mockResolvedValue(undefined);
+    const sleep = vi.fn(instantSleep);
+    const sandbox = fakeSandbox({ [HEAD_CMD]: [{ stream: "stdout", data: "abc123\n" }] });
+
+    const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets", { sleep });
+
+    expect(result).toBe("");
+    expect(sleep).toHaveBeenCalledTimes(POLL_ATTEMPTS);
+    // One check before the loop, then one per attempt.
+    expect(getRepoMapMock).toHaveBeenCalledTimes(POLL_ATTEMPTS + 1);
+  });
+
+  // A run that already has its map must not pay a millisecond for any of this.
+  it("never sleeps on a cache hit", async () => {
+    getRepoMapMock.mockReset().mockResolvedValue({ content: "cached map" });
+    enqueueRepoMapWarmJobMock.mockReset();
+    const sleep = vi.fn(instantSleep);
+    const sandbox = fakeSandbox({ [HEAD_CMD]: [{ stream: "stdout", data: "abc123\n" }] });
+
+    await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets", { sleep });
+
+    expect(sleep).not.toHaveBeenCalled();
+    expect(getRepoMapMock).toHaveBeenCalledTimes(1);
+  });
+
+  // A queue outage is not a reason to skip the poll: the map may already be in flight from an
+  // earlier warm (task creation, a task marked done, an agent pointed at this codebase).
+  it("still polls when the warm job could not be enqueued", async () => {
+    getRepoMapMock
+      .mockReset()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue({ content: "warmed by someone else" });
+    enqueueRepoMapWarmJobMock.mockReset().mockRejectedValue(new Error("redis down"));
+    const sleep = vi.fn(instantSleep);
+    const sandbox = fakeSandbox({ [HEAD_CMD]: [{ stream: "stdout", data: "abc123\n" }] });
+
+    const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets", { sleep });
+
+    expect(result).toBe("warmed by someone else");
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it("polls against the sha it actually resolved, not the default branch", async () => {
+    getRepoMapMock.mockReset().mockResolvedValue(undefined);
+    enqueueRepoMapWarmJobMock.mockReset().mockResolvedValue(undefined);
+    const sandbox = fakeSandbox({ [HEAD_CMD]: [{ stream: "stdout", data: "deadbeef\n" }] });
+
+    await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets", { sleep: instantSleep });
+
+    for (const call of getRepoMapMock.mock.calls) {
+      expect(call).toEqual([1, "acme/widgets", "deadbeef"]);
+    }
+  });
+
+  it("keeps the poll window and interval in a sane relationship", () => {
+    expect(CACHE_POLL_TIMEOUT_MS).toBeGreaterThan(CACHE_POLL_INTERVAL_MS);
+    expect(CACHE_POLL_TIMEOUT_MS % CACHE_POLL_INTERVAL_MS).toBe(0);
   });
 });
 

@@ -5,6 +5,24 @@ import { cloneIntoSandbox, resolveCloneTarget, resolveDefaultBranchSha } from ".
 
 const RESULT_MARKER = "__RESULT__";
 const MAX_CONTENT_LENGTH = 16384;
+// How long a cache miss waits for a warm job to land before giving up and running without a map.
+//
+// This is a partial, best-effort mitigation, not a fix for the race it was originally written
+// for. Generation is measured at 33-38s even on an 884KB repo — about as small as they get — so
+// a run with no head start (created and started back-to-back) will not catch a fresh generation
+// inside this window. On task T-070 the 17-second head start from warming at task creation plus
+// this poll happened to land inside the 33-38s range, but that is a coincidence of that specific
+// gap, not a general guarantee.
+//
+// The actual fix — an explicit wait-or-proceed choice surfaced at the moment a codebase is set,
+// so the user decides instead of a guessed constant — is tracked in
+// docs/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md. Once that ships for both
+// places a codebase can be set (task creation and the task edit page), this poll will be removed
+// in the same change, since there is no other path left for it to cover. Until then it stays as
+// a strictly-better-than-nothing chance of catching a warm that was already substantially
+// underway from an earlier trigger.
+export const CACHE_POLL_TIMEOUT_MS = 20_000;
+export const CACHE_POLL_INTERVAL_MS = 1_000;
 // Design spec's "its own short wall-clock cap (e.g. 2 minutes), independent of the triggering
 // run's budget" — a hung generation must not stall or fail the user's actual task.
 const GENERATION_TIMEOUT_MS = 2 * 60 * 1000;
@@ -70,17 +88,37 @@ export async function ensureRepoMap(
   sandboxId: string,
   orgId: number,
   repoFullName: string,
+  deps?: { sleep?: (ms: number) => Promise<void> },
 ): Promise<string> {
   try {
     const sha = await getSandboxHeadSha(sandboxProvider, sandboxId);
     const cached = await getRepoMap(orgId, repoFullName, sha);
+    // The overwhelmingly common path, and it must stay free: a run that already has a map pays
+    // nothing for the poll below.
     if (cached) return cached.content;
 
     // Best-effort, and awaited only for the Redis round trip (single-digit ms) — never for the
-    // generation itself. A failure to even enqueue must not fail the run that triggered it.
+    // generation itself. A failure to even enqueue must not fail the run that triggered it, and
+    // must not skip the poll either: the map may already be in flight from an earlier warm (task
+    // creation, a task marked done, an agent or team pointed at this codebase), which is exactly
+    // the case the poll exists to catch.
     await enqueueRepoMapWarmJob(orgId, repoFullName).catch((err: unknown) => {
       console.error(`Failed to schedule repo map generation for ${repoFullName}:`, err);
     });
+
+    // Counted attempts rather than a wall-clock deadline: the loop is then deterministic, and a
+    // test can inject an instant sleep without the loop spinning until 20 real seconds elapse.
+    const sleep = deps?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    const attempts = Math.floor(CACHE_POLL_TIMEOUT_MS / CACHE_POLL_INTERVAL_MS);
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      await sleep(CACHE_POLL_INTERVAL_MS);
+      const warmed = await getRepoMap(orgId, repoFullName, sha);
+      if (warmed) {
+        console.log(`Repo map for ${repoFullName}@${sha} landed after ${attempt * CACHE_POLL_INTERVAL_MS}ms of polling`);
+        return warmed.content;
+      }
+    }
+    console.log(`Repo map for ${repoFullName}@${sha} did not land within ${CACHE_POLL_TIMEOUT_MS}ms; running without it`);
     return "";
   } catch (err) {
     console.error("Repo map operation failed:", err);
