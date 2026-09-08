@@ -183,6 +183,13 @@
       "when": 1788277709224,
       "tag": "0025_wakeful_scarlet_witch",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1788897535913,
+      "tag": "0026_cultured_molly_hayes",
+      "breakpoints": true
     }
   ]
 }

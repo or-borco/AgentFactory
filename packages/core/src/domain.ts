@@ -274,6 +274,10 @@ export interface Run {
   status: RunStatus;
   triggeringMessageId?: ID;
   providerSessionRef?: string;
+  // The session's sandboxId at the moment providerSessionRef was recorded — see the schema
+  // column's own comment (packages/db/src/schema.ts) for why this, not a per-run before/after
+  // snapshot, is the correct way to know whether a later run may still resume this ref.
+  sandboxId?: string;
   promptHash?: string;
   costUsd: number;
   tokensUsed: number;
@@ -307,11 +311,11 @@ export type PromptOmissionReason =
   // ran at all — distinct from no_team (still used by the team_context/Layer-1 segment, where
   // "no team" alone is a complete and accurate reason).
   | "no_context_sources"
-  // Prior-conversation segment only: the session's sandbox wasn't recreated this run, so resume
-  // was used normally and this segment doesn't apply.
-  | "sandbox_not_recreated"
-  // Prior-conversation segment only: the sandbox was recreated, but this is the session's
-  // first-ever run, so there's no message history yet to reconstruct.
+  // Prior-conversation segment only: the run's own sandboxId matched the sandbox recorded
+  // alongside the ref it's resuming, so resume was used normally and this segment doesn't apply.
+  | "resume_valid"
+  // Prior-conversation segment only: resume wasn't valid, but this is the session's first-ever
+  // run (or no run has ever recorded a ref), so there's no message history yet to reconstruct.
   | "no_prior_conversation";
 
 // One layer of a run's composed system prompt. Invariant (tested in

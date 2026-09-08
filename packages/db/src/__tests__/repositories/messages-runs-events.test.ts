@@ -7,7 +7,7 @@ import { createEvent, listEventsForSession } from "../../repositories/events.js"
 import { createMessage, getFinalAssistantMessageForRun, getMessage, listMessages } from "../../repositories/messages.js";
 import {
   createRun,
-  getLatestProviderSessionRef,
+  getLatestResumeCandidate,
   getRun,
   getRunPrompt,
   updateRunCommitRange,
@@ -81,25 +81,49 @@ describe("runs repository", () => {
     const updated = await updateRunStatus(run.id, "done", {
       finishedAt: new Date(),
       providerSessionRef: "provider-ref-1",
+      sandboxId: "sandbox-1",
     });
 
-    expect(updated).toMatchObject({ status: "done", providerSessionRef: "provider-ref-1" });
+    expect(updated).toMatchObject({ status: "done", providerSessionRef: "provider-ref-1", sandboxId: "sandbox-1" });
     await expect(getRun(run.id)).resolves.toMatchObject({ status: "done" });
   });
 
-  it("finds the latest completed run's provider session ref, excluding the current run", async () => {
+  it("finds the latest completed run's provider session ref and the sandbox it was recorded against", async () => {
     const session = await setupSession();
     const run1 = await createRun(session.id);
-    await updateRunStatus(run1.id, "done", { providerSessionRef: "ref-1" });
+    await updateRunStatus(run1.id, "done", { providerSessionRef: "ref-1", sandboxId: "sandbox-1" });
     const run2 = await createRun(session.id);
 
-    await expect(getLatestProviderSessionRef(session.id, run2.id)).resolves.toBe("ref-1");
+    await expect(getLatestResumeCandidate(session.id, run2.id)).resolves.toEqual({
+      providerSessionRef: "ref-1",
+      sandboxId: "sandbox-1",
+    });
   });
 
   it("returns undefined when no other run has a provider session ref", async () => {
     const session = await setupSession();
     const run = await createRun(session.id);
-    await expect(getLatestProviderSessionRef(session.id, run.id)).resolves.toBeUndefined();
+    await expect(getLatestResumeCandidate(session.id, run.id)).resolves.toBeUndefined();
+  });
+
+  // The regression this repository function exists to fix: a run's own providerSessionRef can
+  // predate this column (sandboxId undefined) or can have been recorded against a sandbox that
+  // has since been torn down and replaced — the caller (worker.ts) is the one that compares this
+  // against the session's CURRENT sandboxId, but this function must faithfully return whatever
+  // was actually recorded, including "no sandboxId at all", rather than silently coercing it to
+  // something that would accidentally compare as valid.
+  it("returns sandboxId as undefined for a run recorded before that column existed", async () => {
+    const session = await setupSession();
+    const run1 = await createRun(session.id);
+    // No sandboxId in the patch — simulates a historical row, or a run whose provider session
+    // ref was set without one for any other reason.
+    await updateRunStatus(run1.id, "done", { providerSessionRef: "ref-1" });
+    const run2 = await createRun(session.id);
+
+    await expect(getLatestResumeCandidate(session.id, run2.id)).resolves.toEqual({
+      providerSessionRef: "ref-1",
+      sandboxId: undefined,
+    });
   });
 
   it("round-trips the commit range a run pushed", async () => {

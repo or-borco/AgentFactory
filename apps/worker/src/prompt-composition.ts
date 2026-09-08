@@ -198,16 +198,17 @@ export function formatPriorConversationForPrompt(messages: ChatMessage[], exclud
   );
 }
 
-// sandboxWasRecreated distinguishes "resume was used normally, this segment doesn't apply"
-// (sandbox_not_recreated) from "sandbox was recreated but there's no history yet" — the
-// session's first-ever run — (no_prior_conversation). Both render as omitted, but for different,
-// auditable reasons, matching the existing pattern for team_context/repo_map.
-export function buildPriorConversationSegment(sandboxWasRecreated: boolean, formatted: string): PromptSegment {
+// resumeIsValid distinguishes "resume was used normally, this segment doesn't apply"
+// (resume_valid) from "resume wasn't valid but there's no history yet" — the session's
+// first-ever run, or no run has ever recorded a ref — (no_prior_conversation). Both render as
+// omitted, but for different, auditable reasons, matching the existing pattern for
+// team_context/repo_map.
+export function buildPriorConversationSegment(resumeIsValid: boolean, formatted: string): PromptSegment {
   if (formatted) return { id: "prior_conversation", text: formatted };
   return {
     id: "prior_conversation",
     text: "",
-    omittedReason: sandboxWasRecreated ? "no_prior_conversation" : "sandbox_not_recreated",
+    omittedReason: resumeIsValid ? "resume_valid" : "no_prior_conversation",
   };
 }
 

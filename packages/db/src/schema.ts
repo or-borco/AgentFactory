@@ -226,6 +226,16 @@ export const runs = pgTable("runs", {
   // ("provider session IDs live in runs.provider_session_ref, never in business logic").
   // Cheap to add now, avoids a migration later.
   providerSessionRef: text("provider_session_ref"),
+  // The session's sandboxId at the moment providerSessionRef was recorded — resume state lives
+  // in that specific container's filesystem, not server-side, so a later run may only resume
+  // this ref if the session's CURRENT sandboxId still matches. Comparing against a snapshot
+  // taken once per run (before vs. after that run's own ensureSandbox call) is not equivalent:
+  // it only detects a recreation happening during that one run, not one that already happened
+  // before it started and has since gone unnoticed across several failed runs in a row — see
+  // docs/superpowers/specs/2026-09-08-session-context-reconstruction-design.md and its
+  // follow-up fix. Null for runs that predate this column, which correctly never matches any
+  // real sandboxId and so is always treated as "resume unsafe" — exactly the right default.
+  sandboxId: text("sandbox_id"),
   promptHash: text("prompt_hash"),
   costUsd: doublePrecision("cost_usd").notNull().default(0),
   tokensUsed: integer("tokens_used").notNull().default(0),

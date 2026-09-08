@@ -19,6 +19,7 @@ const RUN_COLUMNS = {
   status: runs.status,
   triggeringMessageId: runs.triggeringMessageId,
   providerSessionRef: runs.providerSessionRef,
+  sandboxId: runs.sandboxId,
   promptHash: runs.promptHash,
   costUsd: runs.costUsd,
   tokensUsed: runs.tokensUsed,
@@ -37,6 +38,7 @@ function toRun(row: RunRow): Run {
     status: row.status,
     triggeringMessageId: row.triggeringMessageId ?? undefined,
     providerSessionRef: row.providerSessionRef ?? undefined,
+    sandboxId: row.sandboxId ?? undefined,
     promptHash: row.promptHash ?? undefined,
     costUsd: row.costUsd,
     tokensUsed: row.tokensUsed,
@@ -100,6 +102,7 @@ export async function updateRunStatus(
   patch?: {
     finishedAt?: Date;
     providerSessionRef?: string;
+    sandboxId?: string;
     model?: ModelSpec;
     promptHash?: string;
     promptSegments?: PromptSegment[];
@@ -108,6 +111,7 @@ export async function updateRunStatus(
   const values: Partial<typeof runs.$inferInsert> = { status };
   if (patch?.finishedAt !== undefined) values.finishedAt = patch.finishedAt;
   if (patch?.providerSessionRef !== undefined) values.providerSessionRef = patch.providerSessionRef;
+  if (patch?.sandboxId !== undefined) values.sandboxId = patch.sandboxId;
   if (patch?.model !== undefined) values.model = patch.model;
   if (patch?.promptHash !== undefined) values.promptHash = patch.promptHash;
   if (patch?.promptSegments !== undefined) values.promptSegments = patch.promptSegments;
@@ -116,21 +120,36 @@ export async function updateRunStatus(
   return row ? toRun(row) : undefined;
 }
 
-// Finds the provider session to resume from: the most recent other run on this
-// session that actually completed a provider turn. Postgres stays the source of
-// truth for "what should this run resume from" — per ARCHITECTURE.md §1 rule 3,
-// provider session refs live on runs, never carried in queue/business logic.
-export async function getLatestProviderSessionRef(
+export interface ResumeCandidate {
+  providerSessionRef: string;
+  // The sandboxId active when this ref was recorded — undefined for a run that predates this
+  // column, which correctly never matches any real sandboxId (see the schema column's comment).
+  sandboxId?: string;
+}
+
+// Finds the provider session a run *might* resume from: the most recent other run on this
+// session that actually completed a provider turn. Postgres stays the source of truth for
+// "what should this run resume from" — per ARCHITECTURE.md §1 rule 3, provider session refs
+// live on runs, never carried in queue/business logic.
+//
+// Returning sandboxId alongside the ref (not just the ref) is the fix, not a nice-to-have:
+// resume state lives in a specific sandbox container's filesystem, not server-side, so the
+// caller must compare this sandboxId against the session's CURRENT one before trusting the ref
+// — a mismatch found on some EARLIER run (one recreation ago, or several) is just as fatal to
+// resume as one found on this run, and only this comparison catches that; a per-run snapshot of
+// "did the sandbox change during this one call" cannot.
+export async function getLatestResumeCandidate(
   sessionId: number,
   excludeRunId: number,
-): Promise<string | undefined> {
+): Promise<ResumeCandidate | undefined> {
   const [row] = await db
-    .select({ providerSessionRef: runs.providerSessionRef })
+    .select({ providerSessionRef: runs.providerSessionRef, sandboxId: runs.sandboxId })
     .from(runs)
     .where(and(eq(runs.sessionId, sessionId), ne(runs.id, excludeRunId), isNotNull(runs.providerSessionRef)))
     .orderBy(desc(runs.createdAt))
     .limit(1);
-  return row?.providerSessionRef ?? undefined;
+  if (!row?.providerSessionRef) return undefined;
+  return { providerSessionRef: row.providerSessionRef, sandboxId: row.sandboxId ?? undefined };
 }
 
 // The Context tab's read. Selects ONLY the prompt columns — never the full row —
