@@ -22,7 +22,7 @@ import {
   createEvent,
   createMessage,
   getAgent,
-  getLatestProviderSessionRef,
+  getLatestResumeCandidate,
   getMessage,
   getRun,
   getSession,
@@ -128,14 +128,7 @@ const runWorker = new Worker<RunJobData>(
       if (!session || !agent) throw new Error(`Run ${runId} has no session/agent to work with`);
 
       await updateRunStatus(runId, "provisioning");
-      // Captured before ensureSandbox so we can tell whether it reused the existing container or
-      // had to provision a fresh one — see docs/superpowers/specs/2026-09-08-session-context-
-      // reconstruction-design.md. A session has exactly one sandbox at a time, so this comparison
-      // alone is enough to know: recreated means whatever resume state the old container held
-      // (including any providerSessionRef pointing at it) no longer exists anywhere.
-      const hadSandboxId = session.sandboxId;
       const sandboxId = await ensureSandbox(session);
-      const sandboxWasRecreated = sandboxId !== hadSandboxId;
       // Shrink back to base before this run starts — a sandbox that grew to handle a heavy
       // task on a prior run shouldn't keep that cap for this one (see docker-sandbox-provider.ts).
       await sandboxProvider.resetMemory(sandboxId);
@@ -144,14 +137,22 @@ const runWorker = new Worker<RunJobData>(
       await updateRunStatus(runId, "running");
 
       const triggeringMessage = run.triggeringMessageId ? await getMessage(run.triggeringMessageId) : undefined;
-      // Resume is only valid if this session's sandbox has been continuously alive since the ref
-      // was recorded — resume state lives in that container's filesystem, not server-side. When
-      // it was just recreated, skip resume entirely and reconstruct from message history instead
-      // of attempting (and failing) to resume a conversation that no longer exists anywhere.
-      const resumeSessionRef = sandboxWasRecreated ? undefined : await getLatestProviderSessionRef(session.id, runId);
-      const priorConversationText = sandboxWasRecreated
-        ? formatPriorConversationForPrompt(await listMessages(session.id), run.triggeringMessageId ?? -1)
-        : "";
+      // Resume is only valid if the CURRENT sandbox is the one the candidate ref was actually
+      // recorded against — comparing sandboxId snapshots taken before/after just THIS run's own
+      // ensureSandbox call is not equivalent and was the bug: it only catches a recreation that
+      // happens during this specific run, not one that already happened before it started (e.g.
+      // an earlier run already recreated the sandbox and then failed before recording a new ref,
+      // so every run since has been silently attempting to resume a ref from a sandbox that's
+      // long gone — see docs/superpowers/specs/2026-09-08-session-context-reconstruction-
+      // design.md and its follow-up fix). When invalid, skip resume entirely and reconstruct
+      // from message history instead of attempting (and failing) to resume a conversation that
+      // no longer exists anywhere.
+      const resumeCandidate = await getLatestResumeCandidate(session.id, runId);
+      const resumeIsValid = resumeCandidate !== undefined && resumeCandidate.sandboxId === sandboxId;
+      const resumeSessionRef = resumeIsValid ? resumeCandidate.providerSessionRef : undefined;
+      const priorConversationText = resumeIsValid
+        ? ""
+        : formatPriorConversationForPrompt(await listMessages(session.id), run.triggeringMessageId ?? -1);
 
       const task = await getTaskBySessionId(session.id);
       let workspace: CloneTarget | undefined;
@@ -271,7 +272,7 @@ const runWorker = new Worker<RunJobData>(
             );
       const composed = composeSystemPrompt(
         environment,
-        buildPriorConversationSegment(sandboxWasRecreated, priorConversationText),
+        buildPriorConversationSegment(resumeIsValid, priorConversationText),
         buildTeamContextSegment(Boolean(team), teamContextPrefix),
         buildRepoMapSegment(Boolean(task?.codebase), repoMap),
         retrievedContextSegment,
@@ -414,7 +415,12 @@ const runWorker = new Worker<RunJobData>(
       }
       mark("finalize");
 
-      await updateRunStatus(runId, "done", { finishedAt: new Date(), providerSessionRef, model: attemptModel });
+      await updateRunStatus(runId, "done", {
+        finishedAt: new Date(),
+        providerSessionRef,
+        sandboxId,
+        model: attemptModel,
+      });
       await touchSessionActivity(session.id);
     } catch (err) {
       console.error(`Run ${runId} failed:`, err);

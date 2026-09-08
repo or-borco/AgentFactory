@@ -135,14 +135,14 @@ describe("composeSystemPrompt", () => {
   it("passes the caller's omission reasons through and never marks unconditional segments omitted", () => {
     const { segments } = composeSystemPrompt(
       "",
-      { id: "prior_conversation", text: "", omittedReason: "sandbox_not_recreated" },
+      { id: "prior_conversation", text: "", omittedReason: "resume_valid" },
       { id: "team_context", text: "", omittedReason: "no_team" },
       { id: "repo_map", text: "", omittedReason: "no_codebase" },
       { id: "retrieved_context", text: "", omittedReason: "retrieval_failed" },
       "You are a reviewer.",
     );
     const byId = new Map(segments.map((s) => [s.id, s]));
-    expect(byId.get("prior_conversation")?.omittedReason).toBe("sandbox_not_recreated");
+    expect(byId.get("prior_conversation")?.omittedReason).toBe("resume_valid");
     expect(byId.get("team_context")?.omittedReason).toBe("no_team");
     expect(byId.get("repo_map")?.omittedReason).toBe("no_codebase");
     expect(byId.get("retrieved_context")?.omittedReason).toBe("retrieval_failed");
@@ -212,13 +212,13 @@ describe("segment builders", () => {
     expect(buildRetrievedContextSegment(true, false, "").omittedReason).toBe("no_indexed_documents");
   });
 
-  it("buildPriorConversationSegment distinguishes a run that didn't need reconstruction from one with nothing to reconstruct", () => {
-    expect(buildPriorConversationSegment(false, "")).toEqual({
+  it("buildPriorConversationSegment distinguishes a valid resume from one with nothing to reconstruct", () => {
+    expect(buildPriorConversationSegment(true, "")).toEqual({
       id: "prior_conversation",
       text: "",
-      omittedReason: "sandbox_not_recreated",
+      omittedReason: "resume_valid",
     });
-    expect(buildPriorConversationSegment(true, "")).toEqual({
+    expect(buildPriorConversationSegment(false, "")).toEqual({
       id: "prior_conversation",
       text: "",
       omittedReason: "no_prior_conversation",
