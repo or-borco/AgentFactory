@@ -1,19 +1,29 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import type { PromptSegment } from "@agentfactory/core";
+import type { ChatMessage, PromptSegment } from "@agentfactory/core";
 import {
   PLATFORM_PREAMBLE,
+  buildPriorConversationSegment,
   buildRepoMapSegment,
   buildRetrievedContextSegment,
   buildTeamContextSegment,
   composeSystemPrompt,
   formatEnvironmentForPrompt,
+  formatPriorConversationForPrompt,
   hashPrompt,
 } from "../prompt-composition";
 
 const teamSeg = (text: string): PromptSegment => ({ id: "team_context", text });
 const repoSeg = (text: string): PromptSegment => ({ id: "repo_map", text });
 const retrievedSeg = (text: string): PromptSegment => ({ id: "retrieved_context", text });
+const priorSeg = (text: string): PromptSegment => ({ id: "prior_conversation", text });
+const chatMessage = (id: number, role: "user" | "assistant", content: string): ChatMessage => ({
+  id,
+  sessionId: 1,
+  role,
+  content,
+  createdAt: new Date(2026, 0, 1, 0, 0, id).toISOString(),
+});
 
 describe("composeSystemPrompt", () => {
   // Human-authored instruction layers (team context, agent prompt) must come AFTER the
@@ -22,9 +32,10 @@ describe("composeSystemPrompt", () => {
   // the map between them, produced fully-compliant output 1/10 vs 10/10 for this one. Retrieved
   // excerpts are human-written prose but machine-SELECTED bulk, and more task-specific than the
   // repo map, so they sit after the map and before team context.
-  it("orders preamble, environment, repo map, retrieved context, team context, agent system prompt", () => {
+  it("orders preamble, environment, prior conversation, repo map, retrieved context, team context, agent system prompt", () => {
     const { prompt } = composeSystemPrompt(
       "## Environment\n\nCheckout is at /workspace.\n\n---\n\n",
+      priorSeg("## Prior Conversation\n\nUser: what happened before?\n\n---\n\n"),
       teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
       repoSeg("## Repo Map\n\nThis is a monorepo.\n\n---\n\n"),
       retrievedSeg("## Retrieved Context\n\nPage the on-call.\n\n---\n\n"),
@@ -33,6 +44,7 @@ describe("composeSystemPrompt", () => {
 
     const preambleIndex = prompt.indexOf(PLATFORM_PREAMBLE);
     const environmentIndex = prompt.indexOf("Checkout is at /workspace.");
+    const priorIndex = prompt.indexOf("what happened before?");
     const repoMapIndex = prompt.indexOf("This is a monorepo.");
     const retrievedIndex = prompt.indexOf("Page the on-call.");
     const teamIndex = prompt.indexOf("Use pnpm.");
@@ -40,20 +52,29 @@ describe("composeSystemPrompt", () => {
 
     expect(preambleIndex).toBe(0);
     expect(environmentIndex).toBeGreaterThan(preambleIndex);
-    expect(repoMapIndex).toBeGreaterThan(environmentIndex);
+    expect(priorIndex).toBeGreaterThan(environmentIndex);
+    expect(repoMapIndex).toBeGreaterThan(priorIndex);
     expect(retrievedIndex).toBeGreaterThan(repoMapIndex);
     expect(teamIndex).toBeGreaterThan(retrievedIndex);
     expect(agentIndex).toBeGreaterThan(teamIndex);
   });
 
   it("still leads with the platform preamble when every optional section is empty", () => {
-    const { prompt } = composeSystemPrompt("", teamSeg(""), repoSeg(""), retrievedSeg(""), "You are a reviewer.");
+    const { prompt } = composeSystemPrompt(
+      "",
+      priorSeg(""),
+      teamSeg(""),
+      repoSeg(""),
+      retrievedSeg(""),
+      "You are a reviewer.",
+    );
     expect(prompt).toBe(PLATFORM_PREAMBLE + "You are a reviewer.");
   });
 
   it("omits the repo map and retrieved context cleanly, leaving team context adjacent to the agent prompt", () => {
     const { prompt } = composeSystemPrompt(
       "",
+      priorSeg(""),
       teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
       repoSeg(""),
       retrievedSeg(""),
@@ -68,6 +89,7 @@ describe("composeSystemPrompt", () => {
   it("never separates team context from the agent's own prompt with generated or retrieved bulk", () => {
     const { prompt } = composeSystemPrompt(
       "## Environment\n\n---\n\n",
+      priorSeg(""),
       teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
       repoSeg("## Repo Map\n\nGENERATED-BULK\n\n---\n\n"),
       retrievedSeg("## Retrieved Context\n\nRETRIEVED-BULK\n\n---\n\n"),
@@ -89,11 +111,19 @@ describe("composeSystemPrompt", () => {
       { team: teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"), repo: repoSeg(""), retrieved: { id: "retrieved_context", text: "", omittedReason: "no_relevant_chunks" as const } },
     ];
     for (const c of cases) {
-      const { segments, prompt } = composeSystemPrompt("## Environment\n\n---\n\n", c.team, c.repo, c.retrieved, "You are a reviewer.");
+      const { segments, prompt } = composeSystemPrompt(
+        "## Environment\n\n---\n\n",
+        priorSeg(""),
+        c.team,
+        c.repo,
+        c.retrieved,
+        "You are a reviewer.",
+      );
       expect(segments.map((s) => s.text).join("")).toBe(prompt);
       expect(segments.map((s) => s.id)).toEqual([
         "platform_preamble",
         "environment",
+        "prior_conversation",
         "repo_map",
         "retrieved_context",
         "team_context",
@@ -105,12 +135,14 @@ describe("composeSystemPrompt", () => {
   it("passes the caller's omission reasons through and never marks unconditional segments omitted", () => {
     const { segments } = composeSystemPrompt(
       "",
+      { id: "prior_conversation", text: "", omittedReason: "sandbox_not_recreated" },
       { id: "team_context", text: "", omittedReason: "no_team" },
       { id: "repo_map", text: "", omittedReason: "no_codebase" },
       { id: "retrieved_context", text: "", omittedReason: "retrieval_failed" },
       "You are a reviewer.",
     );
     const byId = new Map(segments.map((s) => [s.id, s]));
+    expect(byId.get("prior_conversation")?.omittedReason).toBe("sandbox_not_recreated");
     expect(byId.get("team_context")?.omittedReason).toBe("no_team");
     expect(byId.get("repo_map")?.omittedReason).toBe("no_codebase");
     expect(byId.get("retrieved_context")?.omittedReason).toBe("retrieval_failed");
@@ -178,6 +210,84 @@ describe("segment builders", () => {
     // hasSource = Boolean(team) || Boolean(task) — a teamless task with its own documents still
     // passes true here even though there is no team at all.
     expect(buildRetrievedContextSegment(true, false, "").omittedReason).toBe("no_indexed_documents");
+  });
+
+  it("buildPriorConversationSegment distinguishes a run that didn't need reconstruction from one with nothing to reconstruct", () => {
+    expect(buildPriorConversationSegment(false, "")).toEqual({
+      id: "prior_conversation",
+      text: "",
+      omittedReason: "sandbox_not_recreated",
+    });
+    expect(buildPriorConversationSegment(true, "")).toEqual({
+      id: "prior_conversation",
+      text: "",
+      omittedReason: "no_prior_conversation",
+    });
+  });
+
+  it("buildPriorConversationSegment passes formatted history through unchanged regardless of the flag", () => {
+    const formatted = "## Prior Conversation\n\nUser: hi\n\n---\n\n";
+    expect(buildPriorConversationSegment(true, formatted)).toEqual({ id: "prior_conversation", text: formatted });
+  });
+});
+
+describe("formatPriorConversationForPrompt", () => {
+  it("returns empty when there is no history besides the triggering message", () => {
+    expect(formatPriorConversationForPrompt([chatMessage(1, "user", "do the thing")], 1)).toBe("");
+    expect(formatPriorConversationForPrompt([], 1)).toBe("");
+  });
+
+  it("excludes the triggering message and includes the rest, oldest first", () => {
+    const messages = [
+      chatMessage(1, "user", "first ask"),
+      chatMessage(2, "assistant", "first answer"),
+      chatMessage(3, "user", "this run's message"),
+    ];
+    const result = formatPriorConversationForPrompt(messages, 3);
+
+    expect(result).toContain("User: first ask");
+    expect(result).toContain("Assistant: first answer");
+    expect(result).not.toContain("this run's message");
+    expect(result.indexOf("first ask")).toBeLessThan(result.indexOf("first answer"));
+  });
+
+  it("wraps with a heading and trailing separator, matching the other segments' convention", () => {
+    const result = formatPriorConversationForPrompt(
+      [chatMessage(1, "user", "hi"), chatMessage(2, "assistant", "hello"), chatMessage(3, "user", "trigger")],
+      3,
+    );
+    expect(result).toMatch(/^## Prior Conversation/);
+    expect(result).toMatch(/\n\n---\n\n$/);
+  });
+
+  // The load-bearing truncation property: given a budget too small for the full history, the
+  // MOST RECENT turns survive and the OLDEST are dropped — the model needs to know what just
+  // happened more than it needs the earliest turns, which is the whole reason this function
+  // walks newest-first rather than truncating from the end of a chronological pass.
+  it("keeps the most recent messages and drops the oldest when the history exceeds the byte budget", () => {
+    // 12 KB each: the newest two together (~24.6 KB) fit under the 32 KB budget, but adding the
+    // oldest third would push the total past it (~36.9 KB) — so exactly the oldest is dropped.
+    const big = "x".repeat(12 * 1024);
+    const messages = [
+      chatMessage(1, "user", `oldest-${big}`),
+      chatMessage(2, "assistant", `middle-${big}`),
+      chatMessage(3, "user", `newest-${big}`),
+      chatMessage(4, "assistant", "trigger-response placeholder"),
+    ];
+    const result = formatPriorConversationForPrompt(messages, 4);
+
+    expect(result).toContain("newest-");
+    expect(result).toContain("middle-");
+    expect(result).not.toContain("oldest-");
+    expect(result).toContain("[earlier messages omitted for length]");
+  });
+
+  it("carries no trim note when everything fits inside the budget", () => {
+    const result = formatPriorConversationForPrompt(
+      [chatMessage(1, "user", "short"), chatMessage(2, "assistant", "also short"), chatMessage(3, "user", "trigger")],
+      3,
+    );
+    expect(result).not.toContain("[earlier messages omitted for length]");
   });
 });
 
