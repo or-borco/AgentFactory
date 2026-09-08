@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { PromptSegment } from "@agentfactory/core";
+import type { ChatMessage, PromptSegment } from "@agentfactory/core";
 import { TASK_DOCUMENT_DIR } from "./task-document-paths";
 
 // ARCHITECTURE.md §3: the platform, not the SDK, owns prompt assembly so team context and
@@ -157,12 +157,69 @@ export function buildRetrievedContextSegment(
   return { id: "retrieved_context", text: "", omittedReason: "no_relevant_chunks" };
 }
 
+const PRIOR_CONVERSATION_BUDGET_BYTES = 32 * 1024;
+
+// Reconstructs enough prior-turn context for the model to continue coherently when a session's
+// sandbox has been recreated (docs/superpowers/specs/2026-09-08-session-context-reconstruction-
+// design.md) and `resume` can no longer work — the Claude Agent SDK's resume state lives in the
+// old, now-destroyed container's filesystem, not server-side. `excludeMessageId` is this run's
+// own triggering message: it's sent as `userText` the normal way, so including it here too would
+// just duplicate it.
+//
+// Walks messages newest-first accumulating against the byte budget, then reverses back to
+// chronological order — the most recent turns are what the model most needs to pick up where it
+// left off, so they're the ones guaranteed to survive truncation, not the oldest. `messages` is
+// assumed chronological (oldest first), matching listMessages's contract.
+export function formatPriorConversationForPrompt(messages: ChatMessage[], excludeMessageId: number): string {
+  const relevant = messages.filter((m) => m.id !== excludeMessageId);
+  if (relevant.length === 0) return "";
+
+  const kept: ChatMessage[] = [];
+  let bytes = 0;
+  let truncated = false;
+  for (let i = relevant.length - 1; i >= 0; i--) {
+    const message = relevant[i];
+    const line = `${message.role === "user" ? "User" : "Assistant"}: ${message.content}\n\n`;
+    const lineBytes = Buffer.byteLength(line, "utf8");
+    if (bytes + lineBytes > PRIOR_CONVERSATION_BUDGET_BYTES) {
+      truncated = true;
+      break;
+    }
+    kept.unshift(message);
+    bytes += lineBytes;
+  }
+  if (kept.length === 0) return "";
+
+  const body = kept.map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n");
+  const trimNote = truncated ? "\n\n[earlier messages omitted for length]" : "";
+  return (
+    "## Prior Conversation (reconstructed — the sandbox that held this conversation's state was " +
+    `reclaimed; this is the message history so far)\n\n${body}${trimNote}\n\n---\n\n`
+  );
+}
+
+// sandboxWasRecreated distinguishes "resume was used normally, this segment doesn't apply"
+// (sandbox_not_recreated) from "sandbox was recreated but there's no history yet" — the
+// session's first-ever run — (no_prior_conversation). Both render as omitted, but for different,
+// auditable reasons, matching the existing pattern for team_context/repo_map.
+export function buildPriorConversationSegment(sandboxWasRecreated: boolean, formatted: string): PromptSegment {
+  if (formatted) return { id: "prior_conversation", text: formatted };
+  return {
+    id: "prior_conversation",
+    text: "",
+    omittedReason: sandboxWasRecreated ? "no_prior_conversation" : "sandbox_not_recreated",
+  };
+}
+
 // Order per ARCHITECTURE.md §3, narrowed to this repo's actual scope: no skills index yet. Three
 // rules decide the arrangement:
 //
 // 1. Platform-authored constraints lead. The preamble and the environment brief describe hard
 //    facts about the sandbox, so they must not read as something team context or the agent's
-//    own prompt could override.
+//    own prompt could override. priorConversation sits right after environment for the same
+//    reason: it's platform-observable fact about what already happened (not a team-authored
+//    instruction, not machine-selected reference material), read in light of the environment
+//    facts that precede it, not the reverse.
 // 2. Human-authored instructions go LAST, with machine-generated reference material before
 //    them. The repo map is descriptive bulk (capped at 16 KB, routinely 60-70% of the whole
 //    prompt); team context and the agent's system prompt are what a human actually wrote and
@@ -195,6 +252,7 @@ export function buildRetrievedContextSegment(
 // the stored record cannot drift from the sent string.
 export function composeSystemPrompt(
   environment: string,
+  priorConversation: PromptSegment,
   teamContext: PromptSegment,
   repoMap: PromptSegment,
   retrievedContext: PromptSegment,
@@ -203,6 +261,7 @@ export function composeSystemPrompt(
   const segments: PromptSegment[] = [
     { id: "platform_preamble", text: PLATFORM_PREAMBLE },
     { id: "environment", text: environment },
+    priorConversation,
     repoMap,
     retrievedContext,
     teamContext,

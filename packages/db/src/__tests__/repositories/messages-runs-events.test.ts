@@ -31,6 +31,19 @@ describe("messages repository", () => {
     await expect(listMessages(session.id)).resolves.toEqual([message]);
   });
 
+  // No prior test asserted ordering at all (just presence/length) — this was a real gap: without
+  // an explicit ORDER BY, row order isn't guaranteed by Postgres, and callers like session context
+  // reconstruction (docs/superpowers/specs/2026-09-08-session-context-reconstruction-design.md)
+  // depend on chronological order to know which messages are "most recent" for truncation.
+  it("lists messages chronologically, oldest first", async () => {
+    const session = await setupSession();
+    const first = await createMessage(session.id, "user", "first");
+    const second = await createMessage(session.id, "assistant", "second");
+    const third = await createMessage(session.id, "user", "third");
+
+    await expect(listMessages(session.id)).resolves.toEqual([first, second, third]);
+  });
+
   it("links an assistant message to the run that produced it", async () => {
     const session = await setupSession();
     const userMessage = await createMessage(session.id, "user", "Please review PR 1234");

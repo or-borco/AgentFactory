@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import type { ChatMessage } from "@agentfactory/core";
 import { db } from "../client";
 import { messages } from "../schema";
@@ -14,8 +14,12 @@ function toChatMessage(row: typeof messages.$inferSelect): ChatMessage {
   };
 }
 
+// Chronological (oldest first) — callers rely on this for display order and for reconstructing
+// conversation history, not just for showing rows in *some* order. `id`, not `createdAt`: an
+// auto-increment column can't collide at the same millisecond the way two inserts in the same
+// transaction tick could.
 export async function listMessages(sessionId: number): Promise<ChatMessage[]> {
-  const rows = await db.select().from(messages).where(eq(messages.sessionId, sessionId));
+  const rows = await db.select().from(messages).where(eq(messages.sessionId, sessionId)).orderBy(asc(messages.id));
   return rows.map(toChatMessage);
 }
 

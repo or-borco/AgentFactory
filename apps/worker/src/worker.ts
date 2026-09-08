@@ -30,6 +30,7 @@ import {
   getTeamForOrg,
   hasNonTerminalRun,
   insertRunContextRetrievals,
+  listMessages,
   setSessionSandboxId,
   touchSessionActivity,
   updateRunCommitRange,
@@ -41,11 +42,13 @@ import { SANDBOX_REAP_INTERVAL_MS, scanForIdleSandboxes } from "./sandbox-reap";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { type AgentTurnResult, InsufficientCreditError, PromptTooLongError, runAgentTurn } from "./agent-runtime";
 import {
+  buildPriorConversationSegment,
   buildRepoMapSegment,
   buildRetrievedContextSegment,
   buildTeamContextSegment,
   composeSystemPrompt,
   formatEnvironmentForPrompt,
+  formatPriorConversationForPrompt,
   hashPrompt,
 } from "./prompt-composition";
 import {
@@ -125,7 +128,14 @@ const runWorker = new Worker<RunJobData>(
       if (!session || !agent) throw new Error(`Run ${runId} has no session/agent to work with`);
 
       await updateRunStatus(runId, "provisioning");
+      // Captured before ensureSandbox so we can tell whether it reused the existing container or
+      // had to provision a fresh one — see docs/superpowers/specs/2026-09-08-session-context-
+      // reconstruction-design.md. A session has exactly one sandbox at a time, so this comparison
+      // alone is enough to know: recreated means whatever resume state the old container held
+      // (including any providerSessionRef pointing at it) no longer exists anywhere.
+      const hadSandboxId = session.sandboxId;
       const sandboxId = await ensureSandbox(session);
+      const sandboxWasRecreated = sandboxId !== hadSandboxId;
       // Shrink back to base before this run starts — a sandbox that grew to handle a heavy
       // task on a prior run shouldn't keep that cap for this one (see docker-sandbox-provider.ts).
       await sandboxProvider.resetMemory(sandboxId);
@@ -134,7 +144,14 @@ const runWorker = new Worker<RunJobData>(
       await updateRunStatus(runId, "running");
 
       const triggeringMessage = run.triggeringMessageId ? await getMessage(run.triggeringMessageId) : undefined;
-      const resumeSessionRef = await getLatestProviderSessionRef(session.id, runId);
+      // Resume is only valid if this session's sandbox has been continuously alive since the ref
+      // was recorded — resume state lives in that container's filesystem, not server-side. When
+      // it was just recreated, skip resume entirely and reconstruct from message history instead
+      // of attempting (and failing) to resume a conversation that no longer exists anywhere.
+      const resumeSessionRef = sandboxWasRecreated ? undefined : await getLatestProviderSessionRef(session.id, runId);
+      const priorConversationText = sandboxWasRecreated
+        ? formatPriorConversationForPrompt(await listMessages(session.id), run.triggeringMessageId ?? -1)
+        : "";
 
       const task = await getTaskBySessionId(session.id);
       let workspace: CloneTarget | undefined;
@@ -254,6 +271,7 @@ const runWorker = new Worker<RunJobData>(
             );
       const composed = composeSystemPrompt(
         environment,
+        buildPriorConversationSegment(sandboxWasRecreated, priorConversationText),
         buildTeamContextSegment(Boolean(team), teamContextPrefix),
         buildRepoMapSegment(Boolean(task?.codebase), repoMap),
         retrievedContextSegment,

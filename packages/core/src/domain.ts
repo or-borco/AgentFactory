@@ -306,7 +306,13 @@ export type PromptOmissionReason =
   // Retrieved context only: neither a team nor a task resolved for this run, so retrieval never
   // ran at all — distinct from no_team (still used by the team_context/Layer-1 segment, where
   // "no team" alone is a complete and accurate reason).
-  | "no_context_sources";
+  | "no_context_sources"
+  // Prior-conversation segment only: the session's sandbox wasn't recreated this run, so resume
+  // was used normally and this segment doesn't apply.
+  | "sandbox_not_recreated"
+  // Prior-conversation segment only: the sandbox was recreated, but this is the session's
+  // first-ever run, so there's no message history yet to reconstruct.
+  | "no_prior_conversation";
 
 // One layer of a run's composed system prompt. Invariant (tested in
 // prompt-composition.test.ts): joining segment texts in order reproduces the
