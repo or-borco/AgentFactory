@@ -88,6 +88,30 @@ describe("buildRetrievalQuery", () => {
   });
 });
 
+describe("selectWithinBudget — skipOversized", () => {
+  const chunk = (id: number, bytes: number) => ({ id, text: "x".repeat(bytes) });
+
+  // Run 27: 1,504 bytes kept of 2,048, and a 388-byte chunk that fit in the remaining 544 was
+  // dropped because the loop stopped at the first overflow.
+  it("keeps a later chunk that fits after skipping one that does not", () => {
+    const kept = selectWithinBudget([chunk(1, 400), chunk(2, 900), chunk(3, 80)], 500, true);
+    expect(kept.map((c) => c.id)).toEqual([1, 3]);
+  });
+
+  it("still stops at the first overflow by default, preserving the contiguous prefix", () => {
+    const kept = selectWithinBudget([chunk(1, 400), chunk(2, 900), chunk(3, 80)], 500);
+    expect(kept.map((c) => c.id)).toEqual([1]);
+  });
+
+  it("never exceeds the budget in either mode", () => {
+    for (const skip of [true, false]) {
+      const kept = selectWithinBudget([chunk(1, 400), chunk(2, 900), chunk(3, 80)], 500, skip);
+      const used = kept.reduce((sum, c) => sum + c.text.length, 0);
+      expect(used).toBeLessThanOrEqual(500);
+    }
+  });
+});
+
 describe("selectWithinBudget", () => {
   it("keeps chunks in order and stops before the one that would exceed the budget", () => {
     const a = match({ id: 1, text: "a".repeat(40) });
@@ -359,6 +383,29 @@ describe("retrieveContext — task-only", () => {
 
     expect(result.retrievals).toHaveLength(1);
     expect(result.retrievals[0].chunkIdx).toBe(1);
+  });
+
+  // The task path opts into skipOversized: a document too large for the slice must not shut out
+  // a smaller attachment that still fits. Run 27 lost a 388-byte chunk exactly this way.
+  it("keeps a smaller, lower-scoring attachment after skipping one too large for the slice", async () => {
+    const oversized = taskMatch({
+      id: 1,
+      itemId: 9,
+      chunkIdx: 0,
+      text: "a".repeat(TASK_RESERVED_BUDGET_BYTES + 1),
+      score: 0.9,
+    });
+    const small = taskMatch({ id: 2, itemId: 10, chunkIdx: 0, text: "b".repeat(100), score: 0.1 });
+
+    const result = await retrieveContext({ taskId: 42 }, "anything", {
+      ...noopDeps(),
+      countIndexedTaskContextItems: vi.fn().mockResolvedValue(2),
+      searchTaskContextChunks: vi.fn().mockResolvedValue([oversized, small]),
+      embedder: fakeEmbedder(),
+    });
+
+    expect(result.retrievals).toHaveLength(1);
+    expect(result.retrievals[0].itemId).toBe(10);
   });
 });
 

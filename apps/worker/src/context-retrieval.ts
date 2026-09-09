@@ -66,15 +66,29 @@ export function buildRetrievalQuery(
 // packages/db/src/repositories/teams.ts:13-17), and `break` rather than `continue`, so the kept
 // set stays a contiguous prefix of the ranking and `rank` means what it says.
 //
+// `skipOversized` opts out of that second choice, and only the task path uses it. A task's chunks
+// are exempt from SIMILARITY_FLOOR because a human attaching the document is itself the relevance
+// signal — which also means "the Nth best-scoring chunk" carries little meaning there, and is not
+// worth letting one oversized document end selection while a smaller attachment that would have
+// fit goes uninjected. The team path keeps `break`, where the prefix property still earns its
+// place.
+//
 // Generic over the match shape (rather than fixed to ContextChunkMatch) because retrieveContext
 // calls this for both team and task matches, which are structurally identical but distinct types.
-export function selectWithinBudget<T extends { text: string }>(matches: T[], budgetBytes: number): T[] {
+export function selectWithinBudget<T extends { text: string }>(
+  matches: T[],
+  budgetBytes: number,
+  skipOversized = false,
+): T[] {
   const encoder = new TextEncoder();
   const kept: T[] = [];
   let usedBytes = 0;
   for (const match of matches) {
     const size = encoder.encode(match.text).length;
-    if (usedBytes + size > budgetBytes) break;
+    if (usedBytes + size > budgetBytes) {
+      if (skipOversized) continue;
+      break;
+    }
     kept.push(match);
     usedBytes += size;
   }
@@ -184,10 +198,12 @@ export async function retrieveContext(
     ]);
 
     // Task chunks: no SIMILARITY_FLOOR — attachment by a human is itself the relevance signal.
-    // Own score still orders which chunks of an oversized document win the reserved slice.
+    // Own score still orders which chunks of an oversized document win the reserved slice, and
+    // one chunk too large for what remains no longer ends the selection (see selectWithinBudget).
     const keptTask = selectWithinBudget(
       [...taskMatches].sort((a, b) => b.score - a.score),
       TASK_RESERVED_BUDGET_BYTES,
+      true,
     );
     // Team chunks: unchanged from the team-only pipeline — floor-filtered, then budget-selected,
     // now against whatever the task slice left behind. Unused reserved budget (a task with few or
