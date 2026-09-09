@@ -8,6 +8,8 @@ import { apiFetch } from "@/lib/api-client";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
+import { useRepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
+import { RepoMapWaitBanner } from "@/components/RepoMapWaitBanner";
 
 interface RepoOption {
   id: number;
@@ -104,8 +106,7 @@ export default function NewTaskPage() {
     setStagedFiles((prev) => prev.filter((staged) => staged.id !== id));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function doSubmit() {
     if (!title.trim()) return;
     setSubmitting(true);
     try {
@@ -161,6 +162,21 @@ export default function NewTaskPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // Declared after doSubmit so the callback below doesn't reference it before its declaration
+  // (which this project's react-hooks/immutability lint rule rejects).
+  const gate = useRepoMapWaitGate(codebase, () => void doSubmit());
+  const gateBlocking = gate.state === "checking" || gate.state === "prompt" || gate.state === "waiting";
+
+  // The repo-map check runs on the submit *attempt*, after this form's own validation — the gate
+  // then calls doSubmit() via onProceed, either immediately or once the user has made their
+  // wait/start-now choice. doSubmit is never called directly from here.
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim()) return;
+    if (gateBlocking) return;
+    gate.requestSubmit();
   }
 
   return (
@@ -274,6 +290,8 @@ export default function NewTaskPage() {
           </Field>
         </div>
 
+        <RepoMapWaitBanner gate={gate} />
+
         {/* Context documents — staged locally; uploaded to the task once it's created below. */}
         <Field label={t("tasks.create.contextLabel")}>
           <label
@@ -354,7 +372,7 @@ export default function NewTaskPage() {
 
         {/* Actions */}
         <div style={{ display: "flex", gap: 10, paddingBottom: 40 }}>
-          <Button variant="primary" type="submit" disabled={!title.trim() || submitting}>
+          <Button variant="primary" type="submit" disabled={!title.trim() || submitting || gateBlocking}>
             {submitting ? "Creating…" : t("tasks.create.submit")}
           </Button>
           <Link href="/tasks">

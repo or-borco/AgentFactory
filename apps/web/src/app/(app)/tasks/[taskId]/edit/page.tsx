@@ -7,6 +7,8 @@ import { Button, Breadcrumb, PageHeader, TextInput, Textarea } from "@agentfacto
 import { apiFetch } from "@/lib/api-client";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
+import { useRepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
+import { RepoMapWaitBanner } from "@/components/RepoMapWaitBanner";
 
 interface RepoOption {
   id: number;
@@ -62,12 +64,7 @@ export default function EditTaskPage() {
     };
   }, []);
 
-  if (!task) {
-    return <div style={{ padding: "40px", color: "var(--color-neutral-500)" }}>Task not found.</div>;
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  async function doSubmit() {
     if (!task) return;
     setSubmitting(true);
     try {
@@ -90,6 +87,22 @@ export default function EditTaskPage() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  const gate = useRepoMapWaitGate(codebase, () => void doSubmit());
+  const gateBlocking = gate.state === "checking" || gate.state === "prompt" || gate.state === "waiting";
+
+  if (!task) {
+    return <div style={{ padding: "40px", color: "var(--color-neutral-500)" }}>Task not found.</div>;
+  }
+
+  // The repo-map check runs on the submit *attempt* — the gate calls doSubmit() via onProceed,
+  // either immediately or once the user has made their wait/start-now choice. Opening this page
+  // with an unmapped repo selected must not put a banner up before the user asks to save.
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (gateBlocking) return;
+    gate.requestSubmit();
   }
 
   return (
@@ -150,8 +163,10 @@ export default function EditTaskPage() {
           </Field>
         </div>
 
+        <RepoMapWaitBanner gate={gate} />
+
         <div style={{ display: "flex", gap: 10, paddingBottom: 40 }}>
-          <Button variant="primary" type="submit" disabled={submitting}>
+          <Button variant="primary" type="submit" disabled={submitting || gateBlocking}>
             {submitting ? t("tasks.edit.saving") : t("tasks.edit.submit")}
           </Button>
           <Link href={`/tasks/${task.id}`}>

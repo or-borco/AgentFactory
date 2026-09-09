@@ -1,0 +1,22 @@
+.banner {
+  border: 1px solid var(--color-neutral-700);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  background: var(--color-surface);
+}
+
+.title {
+  margin: 0 0 6px 0;
+  font-weight: 600;
+}
+
+.body {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+.choices {
+  display: flex;
+  gap: 10px;
+}
