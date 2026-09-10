@@ -60,6 +60,15 @@ const en = {
     newSession: "New session",
     noSessionsYet: "No sessions yet.",
     newSessionDefaultTitle: "New conversation",
+    skills: {
+      title: "Skills",
+      emptyState: "No skills assigned yet.",
+      addLabel: "Add skill",
+      addPlaceholder: "Select a skill…",
+      noAssignableSkills: "All published skills are already assigned.",
+      versionLabel: "Version",
+      removeButtonLabel: "Remove skill",
+    },
   },
   agentForm: {
     newTitle: "New agent",
