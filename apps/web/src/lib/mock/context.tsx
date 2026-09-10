@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { Agent, ChatMessage, Connection, OrgMember, OverflowPolicy, Run, Session, Skill, Task, Team } from "@agentfactory/core";
+import type { Agent, ChatMessage, Connection, OrgMember, OverflowPolicy, Run, Session, Task, Team } from "@agentfactory/core";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey, TranslationVars } from "@/lib/i18n/paths";
@@ -14,13 +14,12 @@ interface MockState {
   agents: Agent[];
   sessions: Session[];
   messages: DisplayMessage[];
-  skills: Skill[];
   connections: Connection[];
   tasks: Task[];
   orgMembers: OrgMember[];
 }
 
-const EMPTY_STATE: MockState = { teams: [], agents: [], sessions: [], messages: [], skills: [], connections: [], tasks: [], orgMembers: [] };
+const EMPTY_STATE: MockState = { teams: [], agents: [], sessions: [], messages: [], connections: [], tasks: [], orgMembers: [] };
 
 interface NewAgentInput {
   name: string;
@@ -109,14 +108,13 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
       apiFetch<Team[]>("/api/teams"),
       apiFetch<Agent[]>("/api/agents"),
       apiFetch<Session[]>("/api/sessions"),
-      apiFetch<Skill[]>("/api/skills"),
       apiFetch<Connection[]>("/api/connections"),
       apiFetch<Task[]>("/api/tasks"),
       apiFetch<OrgMember[]>("/api/teams/members"),
     ])
-      .then(([teams, agents, sessions, skills, connections, tasks, orgMembers]) => {
+      .then(([teams, agents, sessions, connections, tasks, orgMembers]) => {
         if (cancelled) return;
-        setState({ teams, agents, sessions, messages: [], skills, connections, tasks, orgMembers });
+        setState({ teams, agents, sessions, messages: [], connections, tasks, orgMembers });
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
