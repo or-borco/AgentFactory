@@ -50,6 +50,7 @@ import {
   formatEnvironmentForPrompt,
   formatPriorConversationForPrompt,
   hashPrompt,
+  type SandboxEnvironment,
 } from "./prompt-composition";
 import {
   buildPullRequestBody,
@@ -59,6 +60,7 @@ import {
   parseIssueReference,
   pushChangesIfDirty,
   resolveCloneTarget,
+  syncWithDefaultBranch,
   type CloneTarget,
 } from "./scm-provider";
 import { resolveEscalation } from "./model-escalation";
@@ -158,6 +160,7 @@ const runWorker = new Worker<RunJobData>(
       let workspace: CloneTarget | undefined;
       let repoMap = "";
       let taskDocuments: MaterialisedTaskDocuments = { written: [], omitted: [] };
+      let repoSync: SandboxEnvironment["repoSync"];
       if (task?.codebase) {
         workspace = await resolveCloneTarget(agent.orgId, task.codebase, `agent/session-${session.id}`);
         if (!workspace) {
@@ -167,6 +170,26 @@ const runWorker = new Worker<RunJobData>(
         }
         await cloneIntoSandbox(sandboxProvider, sandboxId, workspace);
         mark("clone");
+        // Brings a warm sandbox's checkout up to date with the default branch, when it's safe to
+        // do so — see syncWithDefaultBranch's own comment for why this exists and what "safe"
+        // means. up_to_date and skipped_dirty are silent (the former has nothing to report, the
+        // latter self-heals next run); synced and skipped_conflict get both a permanent event and
+        // an agent-facing note built into `repoSync` below.
+        const syncResult = await syncWithDefaultBranch(sandboxProvider, sandboxId, workspace);
+        mark(`repo sync (${syncResult.status})`);
+        if (syncResult.status === "synced") {
+          repoSync = { status: "synced", commitsMerged: syncResult.commitsMerged ?? 0 };
+          await createEvent(runId, seq++, "repo_sync", {
+            status: "synced",
+            commitsMerged: syncResult.commitsMerged,
+          });
+        } else if (syncResult.status === "skipped_conflict") {
+          repoSync = { status: "skipped_conflict", conflictingFiles: syncResult.conflictingFiles ?? [] };
+          await createEvent(runId, seq++, "repo_sync", {
+            status: "skipped_conflict",
+            conflictingFiles: syncResult.conflictingFiles,
+          });
+        }
         // After the clone, because it writes into the checkout and depends on cloneIntoSandbox
         // having added the directory to .git/info/exclude first. Fail-soft like ensureRepoMap
         // below: a document that cannot be written leaves the run exactly as it was before.
@@ -257,6 +280,7 @@ const runWorker = new Worker<RunJobData>(
         branch: workspace?.branch,
         hasIssueContext: issueContext.length > 0,
         taskDocuments,
+        repoSync,
       });
       // buildRetrievedContextSegment maps the three states a pair of booleans can describe. A
       // retrieval that threw is the fourth, and only retrieveContext knows about it, so its

@@ -391,6 +391,36 @@ describe("formatEnvironmentForPrompt", () => {
   it("still ends with a separator so the next section cannot read as part of it", () => {
     expect(formatEnvironmentForPrompt({ workspacePath: "/workspace" })).toMatch(/\n\n---\n\n$/);
   });
+
+  it("tells the agent when its checkout was just synced, with correct commit-count wording", () => {
+    const one = formatEnvironmentForPrompt({
+      workspacePath: "/workspace",
+      repoSync: { status: "synced", commitsMerged: 1 },
+    });
+    const many = formatEnvironmentForPrompt({
+      workspacePath: "/workspace",
+      repoSync: { status: "synced", commitsMerged: 3 },
+    });
+
+    expect(one).toContain("1 new commit from the default branch");
+    expect(many).toContain("3 new commits from the default branch");
+    expect(many).toContain("may have changed");
+  });
+
+  it("warns the agent about a stuck conflict and names the conflicting files", () => {
+    const result = formatEnvironmentForPrompt({
+      workspacePath: "/workspace",
+      repoSync: { status: "skipped_conflict", conflictingFiles: ["packages/db/src/schema.ts"] },
+    });
+
+    expect(result).toContain("packages/db/src/schema.ts");
+    expect(result).toContain("keep failing on every future turn");
+  });
+
+  it("says nothing about a sync when repoSync is unset", () => {
+    const result = formatEnvironmentForPrompt({ workspacePath: "/workspace" });
+    expect(result).not.toContain("default branch");
+  });
 });
 
 describe("hashPrompt", () => {
