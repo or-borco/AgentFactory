@@ -44,9 +44,10 @@ export async function runAgentTurn(params: {
   model: ModelSpec;
   userText: string;
   resumeSessionRef?: string;
+  skillNames?: string[];
   onEvent?: (type: string, data: Record<string, unknown>) => Promise<void>;
 }): Promise<AgentTurnResult> {
-  const { sandboxProvider, sandboxId, systemPrompt, model, userText, resumeSessionRef, onEvent } = params;
+  const { sandboxProvider, sandboxId, systemPrompt, model, userText, resumeSessionRef, skillNames, onEvent } = params;
 
   // The caller (worker.ts) already cloned into this sandbox before composing the prompt — this
   // used to re-run cloneIntoSandbox here, which on a warm /workspace does nothing but pay for an
@@ -61,6 +62,9 @@ export async function runAgentTurn(params: {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
   };
   if (resumeSessionRef) env.RESUME_SESSION_REF = resumeSessionRef;
+  if (skillNames && skillNames.length > 0) {
+    env.SKILL_NAMES = skillNames.join(",");
+  }
 
   let lineBuffer = "";
   let stdout = "";

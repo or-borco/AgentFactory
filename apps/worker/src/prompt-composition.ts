@@ -236,8 +236,10 @@ export function buildPriorConversationSegment(resumeIsValid: boolean, formatted:
   };
 }
 
-// Order per ARCHITECTURE.md §3, narrowed to this repo's actual scope: no skills index yet. Three
-// rules decide the arrangement:
+// Order per ARCHITECTURE.md §3, narrowed to this repo's actual scope. Skills are not a prompt
+// segment: a pinned skill is materialized into the sandbox and handed to the SDK via query()'s
+// own `skills` option (see skills-materialize.ts), so this function's segment list is unchanged
+// by design, not by omission. Three rules decide the arrangement of the segments that remain:
 //
 // 1. Platform-authored constraints lead. The preamble and the environment brief describe hard
 //    facts about the sandbox, so they must not read as something team context or the agent's

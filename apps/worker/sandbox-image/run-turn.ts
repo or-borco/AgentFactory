@@ -15,6 +15,8 @@ async function main(): Promise<void> {
   const userText = process.env.USER_TEXT ?? "";
   const model = process.env.MODEL_ID;
   const resume = process.env.RESUME_SESSION_REF || undefined;
+  const skillNamesEnv = process.env.SKILL_NAMES;
+  const skills = skillNamesEnv ? skillNamesEnv.split(",").filter(Boolean) : [];
 
   let resultText: string | undefined;
   let sessionId: string | undefined;
@@ -32,6 +34,11 @@ async function main(): Promise<void> {
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         resume,
+        // Always passed, even empty — this positively disables discovery of any repo-committed
+        // skills for a run whose agent has none pinned, rather than leaving the SDK to look for
+        // skills on its own (see skills-materialize.ts for how the pinned ones land in
+        // .claude/skills before this runs).
+        skills,
         // `display` defaults to "omitted" on Sonnet 5 / Opus 5 and the 4.7+ family, which streams
         // thinking blocks with empty text — the run then shows nothing at all until the final
         // answer lands. "summarized" returns a readable summary of the reasoning instead. Thinking
