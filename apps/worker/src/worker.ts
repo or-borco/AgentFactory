@@ -67,6 +67,7 @@ import { resolveEscalation } from "./model-escalation";
 import { ensureRepoMap, warmRepoMap } from "./repo-map";
 import { buildRetrievalQuery, retrieveContext, type RetrievedContext } from "./context-retrieval";
 import { materialiseTaskDocuments, type MaterialisedTaskDocuments } from "./task-documents";
+import { materialiseSkills } from "./skills-materialize";
 import { processEvalJob } from "./eval-runner";
 import { ingestTaskContextItem, ingestTeamContextItem } from "./context-ingest";
 
@@ -160,6 +161,7 @@ const runWorker = new Worker<RunJobData>(
       let workspace: CloneTarget | undefined;
       let repoMap = "";
       let taskDocuments: MaterialisedTaskDocuments = { written: [], omitted: [] };
+      let skillNames: string[] = [];
       let repoSync: SandboxEnvironment["repoSync"];
       if (task?.codebase) {
         workspace = await resolveCloneTarget(agent.orgId, task.codebase, `agent/session-${session.id}`);
@@ -199,6 +201,8 @@ const runWorker = new Worker<RunJobData>(
             ? `task documents (${taskDocuments.written.length} written)`
             : "task documents (none)",
         );
+        skillNames = await materialiseSkills(sandboxProvider, sandboxId, agent.id, agent.orgId);
+        mark(skillNames.length > 0 ? `skills (${skillNames.join(", ")})` : "skills (none)");
         repoMap = await ensureRepoMap(sandboxProvider, sandboxId, agent.orgId, workspace.repoFullName);
         // The phase duration separates the two ways a map can arrive: a cache hit returns in
         // single-digit ms, a poll that caught an in-flight warm takes seconds. A miss now costs
@@ -341,6 +345,7 @@ const runWorker = new Worker<RunJobData>(
             model: attemptModel,
             userText: (triggeringMessage?.content ?? "") + issueContext,
             resumeSessionRef,
+            skillNames,
             onEvent: async (type, data) => {
               await createEvent(runId, seq++, type, data);
             },

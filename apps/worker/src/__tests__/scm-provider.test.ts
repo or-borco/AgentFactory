@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Connection } from "@agentfactory/core";
 import type { OutputChunk, SandboxProvider } from "../sandbox/types";
+import { SKILL_EXCLUDE_PATTERN } from "../skill-paths";
 
 // signAppJwt() needs a real asymmetric key to actually sign with — irrelevant to what these
 // tests check, so stub jsonwebtoken entirely.
@@ -198,6 +199,24 @@ describe("cloneIntoSandbox", () => {
     expect(script).toContain(".git/info/exclude");
     expect(script).toContain("/.agentfactory/");
     expect(script).toContain("ensure_context_dir_excluded");
+  });
+
+  // Generalized from a single hardcoded pattern to a list (skills-materialize.ts's directory
+  // needs the same treatment as task documents') — assert the skill pattern rides along too.
+  it("also teaches git to ignore the materialised-skills directory", async () => {
+    let captured: string[] = [];
+    const exec = (_id: string, cmd: string[]) => {
+      captured = cmd;
+      return (async function* (): AsyncGenerator<OutputChunk> {
+        yield { stream: "stdout", data: "CLONE_OK\n" };
+      })();
+    };
+    const sandbox = { ...fakeSandbox([]), exec } as unknown as SandboxProvider;
+
+    await cloneIntoSandbox(sandbox, "sandbox-1", target);
+
+    const script = captured[2];
+    expect(script).toContain(SKILL_EXCLUDE_PATTERN);
   });
 
   // A session's second run hits the ALREADY_CLONED path. A sandbox created before this shipped
