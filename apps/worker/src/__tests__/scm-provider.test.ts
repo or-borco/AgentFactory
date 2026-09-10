@@ -19,6 +19,7 @@ const {
   pushChangesIfDirty,
   resolveCloneTarget,
   resolveDefaultBranchSha,
+  syncWithDefaultBranch,
 } = await import("../scm-provider");
 
 function githubConnection(id: number, installationId: number): Connection {
@@ -248,6 +249,87 @@ describe("cloneIntoSandbox", () => {
     expect(capturedEnv).toEqual({
       CLONE_URL: target.cloneUrl,
       BRANCH_NAME: target.branch,
+      REPO_FULL_NAME: target.repoFullName,
+    });
+  });
+});
+
+describe("syncWithDefaultBranch", () => {
+  const target = {
+    cloneUrl: "https://x-access-token:ghs@github.com/acme-org/platform.git",
+    branch: "agent/session-1",
+    repoFullName: "acme-org/platform",
+    installationId: 999,
+  };
+
+  it("reports up_to_date when nothing changed upstream", async () => {
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "SYNC_UP_TO_DATE\n" }]);
+    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({
+      status: "up_to_date",
+    });
+  });
+
+  it("reports synced with the number of commits merged", async () => {
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "SYNC_OK:3\n" }]);
+    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({
+      status: "synced",
+      commitsMerged: 3,
+    });
+  });
+
+  it("reports skipped_dirty without attempting a merge", async () => {
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "SYNC_SKIPPED_DIRTY\n" }]);
+    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({
+      status: "skipped_dirty",
+    });
+  });
+
+  it("reports skipped_conflict with the conflicting file paths, parsed off their marker lines", async () => {
+    const sandbox = fakeSandbox([
+      {
+        stream: "stdout",
+        data: "SYNC_CONFLICT_FILE:packages/db/src/schema.ts\nSYNC_CONFLICT_FILE:packages/core/src/domain.ts\nSYNC_SKIPPED_CONFLICT\n",
+      },
+    ]);
+    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({
+      status: "skipped_conflict",
+      conflictingFiles: ["packages/db/src/schema.ts", "packages/core/src/domain.ts"],
+    });
+  });
+
+  it("fails soft to skipped_fetch_failed when the fetch itself fails", async () => {
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "SYNC_SKIPPED_FETCH_FAILED\n" }]);
+    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({
+      status: "skipped_fetch_failed",
+    });
+  });
+
+  it("fails soft to skipped_fetch_failed on unrecognized output, rather than throwing", async () => {
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "\n" }]);
+    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({
+      status: "skipped_fetch_failed",
+    });
+  });
+
+  it("reuses the clone target's own token rather than minting a new one", async () => {
+    let capturedEnv: Record<string, string> | undefined;
+    const sandbox: SandboxProvider = {
+      create: vi.fn(),
+      exec: async function* (_id, _cmd, opts) {
+        capturedEnv = opts?.env;
+        yield { stream: "stdout", data: "SYNC_UP_TO_DATE\n" };
+      },
+      writeFiles: vi.fn(),
+      readWorkspace: vi.fn(),
+      destroy: vi.fn(),
+      exists: vi.fn(),
+      resetMemory: vi.fn(),
+    };
+
+    await syncWithDefaultBranch(sandbox, "sandbox-1", target);
+
+    expect(capturedEnv).toEqual({
+      CLONE_URL: target.cloneUrl,
       REPO_FULL_NAME: target.repoFullName,
     });
   });

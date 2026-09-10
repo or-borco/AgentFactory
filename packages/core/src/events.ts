@@ -76,6 +76,16 @@ export interface ContextIncludedEvent extends RunEventBase {
   preview: string;
 }
 
+// Emitted only for the two outcomes worth a permanent record: a successful sync (the checkout
+// changed under the agent) or a conflict (which recurs on every future run until someone
+// resolves it, unlike a merely dirty tree, which self-heals next run and gets no event at all).
+export interface RepoSyncEvent extends RunEventBase {
+  type: "repo_sync";
+  status: "synced" | "skipped_conflict";
+  commitsMerged?: number;
+  conflictingFiles?: string[];
+}
+
 export interface DoneEvent extends RunEventBase {
   type: "done";
   reason: "completed" | "cancelled" | "budget_exceeded" | "error";
@@ -92,4 +102,5 @@ export type RunEvent =
   | UsageEvent
   | ErrorEvent
   | ContextIncludedEvent
+  | RepoSyncEvent
   | DoneEvent;

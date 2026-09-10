@@ -267,6 +267,87 @@ fi`;
   }
 }
 
+export interface RepoSyncResult {
+  status: "up_to_date" | "synced" | "skipped_dirty" | "skipped_conflict" | "skipped_fetch_failed";
+  commitsMerged?: number;
+  conflictingFiles?: string[];
+}
+
+// Runs on every run, right after cloneIntoSandbox — including the run that just did the actual
+// first-time clone, where it's a correct, cheap no-op (HEAD already is origin/HEAD). A warm
+// sandbox otherwise never re-fetches after its initial clone (see cloneIntoSandbox's
+// ALREADY_CLONED path above), so a task's checkout can silently drift behind the default branch
+// for as long as its session stays warm — this is what closes that gap, without requiring any
+// task to declare a dependency on any other.
+//
+// Reuses target.cloneUrl's already-embedded token (minted moments earlier by resolveCloneTarget
+// for this same run) rather than minting a new one, and strips it again immediately after the
+// fetch — same inject-use-strip pattern pushChangesIfDirty uses below, for the same reason: never
+// leave a usable credential sitting in the sandbox for the agent to find.
+//
+// Merges, never rebases: pushChangesIfDirty's own push is a plain, non-force `git push`, which
+// only stays a fast-forward if the branch's existing tip remains an ancestor of the new HEAD. A
+// merge preserves that; a rebase would rewrite history and break the next push.
+//
+// A dirty working tree (only expected if a prior run crashed before reaching its own push step)
+// is left alone rather than stashed — git stash pop has no equivalent to `git merge --abort`'s
+// clean restore, and this case self-heals on its own once the tree is clean on a later run.
+export async function syncWithDefaultBranch(
+  sandboxProvider: SandboxProvider,
+  sandboxId: string,
+  target: CloneTarget,
+): Promise<RepoSyncResult> {
+  const script = `
+cd /workspace || { echo SYNC_SKIPPED_FETCH_FAILED; exit 0; }
+git remote set-url origin "$CLONE_URL"
+git fetch origin --quiet
+FETCH_STATUS=$?
+git remote set-url origin "https://github.com/$REPO_FULL_NAME.git"
+if [ "$FETCH_STATUS" -ne 0 ]; then echo SYNC_SKIPPED_FETCH_FAILED; exit 0; fi
+
+if git merge-base --is-ancestor origin/HEAD HEAD 2>/dev/null; then
+  echo SYNC_UP_TO_DATE
+  exit 0
+fi
+
+if [ -n "$(git status --porcelain)" ]; then
+  echo SYNC_SKIPPED_DIRTY
+  exit 0
+fi
+
+BEFORE_SHA=$(git rev-parse HEAD)
+if git merge --no-edit origin/HEAD >/dev/null 2>&1; then
+  echo "SYNC_OK:$(git rev-list --count "$BEFORE_SHA..HEAD")"
+else
+  git diff --name-only --diff-filter=U | sed 's/^/SYNC_CONFLICT_FILE:/'
+  git merge --abort
+  echo SYNC_SKIPPED_CONFLICT
+fi`;
+
+  let stdout = "";
+  for await (const chunk of sandboxProvider.exec(sandboxId, ["sh", "-c", script], {
+    env: { CLONE_URL: target.cloneUrl, REPO_FULL_NAME: target.repoFullName },
+  })) {
+    if (chunk.stream === "stdout") stdout += chunk.data;
+  }
+
+  if (stdout.includes("SYNC_UP_TO_DATE")) return { status: "up_to_date" };
+  if (stdout.includes("SYNC_SKIPPED_DIRTY")) return { status: "skipped_dirty" };
+  const okMatch = /SYNC_OK:(\d+)/.exec(stdout);
+  if (okMatch) return { status: "synced", commitsMerged: Number(okMatch[1]) };
+  if (stdout.includes("SYNC_SKIPPED_CONFLICT")) {
+    const conflictingFiles = stdout
+      .split("\n")
+      .filter((line) => line.startsWith("SYNC_CONFLICT_FILE:"))
+      .map((line) => line.slice("SYNC_CONFLICT_FILE:".length).trim());
+    return { status: "skipped_conflict", conflictingFiles };
+  }
+  // SYNC_SKIPPED_FETCH_FAILED, or any unrecognized output — fail soft, never throw. A sync is a
+  // nice-to-have layered on top of a run that would otherwise proceed unchanged; a transient
+  // network hiccup here should never be the reason a run fails.
+  return { status: "skipped_fetch_failed" };
+}
+
 // Commits and pushes only if the agent actually changed something — a read-only turn (e.g. "what
 // does this file do?") leaves /workspace clean, and there's nothing to push or open a PR for.
 // Returns whether anything was pushed. This only ever runs *after* the agent's turn has already

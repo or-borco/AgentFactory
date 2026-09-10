@@ -26,6 +26,13 @@ export interface SandboxEnvironment {
   // both is the point: naming only the files present would let the agent read the directory as
   // the complete set of what a human attached.
   taskDocuments?: { written: string[]; omitted: string[] };
+  // Set only for the two syncWithDefaultBranch outcomes worth telling the agent about (see
+  // scm-provider.ts) — "synced" so it knows why code may look different from its last turn here,
+  // "skipped_conflict" because that one recurs on every future run until someone resolves it, so
+  // the agent needs to keep hearing about it rather than it going silently stale forever.
+  repoSync?:
+    | { status: "synced"; commitsMerged: number }
+    | { status: "skipped_conflict"; conflictingFiles: string[] };
 }
 
 // Facts about the container the turn runs in, stated up front because the agent otherwise
@@ -106,6 +113,23 @@ export function formatEnvironmentForPrompt(env: SandboxEnvironment): string {
       : "- If something you need is genuinely unavailable here, say so plainly in your final response " +
           "rather than spending the turn trying to fetch it.",
   );
+
+  if (env.repoSync?.status === "synced") {
+    const { commitsMerged } = env.repoSync;
+    lines.push(
+      `- This task's checkout was just synced with ${commitsMerged} new commit` +
+        `${commitsMerged === 1 ? "" : "s"} from the default branch before this turn began. Code you ` +
+        "remember from an earlier turn in this session may have changed.",
+    );
+  }
+  if (env.repoSync?.status === "skipped_conflict") {
+    lines.push(
+      "- The default branch has moved on since this checkout was created, but syncing it in failed " +
+        `due to conflicts in: ${env.repoSync.conflictingFiles.join(", ")}. This will keep failing on ` +
+        "every future turn until it's resolved — mention this, or resolve it yourself if it's " +
+        "relevant to what you're doing.",
+    );
+  }
 
   return `## Environment (platform-authored, authoritative)\n\n${lines.join("\n")}\n\n---\n\n`;
 }
