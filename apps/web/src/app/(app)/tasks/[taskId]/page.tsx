@@ -50,6 +50,7 @@ export default function TaskDetailPage() {
     runTask,
     sendMessage,
     updateTask,
+    refreshTask,
     deleteTask,
     notify,
   } = useMockBackend();
@@ -125,6 +126,10 @@ export default function TaskDetailPage() {
           setRunStatus(run.status);
           setRawEvents(events);
           setSessionRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]));
+          // The worker writes prNumber/prUrl/status directly to the task row (typically during
+          // "finalizing", before the run reaches "done") — refetch here so a PR opening mid-run
+          // shows up without the user having to reload the page.
+          void refreshTask(Number(taskId));
           if (run.status === "done") {
             await loadMessages(sessionId);
             if (run.workspaceSnapshot && Object.keys(run.workspaceSnapshot).length > 0) {
@@ -139,7 +144,7 @@ export default function TaskDetailPage() {
       };
       tick();
     },
-    [loadMessages],
+    [loadMessages, refreshTask, taskId],
   );
 
   // Load existing messages, workspace, and events when a session is linked.
@@ -183,13 +188,14 @@ export default function TaskDetailPage() {
         setRunStatus(run.status);
         setRawEvents(events);
         setSessionRuns((prev) => (prev.some((r) => r.id === run.id) ? prev.map((r) => (r.id === run.id ? run : r)) : [run, ...prev]));
+        void refreshTask(Number(taskId));
         if (run.status !== "done" && run.status !== "failed" && run.status !== "cancelled") {
           tick();
         }
       }, 1500);
     };
     tick();
-  }, []);
+  }, [refreshTask, taskId]);
 
   const handleReply = async () => {
     if (!reply.trim() || !session || replying || !!isRunning) return;
@@ -420,8 +426,10 @@ export default function TaskDetailPage() {
             </Link>
           </div>
 
-          {/* Scrollable spec body */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "22px 24px 48px" }}>
+          {/* Scrollable spec body — only the content that can grow unbounded (title,
+              description, criteria) lives here. Details + actions below are pinned outside
+              this scroll area so they stay visible regardless of scroll position. */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "22px 24px 24px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <span
                 style={{
@@ -567,8 +575,18 @@ export default function TaskDetailPage() {
                 </ul>
               </section>
             )}
+          </div>
 
-            <section style={{ marginTop: 32 }}>
+          {/* Sticky footer — details + lifecycle actions. Pinned below the scroll area
+              (not inside it) so they're always visible, even with a long description. */}
+          <div
+            style={{
+              flexShrink: 0,
+              borderTop: "1px solid var(--color-divider)",
+              padding: "20px 24px 24px",
+            }}
+          >
+            <section>
               <SectionLabel>{t("taskDetail.metaLabel")}</SectionLabel>
               <dl
                 style={{
@@ -619,7 +637,7 @@ export default function TaskDetailPage() {
             </section>
 
             {task.status === "assigned" && !task.sessionId && task.assigneeAgentId && (
-              <div style={{ marginTop: 32 }}>
+              <div style={{ marginTop: 20 }}>
                 <Button variant="primary" disabled={starting} onClick={handleRun}>
                   {starting ? "Starting…" : "Run agent"}
                 </Button>
@@ -627,7 +645,7 @@ export default function TaskDetailPage() {
             )}
 
             {/* Status / lifecycle actions */}
-            <div style={{ marginTop: 32, display: "flex", gap: 10 }}>
+            <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
               {task.status !== "done" && (
                 <Button variant="secondary" disabled={markingDone} onClick={handleMarkDone}>
                   <CheckIcon size={14} />

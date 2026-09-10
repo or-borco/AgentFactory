@@ -73,6 +73,7 @@ interface MockBackendValue extends MockState {
   sendMessage: (sessionId: number, text: string) => Promise<{ runId: number }>;
   createTask: (input: NewTaskInput) => Promise<Task>;
   updateTask: (taskId: number, patch: Partial<Task>) => Promise<void>;
+  refreshTask: (taskId: number) => Promise<void>;
   deleteTask: (taskId: number) => Promise<void>;
   runTask: (taskId: number) => Promise<{ task: Task; session: Session; runId: number }>;
   deleteConnection: (connectionId: number) => Promise<void>;
@@ -247,6 +248,15 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     setState((s) => ({ ...s, tasks: s.tasks.map((tk) => (tk.id === taskId ? task : tk)) }));
   }, []);
 
+  // Re-fetches a single task from the server without a PATCH. Needed because the worker
+  // updates task rows directly (e.g. prNumber/prUrl/status when it opens a PR) — those writes
+  // never go through this client, so the cached task here would otherwise only pick up such
+  // changes on the next full page load.
+  const refreshTask = useCallback(async (taskId: number) => {
+    const task = await apiFetch<Task>(`/api/tasks/${taskId}`);
+    setState((s) => ({ ...s, tasks: s.tasks.map((tk) => (tk.id === taskId ? task : tk)) }));
+  }, []);
+
   const deleteTask = useCallback(
     async (taskId: number) => {
       await apiFetch<void>(`/api/tasks/${taskId}`, { method: "DELETE" });
@@ -389,6 +399,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     sendMessage,
     createTask,
     updateTask,
+    refreshTask,
     deleteTask,
     runTask,
     deleteConnection,
