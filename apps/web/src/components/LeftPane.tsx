@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "@/lib/i18n/context";
-import { ActivityIcon, BotIcon, LogOutIcon, SettingsIcon, TasksIcon, UsersIcon } from "@/lib/icons";
+import { ActivityIcon, BotIcon, LogOutIcon, SettingsIcon, SparklesIcon, TasksIcon, UsersIcon } from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import { useAuth } from "@/lib/auth/context";
 
@@ -17,6 +17,7 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
     { href: "/tasks", label: t("nav.tasks"), icon: TasksIcon },
     { href: "/activity", label: t("nav.activity"), icon: ActivityIcon },
     { href: "/teams-v2", label: t("nav.teams"), icon: UsersIcon },
+    { href: "/skills", label: t("nav.skills"), icon: SparklesIcon },
     { href: "/settings", label: t("nav.settings"), icon: SettingsIcon },
   ];
 
