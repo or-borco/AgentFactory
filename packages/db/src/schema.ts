@@ -120,10 +120,6 @@ export const agents = pgTable(
     mode: agentModeEnum("mode").notNull().default("manual"),
     runtimeKind: text("runtime_kind").notNull().default("claude-code"),
     toolPolicy: jsonb("tool_policy").$type<ToolPolicy>().notNull(),
-    // Plain ID arrays for now, not join tables (agent_skills/agent_connections per §2.5/§2.7) —
-    // those pin skill *versions* and connection *scopes*, which don't exist yet since Skills
-    // and Connections have no real backend of their own. Revisit when they get one.
-    skillIds: jsonb("skill_ids").$type<number[]>().notNull().default([]),
     connectionIds: jsonb("connection_ids").$type<number[]>().notNull().default([]),
     // What to do when a run's resumed session history overflows this agent's assigned model's
     // context window. "fallback" (default) escalates up the ladder in packages/core/src/models.ts;
@@ -370,6 +366,71 @@ export const contentBlobs = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [primaryKey({ columns: [t.orgId, t.sha256] })],
+);
+
+export const skills = pgTable(
+  "skills",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description").notNull().default(""),
+    source: text("source").notNull().default("authored"),
+    currentVersionId: integer("current_version_id"),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("skills_org_slug").on(t.orgId, t.slug)],
+);
+
+export const skillVersions = pgTable(
+  "skill_versions",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    skillId: integer("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    version: integer("version").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull(),
+    bodySha256: text("body_sha256").notNull(),
+    createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.orgId, t.bodySha256],
+      foreignColumns: [contentBlobs.orgId, contentBlobs.sha256],
+    }),
+    uniqueIndex("skill_versions_draft_per_skill")
+      .on(t.skillId)
+      .where(sql`published_at IS NULL`),
+  ],
+);
+
+export const agentSkills = pgTable(
+  "agent_skills",
+  {
+    agentId: integer("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    skillId: integer("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    skillVersionId: integer("skill_version_id")
+      .notNull()
+      .references(() => skillVersions.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.agentId, t.skillId] })],
 );
 
 export const contextItemStatusEnum = pgEnum("context_item_status", [

@@ -1,8 +1,24 @@
 import "dotenv/config";
+import { createHash } from "node:crypto";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { sql } from "drizzle-orm";
-import { agents, events, memberships, messages, orgs, runs, sessions, tasks, teams, users } from "./schema";
+import {
+  agents,
+  agentSkills,
+  contentBlobs,
+  events,
+  memberships,
+  messages,
+  orgs,
+  runs,
+  sessions,
+  skills,
+  skillVersions,
+  tasks,
+  teams,
+  users,
+} from "./schema";
 import { hashPassword } from "./password";
 
 // Mirrors apps/web/src/lib/mock/seed.ts's seedTeams/seedAgents exactly (same IDs), so the
@@ -163,7 +179,6 @@ async function main() {
             { tool: "merge_pr", decision: "deny" },
           ],
         },
-        skillIds: [1],
         connectionIds: [1],
         areaMap: { "apps/web/": "Next.js frontend", "packages/": "Shared packages" },
         defaultCodebase: "acme-corp/backend",
@@ -184,7 +199,6 @@ async function main() {
         mode: "manual",
         runtimeKind: "claude-code",
         toolPolicy: { defaultDecision: "deny", rules: [] },
-        skillIds: [],
         connectionIds: [1],
         defaultCodebase: "acme-corp/backend",
         createdAt: hoursAgo(200),
@@ -203,12 +217,69 @@ async function main() {
         mode: "automatic",
         runtimeKind: "claude-code",
         toolPolicy: { defaultDecision: "deny", rules: [] },
-        skillIds: [],
         connectionIds: [],
         createdAt: hoursAgo(120),
         updatedAt: hoursAgo(50),
       },
     ])
+    .onConflictDoNothing();
+
+  const conventionalCommitsSkillBody =
+    "---\n" +
+    "name: conventional-commits\n" +
+    "description: Validate and format commit messages against the Conventional Commits spec\n" +
+    "---\n\n" +
+    "Check that each commit message starts with a valid type (`feat`, `fix`, `chore`, `docs`, `refactor`, " +
+    "`test`, `perf`, `build`, `ci`), followed by an optional scope in parentheses, a colon, a space, and a " +
+    "concise imperative-mood summary. Flag and rewrite any commit message that doesn't conform.\n";
+  const conventionalCommitsSkillSha256 = createHash("sha256").update(conventionalCommitsSkillBody).digest("hex");
+
+  await db
+    .insert(contentBlobs)
+    .values({
+      sha256: conventionalCommitsSkillSha256,
+      orgId: ORG_ID,
+      sizeBytes: Buffer.byteLength(conventionalCommitsSkillBody),
+      mime: "text/markdown",
+      createdAt: hoursAgo(400),
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(skills)
+    .overridingSystemValue()
+    .values({
+      id: 1,
+      orgId: ORG_ID,
+      name: "Conventional commits",
+      slug: "conventional-commits",
+      description: "Validate and format commit messages against the Conventional Commits spec",
+      source: "authored",
+      currentVersionId: 1,
+      createdAt: hoursAgo(400),
+      updatedAt: hoursAgo(400),
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(skillVersions)
+    .overridingSystemValue()
+    .values({
+      id: 1,
+      skillId: 1,
+      orgId: ORG_ID,
+      version: 1,
+      name: "conventional-commits",
+      description: "Validate and format commit messages against the Conventional Commits spec",
+      bodySha256: conventionalCommitsSkillSha256,
+      publishedAt: hoursAgo(400),
+      createdAt: hoursAgo(400),
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(agentSkills)
+    .values({ agentId: 1, skillId: 1, skillVersionId: 1, createdAt: hoursAgo(400) })
     .onConflictDoNothing();
 
   await db
@@ -493,6 +564,8 @@ async function main() {
   await resetIdentitySequence(db, "users");
   await resetIdentitySequence(db, "teams");
   await resetIdentitySequence(db, "agents");
+  await resetIdentitySequence(db, "skills");
+  await resetIdentitySequence(db, "skill_versions");
   await resetIdentitySequence(db, "sessions");
   await resetIdentitySequence(db, "messages");
   await resetIdentitySequence(db, "runs");

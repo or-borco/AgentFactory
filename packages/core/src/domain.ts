@@ -123,7 +123,6 @@ export interface Agent {
   mode: AgentMode;
   runtimeKind: RuntimeKind;
   toolPolicy: ToolPolicy;
-  skillIds: ID[];
   connectionIds: ID[];
   onContextOverflow: OverflowPolicy;
   // Intentionally unwired for alpha (issue #65): no editing UI and nothing reads this yet.
@@ -168,7 +167,7 @@ export interface Skill {
   slug: string;
   description: string;
   source: SkillSource;
-  currentVersionId: ID;
+  currentVersionId?: ID;
   createdAt: ISODateTime;
 }
 
@@ -176,9 +175,19 @@ export interface SkillVersion {
   id: ID;
   skillId: ID;
   version: number;
-  bundleSha: string;
-  createdBy: ID;
-  gitCommitSha?: string;
+  name: string;
+  description: string;
+  bodySha256: string;
+  createdBy?: ID;
+  // Absent means this is the unpublished draft — at most one per skill.
+  publishedAt?: ISODateTime;
+  createdAt: ISODateTime;
+}
+
+export interface AgentSkill {
+  agentId: ID;
+  skillId: ID;
+  skillVersionId: ID;
   createdAt: ISODateTime;
 }
 
