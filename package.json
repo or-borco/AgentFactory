@@ -9,6 +9,7 @@
     "dev": "pnpm --filter @agentfactory/web dev",
     "dev:worker": "pnpm --filter @agentfactory/worker dev",
     "dev:all": "bash scripts/dev-all.sh",
+    "stop:all": "bash scripts/stop-all.sh",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
