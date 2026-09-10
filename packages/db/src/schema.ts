@@ -380,6 +380,9 @@ export const skills = pgTable(
     description: text("description").notNull().default(""),
     source: text("source").notNull().default("authored"),
     currentVersionId: integer("current_version_id"),
+    // Groups related, typically system-seeded skills (e.g. "superpowers") for display. Unset for
+    // ordinary org-authored skills.
+    family: text("family"),
     createdBy: integer("created_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

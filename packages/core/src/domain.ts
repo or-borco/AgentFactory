@@ -168,6 +168,9 @@ export interface Skill {
   description: string;
   source: SkillSource;
   currentVersionId?: ID;
+  // Groups a set of related, typically system-seeded skills (e.g. "superpowers") so they can be
+  // displayed together. Not exposed on org-authored skills yet — left unset there.
+  family?: string;
   createdAt: ISODateTime;
 }
 

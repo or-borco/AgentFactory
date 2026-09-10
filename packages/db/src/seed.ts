@@ -224,6 +224,75 @@ async function main() {
     ])
     .onConflictDoNothing();
 
+  // Superpowers is seeded with the earliest createdAt of any skill so it sorts first in
+  // listSkillsForOrg (ordered by createdAt) — it's meant to be the first thing an org sees.
+  const superpowersSkillBody =
+    "---\n" +
+    "name: superpowers\n" +
+    "description: Use when starting any conversation - establishes how to find and use skills, requiring skill invocation before ANY response including clarifying questions\n" +
+    "---\n\n" +
+    "If there is even a 1% chance a skill might apply to the task at hand, invoke it. This is not " +
+    "negotiable — check for a relevant skill before any response or action, including clarifying " +
+    "questions, exploring the codebase, or checking files. If it turns out to be the wrong fit, you " +
+    "don't have to use it.\n\n" +
+    "## Skill priority\n\n" +
+    "When multiple skills apply, process skills come first — they set the approach, then " +
+    "implementation skills carry it out.\n\n" +
+    "## Red flags\n\n" +
+    "These thoughts mean stop, you're rationalizing your way out of using a skill:\n" +
+    "- \"This is just a simple question\" — questions are tasks; check for skills.\n" +
+    "- \"I need more context first\" — the skill check comes before clarifying questions.\n" +
+    "- \"I can check quickly myself\" — skills tell you how to gather information.\n" +
+    "- \"This doesn't need a formal skill\" — if a skill exists, use it.\n" +
+    "- \"I'll just do this one thing first\" — check before doing anything.\n\n" +
+    "User instructions take precedence over skills, which in turn override default behavior. Only " +
+    "skip a skill's workflow when explicitly told to.\n";
+  const superpowersSkillSha256 = createHash("sha256").update(superpowersSkillBody).digest("hex");
+
+  await db
+    .insert(contentBlobs)
+    .values({
+      sha256: superpowersSkillSha256,
+      orgId: ORG_ID,
+      sizeBytes: Buffer.byteLength(superpowersSkillBody),
+      mime: "text/markdown",
+      createdAt: hoursAgo(450),
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(skills)
+    .overridingSystemValue()
+    .values({
+      id: 2,
+      orgId: ORG_ID,
+      name: "Superpowers",
+      slug: "superpowers",
+      description: "Establishes how to find and use skills — check for a relevant skill before every response",
+      source: "authored",
+      currentVersionId: 2,
+      family: "superpowers",
+      createdAt: hoursAgo(450),
+      updatedAt: hoursAgo(450),
+    })
+    .onConflictDoNothing();
+
+  await db
+    .insert(skillVersions)
+    .overridingSystemValue()
+    .values({
+      id: 2,
+      skillId: 2,
+      orgId: ORG_ID,
+      version: 1,
+      name: "superpowers",
+      description: "Establishes how to find and use skills — check for a relevant skill before every response",
+      bodySha256: superpowersSkillSha256,
+      publishedAt: hoursAgo(450),
+      createdAt: hoursAgo(450),
+    })
+    .onConflictDoNothing();
+
   const conventionalCommitsSkillBody =
     "---\n" +
     "name: conventional-commits\n" +

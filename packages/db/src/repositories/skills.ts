@@ -13,6 +13,7 @@ function toSkill(row: typeof skills.$inferSelect): Skill {
     description: row.description,
     source: row.source as Skill["source"],
     currentVersionId: row.currentVersionId ?? undefined,
+    family: row.family ?? undefined,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -22,7 +23,7 @@ function slugify(name: string): string {
 }
 
 export async function listSkillsForOrg(orgId: number): Promise<Skill[]> {
-  const rows = await db.select().from(skills).where(eq(skills.orgId, orgId)).orderBy(skills.name);
+  const rows = await db.select().from(skills).where(eq(skills.orgId, orgId)).orderBy(skills.createdAt);
   return rows.map(toSkill);
 }
 
