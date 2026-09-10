@@ -3,6 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { AgentFormModal, type AgentFormValues } from "@/components/AgentFormModal";
+import { AgentSkillsSection } from "@/components/AgentSkillsSection";
 import { Badge, Breadcrumb, Button, Card, CardLink, Truncate } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { ArrowLeftIcon, ChatIcon, PlusIcon, SettingsIcon } from "@/lib/icons";
@@ -60,6 +61,8 @@ export default function AgentDetailPage() {
           <pre style={{ margin: 0, fontFamily: "inherit", fontSize: "inherit", whiteSpace: "pre-wrap", lineHeight: 1.7, color: "inherit" }}>{agent.systemPrompt}</pre>
         </Card>
       </div>
+
+      <AgentSkillsSection agentId={agent.id} />
 
       <div className="px-10 pt-8">
         <div className="mb-3 flex items-center justify-between">
