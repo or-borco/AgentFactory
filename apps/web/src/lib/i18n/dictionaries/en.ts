@@ -504,6 +504,7 @@ const en = {
     newButton: "New skill",
     publishedBadge: "Published",
     draftOnlyBadge: "Draft only",
+    otherSkillsHeading: "Other skills",
     notFound: "Skill not found.",
     emptyState: {
       title: "No skills yet",

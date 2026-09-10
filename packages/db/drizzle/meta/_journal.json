@@ -197,6 +197,13 @@
       "when": 1789035508897,
       "tag": "0027_damp_yellow_claw",
       "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1789068865934,
+      "tag": "0028_petite_sheva_callister",
+      "breakpoints": true
     }
   ]
 }
