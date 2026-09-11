@@ -235,6 +235,22 @@ describe("ContextDocumentsPanel", () => {
       vi.useRealTimers();
     }
   });
+
+  it("still refuses images at team scope", async () => {
+    apiFetchMock.mockResolvedValue([]);
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+
+    const file = new File(["\x89PNG"], "screenshot.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Upload document"), { target: { files: [file] } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Only Markdown (.md) and plain text (.txt) files can be uploaded."),
+      ).toBeInTheDocument(),
+    );
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 // Same component, task scope: only the route base and the copy naming the scope explicitly
@@ -307,5 +323,37 @@ describe("ContextDocumentsPanel with task scope", () => {
     renderPanel(TASK_SCOPE);
 
     await waitFor(() => expect(screen.getByText("Couldn't load this task's documents.")).toBeInTheDocument());
+  });
+
+  it("accepts a PNG file and uploads it to the task-scoped route", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ ...TASK_ITEM, id: 3, title: "screenshot.png", mime: "image/png", sizeBytes: 9 });
+    renderPanel(TASK_SCOPE);
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+
+    const file = new File(["\x89PNG"], "screenshot.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Upload document"), { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByText("screenshot.png")).toBeInTheDocument());
+    const [path, init] = apiFetchMock.mock.calls[1] as [string, RequestInit];
+    expect(path).toBe("/api/tasks/9/context-items");
+    expect((init.body as FormData).get("file")).toBeInstanceOf(File);
+  });
+
+  it("refuses a file type the task uploader still doesn't accept", async () => {
+    apiFetchMock.mockResolvedValue([]);
+    renderPanel(TASK_SCOPE);
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+
+    const file = new File(["GIF89a"], "anim.gif", { type: "image/gif" });
+    fireEvent.change(screen.getByLabelText("Upload document"), { target: { files: [file] } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Only Markdown (.md), plain text (.txt), JPEG, and PNG files can be uploaded."),
+      ).toBeInTheDocument(),
+    );
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
   });
 });

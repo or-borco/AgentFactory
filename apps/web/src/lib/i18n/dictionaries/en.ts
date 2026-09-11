@@ -369,6 +369,7 @@ const en = {
     documentsEmptySub: "Upload a Markdown or text file to give this task's agent something to draw on.",
     documentsUploadFailed: "Couldn't upload that file — it may already be attached to this task.",
     documentsLoadError: "Couldn't load this task's documents.",
+    documentsUnsupportedType: "Only Markdown (.md), plain text (.txt), JPEG, and PNG files can be uploaded.",
   },
   teamsV2: {
     title: "Teams",
