@@ -10,6 +10,7 @@ import {
   createTaskContextItem,
   deleteTaskContextItemForOrg,
   getTaskContextItem,
+  getTaskContextItemForOrg,
   listTaskContextItemsForOrg,
   markTaskContextItemIndexed,
 } from "../../repositories/task-context-items.js";
@@ -63,6 +64,18 @@ describe("task-context-items repository", () => {
     expect(item.error).toBeUndefined();
     expect(item.indexedAt).toBeUndefined();
     await expect(getTaskContextItem(item.id)).resolves.toEqual(item);
+  });
+
+  it("gets an item scoped to its own org, and nothing for another org", async () => {
+    const { org, task } = await setupTaskWithBlob();
+    const otherOrg = await insertOrg();
+    const item = await createTaskContextItem({
+      taskId: task.id, orgId: org.id, title: "Design doc", sizeBytes: 42, sha256: SHA_A, mime: "text/markdown",
+    });
+    if (!item) throw new Error("expected the item to be created");
+
+    await expect(getTaskContextItemForOrg(item.id, org.id)).resolves.toEqual(item);
+    await expect(getTaskContextItemForOrg(item.id, otherOrg.id)).resolves.toBeUndefined();
   });
 
   // The route turns this undefined into a 409. Two items over one blob would both match
