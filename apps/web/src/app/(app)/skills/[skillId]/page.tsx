@@ -1,21 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useParams } from "next/navigation";
-import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
 import type { Skill, SkillVersion } from "@agentfactory/core";
 import { Badge, Breadcrumb, Button, Card, TextInput, Textarea } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import { relativeTime } from "@/lib/relative-time";
 import { ArrowLeftIcon, EditIcon } from "@/lib/icons";
-
-interface SkillAssignment {
-  agentId: number;
-  agentName: string;
-  skillVersionId: number;
-  version: number;
-}
+import { DeleteSkillButton } from "@/components/DeleteSkillButton";
+import { SkillAgentsPicker, type SkillAssignment } from "@/components/SkillAgentsPicker";
 
 interface DraftDetail {
   version: SkillVersion;
@@ -25,6 +19,7 @@ interface DraftDetail {
 export default function SkillDetailPage() {
   const { skillId } = useParams<{ skillId: string }>();
   const { t } = useTranslation();
+  const router = useRouter();
 
   const [skill, setSkill] = useState<Skill | null>(null);
   const [versions, setVersions] = useState<SkillVersion[]>([]);
@@ -148,6 +143,13 @@ export default function SkillDetailPage() {
               {publishing ? t("skills.detail.publishing") : t("skills.detail.publish")}
             </Button>
           )}
+          <DeleteSkillButton
+            skillId={skill.id}
+            skillName={skill.name}
+            assignedAgentNames={assignments.map((a) => a.agentName)}
+            onDeleted={() => router.push("/skills")}
+            onError={setError}
+          />
         </div>
       </div>
 
@@ -203,22 +205,12 @@ export default function SkillDetailPage() {
 
       <div className="px-10 pt-8">
         <h2 className="mb-3 text-base font-semibold text-[var(--color-text)]">{t("skills.detail.assignedAgents")}</h2>
-        {assignments.length === 0 ? (
-          <Card className="px-5 py-10 text-center text-sm text-[var(--color-neutral-500)]">
-            {t("skills.detail.noAssignedAgents")}
-          </Card>
-        ) : (
-          <div className="space-y-2">
-            {assignments.map((a) => (
-              <Card key={a.agentId} className="flex items-center justify-between px-5 py-4">
-                <Link href={`/agents/${a.agentId}`} className="text-sm font-medium text-[var(--color-text)] hover:underline">
-                  {a.agentName}
-                </Link>
-                <Badge>{`v${a.version}`}</Badge>
-              </Card>
-            ))}
-          </div>
-        )}
+        <SkillAgentsPicker
+          skillId={skill.id}
+          currentVersionNumber={currentVersion?.version}
+          assignments={assignments}
+          onAssignmentsChange={setAssignments}
+        />
       </div>
     </div>
   );
