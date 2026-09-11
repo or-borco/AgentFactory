@@ -27,14 +27,17 @@ A task's context-items uploader accepts `.jpg`/`.jpeg`/`.png` in addition to `.m
 - **`materialiseTaskDocuments` is called once, from `worker.ts:155`**, right after cloning the repo into the sandbox, and its `written`/`omitted` result is passed into a `SandboxEnvironment` (`prompt-composition.ts:28`) that `formatEnvironmentForPrompt` (lines 39-100) turns into prose: `written` paths are described as the complete files to read directly (lines 80-99); `omitted` titles get a separate sentence noting they're attached but didn't make it into the sandbox.
 - **`TASK_DOCUMENT_DIR = ".agentfactory/context"`** and **`TASK_DOCUMENT_EXCLUDE_PATTERN = "/.agentfactory/"`** (`apps/worker/src/task-document-paths.ts:9,13`); the exclude pattern is appended to `/workspace/.git/info/exclude` (`apps/worker/src/scm-provider.ts:235-239`) so materialized files stay untracked without touching the repo's own `.gitignore`. The pattern excludes the whole directory by path, not by filename or extension (confirmed by reading `cloneIntoSandbox`'s exclusion script directly) — since this design writes images into the same `TASK_DOCUMENT_DIR` as text documents, they are excluded automatically. **No change needed here for images to be git-ignored.**
 - **`sanitiseDocumentName`** (`task-documents.ts:46-54`) already allowlists `[A-Za-z0-9._-]` and preserves the file extension, so it works unchanged for `.jpg`/`.png` filenames.
+- **`packages/core` already exports runtime constants, not just types, consumed by client components.** `MODEL_CATALOG`, `DEFAULT_MODEL_ID`, and functions like `nextEscalationTier`/`isValidModelId` (`packages/core/src/models.ts:11-40`) are plain runtime values re-exported from `packages/core/src/index.ts` and imported directly by client-rendered pages (e.g. `apps/web/src/app/(app)/tasks/new/page.tsx`). This is the existing precedent for putting a small shared, non-type table in `packages/core` when both `apps/web` and `apps/worker` need to agree on it — CLAUDE.md already states `packages/core` is "the single source of truth for all entity shapes; both the web app and the future worker import from here. Never duplicate these types elsewhere," and this project already extends that beyond entity *shapes* to small policy tables like `MODEL_CATALOG`.
+- **`extractText(mime, bytes)`** (`apps/worker/src/text-extract.ts`) is itself a mime-keyed dispatch function, not a class hierarchy — the codebase's existing idiom for "different behavior per mime" is a lookup/switch over a plain function, not a Strategy-pattern object graph.
 
 ## Scope
 
-- `apps/web/src/app/api/tasks/[taskId]/context-items/route.ts` — `ALLOWED_MIMES` and `extensionMime` gain `image/jpeg`/`image/png` (`.jpg`, `.jpeg`, `.png`).
+- `packages/core/src/context-item-mime.ts` (new) — `TASK_CONTEXT_MIME_CONFIG`, the shared per-mime capability table, plus small derived helpers (`isTaskContextMimeAllowed`, `taskContextExtensionMime`) so consumers don't each re-derive the same lookup logic. Re-exported from `packages/core/src/index.ts`.
+- `apps/web/src/app/api/tasks/[taskId]/context-items/route.ts` — `ALLOWED_MIMES`/`extensionMime` replaced by calls into the shared table.
 - `apps/web/src/app/api/tasks/[taskId]/context-items/[itemId]/route.ts` — new `GET` handler streaming the item's raw bytes.
-- `apps/web/src/components/ContextDocumentsPanel.tsx` — allowed-MIME list, extension fallback, and `accept` attribute become conditional on `scope.kind === "task"`; image rows render a thumbnail.
-- `apps/worker/src/context-ingest.ts` — `ingestTaskContextItem` gains a branch that marks an image item `indexed` directly, skipping `extractText`/chunk/embed. `ingestTeamContextItem` is untouched.
-- `apps/worker/src/task-documents.ts` — writes raw bytes for image items instead of UTF-8-decoding them; `TASK_DOCUMENTS_BUDGET_BYTES` raised from 1 MB to 8 MB.
+- `apps/web/src/components/ContextDocumentsPanel.tsx` — allowed-MIME list, extension fallback, and `accept` attribute become conditional on `scope.kind === "task"`, sourced from the shared table for the task branch; image rows render a thumbnail.
+- `apps/worker/src/context-ingest.ts` — `ingestTaskContextItem` gains a branch, keyed off `TASK_CONTEXT_MIME_CONFIG[item.mime].requiresIndexing`, that marks a non-indexing item `indexed` directly, skipping `extractText`/chunk/embed. `ingestTeamContextItem` is untouched.
+- `apps/worker/src/task-documents.ts` — writes raw bytes when `TASK_CONTEXT_MIME_CONFIG[item.mime].decodeAsText` is false instead of always UTF-8-decoding; `TASK_DOCUMENTS_BUDGET_BYTES` raised from 1 MB to 8 MB.
 - `apps/worker/src/sandbox/types.ts` and `apps/worker/src/sandbox/docker-sandbox-provider.ts` — `writeFiles` widened to accept `Buffer` per file alongside `string`.
 - `apps/worker/src/prompt-composition.ts` — environment description text generalized so it reads correctly for both text documents and images.
 - `apps/web/src/lib/i18n/dictionaries/en.ts` — updated copy for the task-scoped unsupported-type error (now names images as accepted) and any new UI strings the thumbnail needs.
@@ -51,8 +54,10 @@ A task's context-items uploader accepts `.jpg`/`.jpeg`/`.png` in addition to `.m
 ## Design decisions
 
 - **Task-only, enforced entirely at the upload route.** Rather than adding an `imageSupport` flag threaded through several layers, the teams and tasks routes simply keep independent `ALLOWED_MIMES` sets (as they already are — see the 2026-09-01 design's "parallel tables, not a unified schema" precedent). Nothing downstream needs to ask "is this a task item or a team item" — `ingestTeamContextItem` and the team route are simply never touched, so an image can't reach them at all.
-- **Ingest (`ingestTaskContextItem`) branches on `item.mime.startsWith("image/")`, kept narrow on purpose.** The upload route is the only gate that decides exactly which mime strings are accepted (`image/jpeg`, `image/png` today); this check trusts that anything with an `image/` prefix reaching ingestion already passed that gate. It is deliberately scoped to images specifically, not to "any non-text mime" — a future binary format like PDF very plausibly *should* get real text extraction and go through the normal chunk/embed pipeline (a PDF is usually a textual document), so the skip-to-`indexed` shortcut must not silently swallow it. Adding PDF-with-indexing later means adding a PDF branch to `extractText` (`text-extract.ts`), not touching this condition.
-- **Materialization (`materialiseTaskDocuments`) branches the opposite way: on membership in a small `TEXT_MIMES` set, not on `startsWith("image/")`.** `TEXT_MIMES = new Set(["text/markdown", "text/plain"])` — decode as UTF-8 only for those, and write raw bytes for anything else. This is the inverse of the ingest condition, and deliberately so: sandbox materialization only cares whether a mime is safely UTF-8-decodable, not what kind of file it is. Written this way, adding any future binary format (PDF included, whether or not it's also indexed) needs zero changes to `task-documents.ts` — a new mime just isn't in `TEXT_MIMES`, so it already takes the raw-bytes path. Written the other way (`startsWith("image/")`), a future PDF would silently get UTF-8-decoded and corrupted until someone remembered to add a third branch.
+- **One shared per-mime capability table (`TASK_CONTEXT_MIME_CONFIG`), not independently-reasoned checks scattered across files.** An earlier version of this design had `ingestTaskContextItem` check `item.mime.startsWith("image/")` and `materialiseTaskDocuments` check membership in a separately-declared `TEXT_MIMES` set — two conditions that happened to be exact inverses of each other for today's four mimes, justified only by a comment explaining why they must be kept in sync by hand. That's exactly the kind of scattered, implicit relationship a single source of truth removes. `TASK_CONTEXT_MIME_CONFIG` (see Mechanism) records, per mime, `extensions: string[]`, `requiresIndexing: boolean`, and `decodeAsText: boolean` — both axes live in one place, and every consumer (the upload route's whitelist/extension-fallback, `ingestTaskContextItem`'s skip-to-`indexed` branch, `materialiseTaskDocuments`'s decode-vs-raw branch, and `ContextDocumentsPanel`'s task-scope `accept` attribute) reads its answer from the same table instead of re-deriving or hand-duplicating it.
+- **A plain data table, not a GoF Strategy pattern (interface + one class per mime + runtime dispatch through polymorphism).** The two axes that vary per mime are booleans, not algorithms — every text mime shares identical decode logic, every non-text mime shares identical raw-byte logic. There is no varying *behavior* to swap in, only varying *data*, so a `Record<mime, config>` expresses the same "one source of truth per type" goal a Strategy object graph would, without introducing a class-based idiom this codebase doesn't otherwise use (it's plain functions and data throughout — `extractText`'s existing mime-keyed dispatch, per Ground truth, is the closer existing precedent). If a future format needs a genuinely distinct *algorithm* rather than a different boolean (e.g. PDF getting its own text-extraction implementation), that already has a natural home: a new branch inside `extractText`, exactly as markdown and plain-text extraction presumably already are.
+- **The table lives in `packages/core`, not in `apps/worker` alone.** Both `apps/web` (upload route validation, client `accept` attribute) and `apps/worker` (ingest, materialization) need to agree on which mimes are accepted and how each behaves; per Ground truth, `packages/core` already plays exactly this role for `MODEL_CATALOG`, consumed by both a client component and (presumably) worker-side model resolution.
+- **The teams route deliberately does not adopt this table.** Team context items have no `requiresIndexing`/`decodeAsText` distinction to make — every team upload is still text, full stop — so migrating the teams route onto `TASK_CONTEXT_MIME_CONFIG` would only recreate the coupling this design is trying to avoid elsewhere: a shared config table that both scopes read would make it easy for a later change to one scope's accepted mimes to silently change the other's. The teams route keeps its own literal `{ text/markdown, text/plain }` set, unchanged, exactly as it does today.
 - **Images are marked `indexed` immediately, without inserting any chunks.** `ContextItemStatus` (`pending | indexing | indexed | failed`) is reused as-is — no new status. An `indexed` image item has zero rows in `task_context_chunks`, which is already a valid (if previously theoretical) state: `countIndexedTaskContextItems` and `searchTaskContextChunks` naturally return nothing for it, so `retrieveContext` behaves as if the image doesn't exist for retrieval purposes, which is exactly the intent. `materialiseTaskDocuments` only filters on `status === "indexed"` (not on chunk existence), so this is sufficient to make the image eligible for sandbox materialization.
 - **`writeFiles` is widened to `Record<string, string | Buffer>`, not switched entirely to binary.** Every existing text-document call site continues to pass strings unchanged; only the new image branch in `task-documents.ts` passes a `Buffer`. `tar-stream`'s `entry()` already accepts either at runtime (see Ground truth) — this is a type-level widening plus one new branch, not a rewrite of the sandbox-write path.
 - **`TASK_DOCUMENTS_BUDGET_BYTES` raised from 1 MB to 8 MB, not left as-is.** At 1 MB, a single 1.5 MB image (well under the 2 MB per-file upload cap) would upload successfully, ingest to `indexed`, and then still get silently `omitted` from the sandbox purely because of a budget that predates images entirely and was sized for a 6.7 KB motivating text document (per the original comment at `task-documents.ts:9-13`). 8 MB comfortably fits several images plus text documents in one run without materially changing the tar payload size relative to what a sandbox provisioning step already handles for repo contents.
@@ -62,22 +67,49 @@ A task's context-items uploader accepts `.jpg`/`.jpeg`/`.png` in addition to `.m
 
 ## Mechanism
 
+### Shared mime capability table (new)
+
+```ts
+// packages/core/src/context-item-mime.ts
+export interface TaskContextMimeConfig {
+  extensions: string[];
+  requiresIndexing: boolean;  // false → ingestTaskContextItem skips straight to `indexed`
+  decodeAsText: boolean;      // false → materialiseTaskDocuments writes raw bytes
+}
+
+export const TASK_CONTEXT_MIME_CONFIG: Record<string, TaskContextMimeConfig> = {
+  "text/markdown": { extensions: [".md", ".markdown"], requiresIndexing: true,  decodeAsText: true },
+  "text/plain":    { extensions: [".txt"],              requiresIndexing: true,  decodeAsText: true },
+  "image/jpeg":    { extensions: [".jpg", ".jpeg"],     requiresIndexing: false, decodeAsText: false },
+  "image/png":     { extensions: [".png"],              requiresIndexing: false, decodeAsText: false },
+};
+
+export function isTaskContextMimeAllowed(mime: string): boolean {
+  return mime in TASK_CONTEXT_MIME_CONFIG;
+}
+
+// Extension-fallback lookup — same role extensionMime() plays today, but table-driven.
+export function taskContextExtensionMime(filename: string): string | null {
+  const lower = filename.toLowerCase();
+  for (const [mime, config] of Object.entries(TASK_CONTEXT_MIME_CONFIG)) {
+    if (config.extensions.some((ext) => lower.endsWith(ext))) return mime;
+  }
+  return null;
+}
+```
+
+Re-exported from `packages/core/src/index.ts` alongside the existing domain types and `models.ts` exports.
+
 ### Upload validation
 
 ```
 apps/web/src/app/api/tasks/[taskId]/context-items/route.ts:
 
-  ALLOWED_MIMES = new Set(["text/markdown", "text/plain", "image/jpeg", "image/png"])
-
-  extensionMime(filename):
-    .md / .markdown → text/markdown
-    .txt            → text/plain
-    .jpg / .jpeg    → image/jpeg
-    .png            → image/png
-    else            → null
+  ALLOWED_MIMES check → isTaskContextMimeAllowed(mime)
+  extension fallback  → taskContextExtensionMime(filename)
 ```
 
-`ContextDocumentsPanel.tsx` mirrors the same sets, but only when `scope.kind === "task"`; for `scope.kind === "team"` the panel keeps exactly today's `["text/markdown", "text/plain"]` list, extension fallback, and `accept` string. The `<input accept="...">` attribute is likewise built conditionally: `".md,.markdown,.txt,text/markdown,text/plain"` for team scope, with `,.jpg,.jpeg,.png,image/jpeg,image/png` appended for task scope. Everything else in the route (Content-Length gate, 2 MB cap, blob store `put`, `insertContentBlob`, `createTaskContextItem`, 409-on-duplicate-sha, `enqueueTaskContextIngestJob`) is unchanged — none of it is mime-specific today.
+`ContextDocumentsPanel.tsx` calls the same two functions, but only when `scope.kind === "task"`; for `scope.kind === "team"` the panel keeps exactly today's hand-written `["text/markdown", "text/plain"]` list, extension fallback, and `accept` string — the teams branch does not import from `TASK_CONTEXT_MIME_CONFIG` (see Design decisions). The task-scope `<input accept="...">` string is built by joining every `config.extensions` entry plus every key of `TASK_CONTEXT_MIME_CONFIG` (mirroring today's `".md,.markdown,.txt,text/markdown,text/plain"` shape, just table-derived instead of literal). Everything else in the route (Content-Length gate, 2 MB cap, blob store `put`, `insertContentBlob`, `createTaskContextItem`, 409-on-duplicate-sha, `enqueueTaskContextIngestJob`) is unchanged — none of it is mime-specific today.
 
 ### Ingestion
 
@@ -87,7 +119,7 @@ ingestTaskContextItem(itemId):
   bytes = blobStore.get(item.orgId, item.sha256)
   ... existing missing-blob handling ...
 
-  if item.mime.startsWith("image/"):
+  if !TASK_CONTEXT_MIME_CONFIG[item.mime].requiresIndexing:
     markTaskContextItemIndexed(itemId)
     return                                    // no extractText, no chunking, no embedding
 
@@ -108,23 +140,21 @@ GET /api/tasks/[taskId]/context-items/[itemId]/content
 
 ### UI
 
-`ContextDocumentsPanel`'s item row: for `item.mime.startsWith("image/")`, render a small `<img src={`${basePath}/${item.id}/content`} />` thumbnail to the left of the filename/size text, sized and cropped consistently (e.g. a fixed 40×40 box) regardless of the source image's dimensions. Non-image rows are visually unchanged. The empty-state icon, status badge, delete button, and error-row rendering are unaffected.
+`ContextDocumentsPanel`'s item row: for an item whose `mime` starts with `image/` (a plain string check is enough here — this is purely a rendering choice, not a policy decision, so it doesn't need the shared table), render a small `<img src={`${basePath}/${item.id}/content`} />` thumbnail to the left of the filename/size text, sized and cropped consistently (e.g. a fixed 40×40 box) regardless of the source image's dimensions. Non-image rows are visually unchanged. The empty-state icon, status badge, delete button, and error-row rendering are unaffected.
 
 ### Sandbox materialization
 
 ```
-TEXT_MIMES = new Set(["text/markdown", "text/plain"])
-
 materialiseTaskDocuments(...):
   ... existing indexed-filter, budget loop, blob fetch, sanitiseDocumentName/deduplicate ...
 
   for each surviving item:
-    if TEXT_MIMES.has(item.mime):
+    if TASK_CONTEXT_MIME_CONFIG[item.mime].decodeAsText:
       files[path] = new TextDecoder().decode(bytes)   // unchanged
     else:
       files[path] = Buffer.from(bytes)          // raw bytes, no TextDecoder — covers
                                                  // images today, any future binary type
-                                                 // (e.g. PDF) with no further change here
+                                                 // (e.g. PDF) with no further table change
 
   ... existing mkdir -p + sandboxProvider.writeFiles(sandboxId, files) ...
 ```
@@ -137,7 +167,7 @@ materialiseTaskDocuments(...):
 
 ## Testing
 
-- **Unit.** `extensionMime`/`ALLOWED_MIMES` additions on the task route (accepts `.jpg`/`.jpeg`/`.png` and their declared/undeclared-mime variants, still rejects e.g. `.gif`). `ingestTaskContextItem`: an `image/png`/`image/jpeg` item reaches `indexed` with zero chunks inserted and without calling `extractText`, using the existing `TaskIngestDeps`-style stubs. `materialiseTaskDocuments`: an indexed image item is written as raw bytes (assert the written `Buffer` matches the source bytes exactly, not a UTF-8 round-trip), the 8 MB budget accepts a multi-image case that the old 1 MB budget would have partially omitted, and a mixed text+image task materializes both correctly with the shared directory/dedup logic unchanged.
+- **Unit.** `TASK_CONTEXT_MIME_CONFIG`/`isTaskContextMimeAllowed`/`taskContextExtensionMime` (accepts `.jpg`/`.jpeg`/`.png` and their declared/undeclared-mime variants, still rejects e.g. `.gif`; every entry's `extensions` round-trips back to its own mime key). `ingestTaskContextItem`: an `image/png`/`image/jpeg` item (`requiresIndexing: false`) reaches `indexed` with zero chunks inserted and without calling `extractText`, using the existing `TaskIngestDeps`-style stubs. `materialiseTaskDocuments`: an indexed image item (`decodeAsText: false`) is written as raw bytes (assert the written `Buffer` matches the source bytes exactly, not a UTF-8 round-trip), the 8 MB budget accepts a multi-image case that the old 1 MB budget would have partially omitted, and a mixed text+image task materializes both correctly with the shared directory/dedup logic unchanged.
 - **DB/integration.** None new — `task_context_items`/`task_context_chunks` schema and repositories are unchanged; an `indexed` item with no chunk rows already exercises `countIndexedTaskContextItems` and `searchTaskContextChunks` correctly (they operate on the chunks table directly, not on a chunk-count assumption).
 - **Component.** `ContextDocumentsPanel` with `scope: "task"`: accepts a `.png` file (asserted via a mocked `handleFile` path), renders a thumbnail `<img>` for an image item pointed at the correct content URL, and continues to render `scope: "team"` exactly as before (a `.png` selection is rejected client-side with the existing unsupported-type copy).
 - **API route.** The new `GET .../[itemId]/content`: 401 unauthenticated, 404 for another org's item, 404 for a nonexistent item, 200 with the correct `Content-Type` and byte-for-byte body for an existing image item.
@@ -147,7 +177,7 @@ materialiseTaskDocuments(...):
 
 | # | PR | Contents | Demoable |
 |---|---|---|---|
-| 1 | **Upload + ingest** | Task route's `ALLOWED_MIMES`/`extensionMime` additions, `ContextDocumentsPanel` scope-conditional accept list, `ingestTaskContextItem`'s image branch | Yes — an image uploads, shows in the list, reaches `indexed` |
+| 1 | **Shared table + upload + ingest** | New `packages/core/src/context-item-mime.ts` (`TASK_CONTEXT_MIME_CONFIG`), task route and `ContextDocumentsPanel` switched onto it, `ingestTaskContextItem`'s `requiresIndexing` branch | Yes — an image uploads, shows in the list, reaches `indexed` |
 | 2 | **Content route + thumbnail** | New `GET .../[itemId]/content` route, `ContextDocumentsPanel` thumbnail rendering | Yes — uploaded images render as thumbnails |
 | 3 | **Sandbox materialization** | `writeFiles` type widening + Buffer branch in `task-documents.ts`, `TASK_DOCUMENTS_BUDGET_BYTES` raised to 8 MB, `prompt-composition.ts` wording generalization | Yes — an agent run's sandbox contains the image file, and the injected prompt text mentions it |
 
@@ -157,5 +187,5 @@ PR 1 and PR 2 are independently demoable UI/API slices; PR 3 is where the featur
 
 - **8 MB is an unmeasured raise, like the original 1 MB was.** It comfortably fits the stated JPEG/PNG use case at the existing 2 MB per-file cap, but if a task accumulates many large images, the tar payload and `putArchive` call in `docker-sandbox-provider.ts` grows accordingly — no load testing is done here.
 - **Generalizing the prompt wording from "read" to "open" is a small behavioral change for existing text-only tasks too**, since the same code path renders both. Low risk — the meaning is equivalent for text files — but it does touch already-shipped prompt text.
-- **Ingest's `item.mime.startsWith("image/")` trusts the upload route as the sole gate.** If a future change adds a different `image/*` mime to the upload whitelist (e.g. `image/gif`) without revisiting this design, it would silently start skipping ingestion for it too — correct behavior for any real image, but not a deliberate decision at that point.
-- **The two mime checks in `ingestTaskContextItem` and `materialiseTaskDocuments` are inverses of each other by design (`startsWith("image/")` vs. membership in `TEXT_MIMES`), and must be kept that way on purpose, not merged into one shared helper.** They answer different questions — "should this skip RAG indexing" vs. "is this safely UTF-8-decodable" — that happen to agree only for the two mimes that exist today. A future format that is textual but not one of `TEXT_MIMES` (unlikely, but e.g. a `.csv` extension added later) or binary but not an image (PDF, per the question that prompted this section) would need each check updated independently and correctly, not in lockstep.
+- **Adding a mime to `TASK_CONTEXT_MIME_CONFIG` immediately changes upload, ingest, *and* materialization behavior at once.** That's the table's entire point, but it also means a mistake in one row (e.g. a future entry with `decodeAsText: true` for a format that isn't actually safe to UTF-8-decode) has a wider simultaneous blast radius than the old scattered-checks version did — there's now exactly one place to get it wrong, but getting it wrong there affects every consumer immediately. The unit tests on the table itself (see Testing) are the guard.
+- **`packages/core` now carries a small piece of file-handling policy, not just entity shapes.** `MODEL_CATALOG` is the existing precedent (see Ground truth) so this isn't a new category of thing living there, but it's worth naming explicitly: `packages/core`'s role has quietly grown from "domain shapes" to "domain shapes plus small shared policy tables," and a reviewer unfamiliar with the `models.ts` precedent might reasonably ask why mime configuration isn't local to `apps/worker`.
