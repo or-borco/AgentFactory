@@ -1,8 +1,8 @@
 import "dotenv/config";
-import { createHash } from "node:crypto";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { sql } from "drizzle-orm";
+import { createBlobStore } from "@agentfactory/storage";
 import {
   agents,
   agentSkills,
@@ -107,9 +107,13 @@ function skillMarkdown(slug: string, description: string, instructions: string):
   return `---\nname: ${slug}\ndescription: ${description}\n---\n\n${instructions}`;
 }
 
-// Inserts a skill with a single published version — the content-blob → skill → skill-version
-// insert order every other blob writer in this codebase uses, since skill_versions' (org_id,
-// body_sha256) FK means the blob row has to exist first.
+const blobStore = createBlobStore();
+
+// Inserts a skill with a single published version — blob bytes first (via the real BlobStore,
+// same as every other writer in this codebase — a content_blobs row with no matching file on
+// disk means getSkillVersionMarkdown() silently returns undefined and every "Edit" opens blank),
+// then the content-blob metadata row, then skill → skill-version, since skill_versions' (org_id,
+// body_sha256) FK needs the metadata row to exist first.
 async function seedPublishedSkill(
   db: ReturnType<typeof drizzle>,
   input: {
@@ -125,7 +129,7 @@ async function seedPublishedSkill(
   },
 ) {
   const markdown = skillMarkdown(input.slug, input.description, input.instructions);
-  const bodySha256 = createHash("sha256").update(markdown).digest("hex");
+  const { sha256: bodySha256 } = await blobStore.put(input.orgId, new TextEncoder().encode(markdown), "text/markdown");
 
   await db
     .insert(contentBlobs)
@@ -477,58 +481,19 @@ async function main() {
       "notice.\n",
   });
 
-  const conventionalCommitsSkillBody =
-    "---\n" +
-    "name: conventional-commits\n" +
-    "description: Validate and format commit messages against the Conventional Commits spec\n" +
-    "---\n\n" +
-    "Check that each commit message starts with a valid type (`feat`, `fix`, `chore`, `docs`, `refactor`, " +
-    "`test`, `perf`, `build`, `ci`), followed by an optional scope in parentheses, a colon, a space, and a " +
-    "concise imperative-mood summary. Flag and rewrite any commit message that doesn't conform.\n";
-  const conventionalCommitsSkillSha256 = createHash("sha256").update(conventionalCommitsSkillBody).digest("hex");
-
-  await db
-    .insert(contentBlobs)
-    .values({
-      sha256: conventionalCommitsSkillSha256,
-      orgId: ORG_ID,
-      sizeBytes: Buffer.byteLength(conventionalCommitsSkillBody),
-      mime: "text/markdown",
-      createdAt: hoursAgo(400),
-    })
-    .onConflictDoNothing();
-
-  await db
-    .insert(skills)
-    .overridingSystemValue()
-    .values({
-      id: 1,
-      orgId: ORG_ID,
-      name: "Conventional commits",
-      slug: "conventional-commits",
-      description: "Validate and format commit messages against the Conventional Commits spec",
-      source: "authored",
-      currentVersionId: 1,
-      createdAt: hoursAgo(400),
-      updatedAt: hoursAgo(400),
-    })
-    .onConflictDoNothing();
-
-  await db
-    .insert(skillVersions)
-    .overridingSystemValue()
-    .values({
-      id: 1,
-      skillId: 1,
-      orgId: ORG_ID,
-      version: 1,
-      name: "conventional-commits",
-      description: "Validate and format commit messages against the Conventional Commits spec",
-      bodySha256: conventionalCommitsSkillSha256,
-      publishedAt: hoursAgo(400),
-      createdAt: hoursAgo(400),
-    })
-    .onConflictDoNothing();
+  await seedPublishedSkill(db, {
+    id: 1,
+    versionId: 1,
+    orgId: ORG_ID,
+    name: "Conventional commits",
+    slug: "conventional-commits",
+    description: "Validate and format commit messages against the Conventional Commits spec",
+    createdAt: hoursAgo(400),
+    instructions:
+      "Check that each commit message starts with a valid type (`feat`, `fix`, `chore`, `docs`, `refactor`, " +
+      "`test`, `perf`, `build`, `ci`), followed by an optional scope in parentheses, a colon, a space, and a " +
+      "concise imperative-mood summary. Flag and rewrite any commit message that doesn't conform.\n",
+  });
 
   await db
     .insert(agentSkills)
