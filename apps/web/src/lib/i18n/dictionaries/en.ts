@@ -62,12 +62,8 @@ const en = {
     newSessionDefaultTitle: "New conversation",
     skills: {
       title: "Skills",
-      emptyState: "No skills assigned yet.",
-      addLabel: "Add skill",
-      addPlaceholder: "Select a skill…",
-      noAssignableSkills: "All published skills are already assigned.",
+      emptyState: "No skills exist yet.",
       versionLabel: "Version",
-      removeButtonLabel: "Remove skill",
     },
   },
   agentForm: {
