@@ -147,6 +147,49 @@ describe("POST /api/tasks/[taskId]/context-items", () => {
     expect(enqueueTaskContextIngestJobMock).not.toHaveBeenCalled();
   });
 
+  it("accepts a JPEG file and returns 201", async () => {
+    const res = await POST(
+      multipartRequest({ filename: "screenshot.jpg", type: "image/jpeg", content: "\xFF\xD8\xFF" }),
+      params(),
+    );
+
+    expect(res.status).toBe(201);
+    const [, , mime] = putMock.mock.calls[0];
+    expect(mime).toBe("image/jpeg");
+  });
+
+  it("accepts a PNG file and returns 201", async () => {
+    const res = await POST(
+      multipartRequest({ filename: "diagram.png", type: "image/png", content: "\x89PNG" }),
+      params(),
+    );
+
+    expect(res.status).toBe(201);
+    const [, , mime] = putMock.mock.calls[0];
+    expect(mime).toBe("image/png");
+  });
+
+  it("falls back to the extension when a browser mis-declares an image's mime", async () => {
+    const res = await POST(
+      multipartRequest({ filename: "diagram.png", type: "application/octet-stream", content: "\x89PNG" }),
+      params(),
+    );
+
+    expect(res.status).toBe(201);
+    const [, , mime] = putMock.mock.calls[0];
+    expect(mime).toBe("image/png");
+  });
+
+  it("still rejects a mime that isn't in the task's allowlist, e.g. GIF", async () => {
+    const res = await POST(
+      multipartRequest({ filename: "anim.gif", type: "image/gif", content: "GIF89a" }),
+      params(),
+    );
+
+    expect(res.status).toBe(415);
+    expect(putMock).not.toHaveBeenCalled();
+  });
+
   it("rejects a taskId belonging to another org", async () => {
     getTaskMock.mockResolvedValue({ id: 1, orgId: 2 });
 

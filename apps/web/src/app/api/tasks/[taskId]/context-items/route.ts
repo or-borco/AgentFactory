@@ -7,6 +7,7 @@ import {
 } from "@agentfactory/db";
 import { enqueueTaskContextIngestJob } from "@agentfactory/queue";
 import { createBlobStore } from "@agentfactory/storage";
+import { isTaskContextMimeAllowed, taskContextExtensionMime } from "@agentfactory/core";
 import { requireAuthContext } from "@/server/auth";
 
 // Mirrors apps/web/src/app/api/teams/[teamId]/context-items/route.ts exactly — see that file's
@@ -16,15 +17,6 @@ import { requireAuthContext } from "@/server/auth";
 // design's "parallel tables, not a unified schema" decision) — factoring out the shared body now
 // would touch a shipped, tested file for a change with no other motivating reason.
 export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 2 MB
-
-const ALLOWED_MIMES = new Set(["text/markdown", "text/plain"]);
-
-function extensionMime(filename: string): "text/markdown" | "text/plain" | null {
-  const lower = filename.toLowerCase();
-  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "text/markdown";
-  if (lower.endsWith(".txt")) return "text/plain";
-  return null;
-}
 
 let blobStore: ReturnType<typeof createBlobStore> | undefined;
 function getBlobStore() {
@@ -64,10 +56,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ tas
     return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
   }
   let mime = file.type;
-  if (!ALLOWED_MIMES.has(mime)) {
-    const fallback = extensionMime(file.name);
+  if (!isTaskContextMimeAllowed(mime)) {
+    const fallback = taskContextExtensionMime(file.name);
     if (!fallback) {
-      return NextResponse.json({ error: "Only Markdown and plain text files are supported" }, { status: 415 });
+      return NextResponse.json(
+        { error: "Only Markdown, plain text, JPEG, and PNG files are supported" },
+        { status: 415 },
+      );
     }
     mime = fallback;
   }
