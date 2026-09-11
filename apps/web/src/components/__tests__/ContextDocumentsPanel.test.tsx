@@ -356,4 +356,21 @@ describe("ContextDocumentsPanel with task scope", () => {
     );
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("renders a thumbnail for an image item pointed at the content route", async () => {
+    apiFetchMock.mockResolvedValue([{ ...TASK_ITEM, mime: "image/png", title: "screenshot.png" }]);
+    renderPanel(TASK_SCOPE);
+
+    await waitFor(() => expect(screen.getByText("screenshot.png")).toBeInTheDocument());
+    const thumb = screen.getByAltText("screenshot.png") as HTMLImageElement;
+    expect(thumb.src).toContain("/api/tasks/9/context-items/1/content");
+  });
+
+  it("renders no thumbnail for a non-image item", async () => {
+    apiFetchMock.mockResolvedValue([TASK_ITEM]);
+    renderPanel(TASK_SCOPE);
+
+    await waitFor(() => expect(screen.getByText("Migration runbook")).toBeInTheDocument());
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
 });

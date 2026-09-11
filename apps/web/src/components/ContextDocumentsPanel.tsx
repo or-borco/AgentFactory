@@ -227,6 +227,13 @@ export function ContextDocumentsPanel({
                   className={i < items.length - 1 ? "border-b border-[var(--color-divider)]" : ""}
                 >
                   <div className="flex items-center gap-3 px-4 py-3">
+                    {item.mime.startsWith("image/") && (
+                      <img
+                        src={`${basePath}/${item.id}/content`}
+                        alt={item.title}
+                        className="h-10 w-10 shrink-0 rounded-[var(--radius-sm)] object-cover"
+                      />
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm text-[var(--color-neutral-200)]">{item.title}</div>
                       <div className="text-xs text-[var(--color-neutral-500)]">
