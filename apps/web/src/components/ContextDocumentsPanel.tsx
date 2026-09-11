@@ -35,6 +35,7 @@ function basePathForScope(scope: ContextDocumentsScope): string {
 const SCOPE_COPY_KEYS: Record<
   ContextDocumentsScope["kind"],
   {
+    help: TranslationKey;
     emptySub: TranslationKey;
     uploadFailed: TranslationKey;
     loadError: TranslationKey;
@@ -42,12 +43,14 @@ const SCOPE_COPY_KEYS: Record<
   }
 > = {
   team: {
+    help: "teamsV2.documentsHelp",
     emptySub: "teamsV2.documentsEmptySub",
     uploadFailed: "teamsV2.documentsUploadFailed",
     loadError: "teamsV2.documentsLoadError",
     unsupportedType: "teamsV2.documentsUnsupportedType",
   },
   task: {
+    help: "taskDetail.documentsHelp",
     emptySub: "taskDetail.documentsEmptySub",
     uploadFailed: "taskDetail.documentsUploadFailed",
     loadError: "taskDetail.documentsLoadError",
@@ -207,7 +210,7 @@ export function ContextDocumentsPanel({
         />
       </label>
 
-      <p className="text-xs text-[var(--color-neutral-600)]">{t("teamsV2.documentsHelp")}</p>
+      <p className="text-xs text-[var(--color-neutral-600)]">{t(copy.help)}</p>
       {errorKey && <p className="text-xs text-red-400">{t(errorKey)}</p>}
       {loadError && <p className="text-xs text-red-400">{t(copy.loadError)}</p>}
 

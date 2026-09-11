@@ -49,6 +49,7 @@ describe("GET /api/tasks/[taskId]/context-items/[itemId]/content", () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toBe("image/png");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
     expect(getTaskContextItemForOrgMock).toHaveBeenCalledWith(9, 1);
     expect(getBlobMock).toHaveBeenCalledWith(1, "a".repeat(64));

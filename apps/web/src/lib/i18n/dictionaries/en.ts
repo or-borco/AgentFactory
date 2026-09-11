@@ -366,7 +366,9 @@ const en = {
     confirmStatusButton: "Change status",
     savingStatus: "Updating…",
     documentsSection: "Documents",
-    documentsEmptySub: "Upload a Markdown or text file to give this task's agent something to draw on.",
+    documentsHelp:
+      "Markdown, plain text, JPEG, or PNG, up to 2 MB. Attached files are placed in the agent's checkout in full.",
+    documentsEmptySub: "Upload a Markdown or text file, or an image, to give this task's agent something to draw on.",
     documentsUploadFailed: "Couldn't upload that file — it may already be attached to this task.",
     documentsLoadError: "Couldn't load this task's documents.",
     documentsUnsupportedType: "Only Markdown (.md), plain text (.txt), JPEG, and PNG files can be uploaded.",

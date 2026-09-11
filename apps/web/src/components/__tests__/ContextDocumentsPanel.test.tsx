@@ -236,6 +236,18 @@ describe("ContextDocumentsPanel", () => {
     }
   });
 
+  it("shows the team-scope help copy", async () => {
+    apiFetchMock.mockResolvedValue([]);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+    expect(
+      screen.getByText(
+        "Markdown or plain text, up to 2 MB. Agents receive the excerpts relevant to their task, not the whole file.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("still refuses images at team scope", async () => {
     apiFetchMock.mockResolvedValue([]);
     renderPanel();
@@ -264,7 +276,9 @@ describe("ContextDocumentsPanel with task scope", () => {
     await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
     expect(apiFetchMock).toHaveBeenCalledWith("/api/tasks/9/context-items");
     expect(
-      screen.getByText("Upload a Markdown or text file to give this task's agent something to draw on."),
+      screen.getByText(
+        "Upload a Markdown or text file, or an image, to give this task's agent something to draw on.",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -372,5 +386,20 @@ describe("ContextDocumentsPanel with task scope", () => {
 
     await waitFor(() => expect(screen.getByText("Migration runbook")).toBeInTheDocument());
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("shows task-scope help copy that mentions images and full-file delivery, distinct from team scope", async () => {
+    apiFetchMock.mockResolvedValue([]);
+    renderPanel(TASK_SCOPE);
+
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+    const help = screen.getByText(
+      "Markdown, plain text, JPEG, or PNG, up to 2 MB. Attached files are placed in the agent's checkout in full.",
+    );
+    expect(help).toBeInTheDocument();
+    expect(help.textContent).toMatch(/JPEG|PNG/);
+    expect(help.textContent).not.toBe(
+      "Markdown or plain text, up to 2 MB. Agents receive the excerpts relevant to their task, not the whole file.",
+    );
   });
 });

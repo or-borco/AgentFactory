@@ -31,5 +31,7 @@ export async function GET(
   // Uint8Array<ArrayBufferLike>, which this TS/@types-node combination's BodyInit no longer
   // accepts (its buffer could in principle be a SharedArrayBuffer). Buffer's type is pinned to
   // ArrayBuffer, so this satisfies the type without changing the bytes served.
-  return new NextResponse(Buffer.from(bytes), { headers: { "Content-Type": item.mime } });
+  return new NextResponse(Buffer.from(bytes), {
+    headers: { "Content-Type": item.mime, "X-Content-Type-Options": "nosniff" },
+  });
 }
