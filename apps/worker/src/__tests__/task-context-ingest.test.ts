@@ -201,4 +201,18 @@ describe("ingestTaskContextItem", () => {
     expect(deps.markTaskContextItemFailed.mock.calls[0][1]).toContain("application/pdf");
     expect(deps.insertTaskContextChunks).not.toHaveBeenCalled();
   });
+
+  it("marks an image item indexed without touching the blob store, chunker, or embedder", async () => {
+    for (const mime of ["image/jpeg", "image/png"]) {
+      const deps = makeDeps(makeItem({ mime }));
+
+      await ingestTaskContextItem(5, deps);
+
+      expect(deps.blobStore.get).not.toHaveBeenCalled();
+      expect(chunkDocumentMock).not.toHaveBeenCalled();
+      expect(deps.embedder.embedDocuments).not.toHaveBeenCalled();
+      expect(deps.insertTaskContextChunks).not.toHaveBeenCalled();
+      expect(deps.markTaskContextItemIndexed).toHaveBeenCalledWith(5);
+    }
+  });
 });
