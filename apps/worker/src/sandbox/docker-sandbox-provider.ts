@@ -219,7 +219,7 @@ export class DockerSandboxProvider implements SandboxProvider {
     }
   }
 
-  async writeFiles(id: string, files: Record<string, string>): Promise<void> {
+  async writeFiles(id: string, files: Record<string, string | Buffer>): Promise<void> {
     const container = docker.getContainer(id);
     const tar = pack();
     for (const [path, contents] of Object.entries(files)) {

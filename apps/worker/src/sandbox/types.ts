@@ -25,7 +25,7 @@ export interface OutputChunk {
 export interface SandboxProvider {
   create(spec: SandboxSpec): Promise<Sandbox>;
   exec(id: string, cmd: string[], opts?: ExecOptions): AsyncIterable<OutputChunk>;
-  writeFiles(id: string, files: Record<string, string>): Promise<void>;
+  writeFiles(id: string, files: Record<string, string | Buffer>): Promise<void>;
   // Resets a container's memory cap back to the provider's base value (no-op if already there).
   // Called once per run, before that run's exec() calls — see DockerSandboxProvider for why.
   resetMemory(id: string): Promise<void>;
