@@ -794,7 +794,7 @@ describe("SkillAgentsPicker", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @agentfactory/web exec vitest run src/components/__tests__/SkillAgentsPicker.test.tsx`
+Run (from the repo root — `pnpm --filter ... exec vitest run` does not work in this repo, it cannot resolve the root `vitest-setup.ts`; use this form instead): `pnpm exec vitest run --project unit apps/web/src/components/__tests__/SkillAgentsPicker.test.tsx`
 Expected: FAIL — `Cannot find module '../SkillAgentsPicker'`
 
 - [ ] **Step 3: Write the implementation**
@@ -906,7 +906,7 @@ export function SkillAgentsPicker({
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @agentfactory/web exec vitest run src/components/__tests__/SkillAgentsPicker.test.tsx`
+Run (from the repo root — `pnpm --filter ... exec vitest run` does not work in this repo, it cannot resolve the root `vitest-setup.ts`; use this form instead): `pnpm exec vitest run --project unit apps/web/src/components/__tests__/SkillAgentsPicker.test.tsx`
 Expected: FAIL on this step is expected only if `skills.detail.noOrgAgents` is missing from `en.ts` — Task 5 adds it. Since this component only reads that key when `allAgents` is an empty array (not the case in any test above, `AGENTS` always has 2 entries), the tests should PASS (5 tests) even before Task 5 adds the key. Confirm all 5 pass.
 
 - [ ] **Step 5: Commit**
@@ -1013,7 +1013,7 @@ describe("DeleteSkillButton", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @agentfactory/web exec vitest run src/components/__tests__/DeleteSkillButton.test.tsx`
+Run (from the repo root — `pnpm --filter ... exec vitest run` does not work in this repo, it cannot resolve the root `vitest-setup.ts`; use this form instead): `pnpm exec vitest run --project unit apps/web/src/components/__tests__/DeleteSkillButton.test.tsx`
 Expected: FAIL — `Cannot find module '../DeleteSkillButton'`
 
 - [ ] **Step 3: Write the implementation**
@@ -1234,11 +1234,11 @@ Note this file no longer uses `next/link`'s `Link` (only the removed block used 
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `pnpm --filter @agentfactory/web exec vitest run src/components/__tests__/DeleteSkillButton.test.tsx`
+Run (from the repo root — `pnpm --filter ... exec vitest run` does not work in this repo, it cannot resolve the root `vitest-setup.ts`; use this form instead): `pnpm exec vitest run --project unit apps/web/src/components/__tests__/DeleteSkillButton.test.tsx`
 Expected: PASS (5 tests)
 
-Run: `pnpm --filter @agentfactory/web exec vitest run src/components/__tests__/SkillAgentsPicker.test.tsx`
-Expected: still PASS (5 tests) — confirms adding `skills.detail.noOrgAgents` didn't break Task 4's tests.
+Run: `pnpm exec vitest run --project unit apps/web/src/components/__tests__/SkillAgentsPicker.test.tsx`
+Expected: still PASS (5 tests). Confirms adding `skills.detail.noOrgAgents` didn't break Task 4's tests.
 
 Run: `pnpm --filter @agentfactory/web exec tsc --noEmit`
 Expected: no errors (confirms `Link` and `SkillAssignment`'s old local declaration are fully gone with no leftover references, and the page's use of `Badge`, `currentVersion`, and `assignments` still type-checks).
