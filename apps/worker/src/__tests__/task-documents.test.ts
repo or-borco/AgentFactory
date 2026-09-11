@@ -219,6 +219,60 @@ describe("materialiseTaskDocuments", () => {
     expect(listTaskContextItemsForOrgMock).toHaveBeenCalledWith(70, 7);
     expect(store.get).toHaveBeenCalledWith(7, "a".repeat(64));
   });
+
+  it("writes an image item's raw bytes instead of UTF-8-decoding them", async () => {
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0xd8]);
+    listTaskContextItemsForOrgMock.mockResolvedValue([
+      item({ id: 1, title: "screenshot.png", mime: "image/png" }),
+    ]);
+    const writeFiles = vi.fn();
+    const provider = fakeSandbox({ writeFiles });
+
+    await materialiseTaskDocuments(provider, "sbx", 70, 1, {
+      blobStore: { put: vi.fn(), get: vi.fn(async () => pngBytes) },
+    });
+
+    const written = writeFiles.mock.calls[0][1][`${TASK_DOCUMENT_DIR}/screenshot.png`];
+    expect(written).toBeInstanceOf(Buffer);
+    expect(new Uint8Array(written)).toEqual(pngBytes);
+  });
+
+  it("still UTF-8-decodes a text document alongside an image in the same task", async () => {
+    listTaskContextItemsForOrgMock.mockResolvedValue([
+      item({ id: 1, title: "notes.md", mime: "text/markdown" }),
+      item({ id: 2, title: "screenshot.png", mime: "image/png" }),
+    ]);
+    const writeFiles = vi.fn();
+    const provider = fakeSandbox({ writeFiles });
+    // Both items resolve the same fixture bytes — this test is about the per-item mime branch,
+    // not about distinct content per file.
+    const bytes = new TextEncoder().encode("# Notes");
+
+    await materialiseTaskDocuments(provider, "sbx", 70, 1, {
+      blobStore: { put: vi.fn(), get: vi.fn(async () => bytes) },
+    });
+
+    const files = writeFiles.mock.calls[0][1];
+    expect(files[`${TASK_DOCUMENT_DIR}/notes.md`]).toBe("# Notes");
+    expect(files[`${TASK_DOCUMENT_DIR}/screenshot.png`]).toBeInstanceOf(Buffer);
+  });
+
+  it("raises the total budget to 8 MB so a couple of legitimately-uploaded images both fit", async () => {
+    expect(TASK_DOCUMENTS_BUDGET_BYTES).toBe(8 * 1024 * 1024);
+
+    listTaskContextItemsForOrgMock.mockResolvedValue([
+      item({ id: 1, title: "a.png", mime: "image/png", sizeBytes: 1_500_000 }),
+      item({ id: 2, title: "b.png", mime: "image/png", sizeBytes: 1_500_000 }),
+    ]);
+    const provider = fakeSandbox();
+
+    const result = await materialiseTaskDocuments(provider, "sbx", 70, 1, {
+      blobStore: { put: vi.fn(), get: vi.fn(async () => new Uint8Array(10)) },
+    });
+
+    expect(result.written).toEqual([`${TASK_DOCUMENT_DIR}/a.png`, `${TASK_DOCUMENT_DIR}/b.png`]);
+    expect(result.omitted).toEqual([]);
+  });
 });
 
 // The claim these tests exist for is behavioural, and it is the one that decides whether a user's
