@@ -95,7 +95,7 @@ Props: `{ agentId: number }`. On mount, fetches `GET /api/agents/{agentId}/skill
 
 ### `SkillAgentsPicker` (apps/web/src/components/SkillAgentsPicker.tsx)
 
-Props: `{ skillId: number; assignments: SkillAssignment[]; onAssignmentsChange: (next: SkillAssignment[]) => void }`. On mount, fetches `GET /api/agents` (all org agents) - `assignments` is passed down from the skill detail page's existing `load()`, not refetched here. `items` from the org agents list; `selectedIds` from `assignments.map(a => a.agentId)`. No `trailing` control. `onToggle(agentId)`:
+Props: `{ skillId: number; currentVersionNumber?: number; assignments: SkillAssignment[]; onAssignmentsChange: Dispatch<SetStateAction<SkillAssignment[]>> }`. On mount, fetches `GET /api/agents` (all org agents) - `assignments` is passed down from the skill detail page's existing `load()`, not refetched here. `currentVersionNumber` is the skill's published version number (`undefined` when the skill has no published version yet); it is used both as the `version` stamped onto a newly created assignment and to disable every row - with an explanatory note - while the skill is draft-only, since assigning an unpublished skill would otherwise fail server-side. `items` from the org agents list; `selectedIds` from `assignments.map(a => a.agentId)`. No `trailing` control. `onToggle(agentId)`:
 
 - Not currently selected -> `POST /api/agents/{agentId}/skills` with `{ skillId }`, then calls `onAssignmentsChange` with the new assignment appended (using the response's `skillVersionId` and the agent's name from the already-fetched agent list).
 - Currently selected -> `DELETE /api/agents/{agentId}/skills/{skillId}`, then calls `onAssignmentsChange` filtering that agent out.

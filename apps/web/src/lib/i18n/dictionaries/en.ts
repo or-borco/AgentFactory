@@ -392,6 +392,7 @@ const en = {
     onContextOverflowFallback: "Escalate to a larger model",
     onContextOverflowFailFast: "Fail (keep assigned model)",
     skillsLabel: "Skills",
+    skillsHelp: "Changes apply immediately.",
     systemPromptPlaceholder: "Describe the agent's purpose and how it should behave",
     createAgent: "Create agent",
     creatingAgent: "Creating…",

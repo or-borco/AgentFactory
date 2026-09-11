@@ -26,6 +26,7 @@ export function DeleteSkillButton({
   const blocked = assignedAgentNames.length > 0;
 
   async function handleDelete() {
+    if (deleting) return;
     setDeleting(true);
     try {
       await apiFetch<void>(`/api/skills/${skillId}`, { method: "DELETE" });

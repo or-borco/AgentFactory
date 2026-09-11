@@ -71,7 +71,11 @@ describe("SkillAgentsPicker", () => {
         body: JSON.stringify({ skillId: 9 }),
       }),
     );
-    expect(onAssignmentsChange).toHaveBeenCalledWith([
+    // onAssignmentsChange is called with a functional updater (not a precomputed array) so that
+    // rapid successive toggles never race on a stale `assignments` closure; apply it to the
+    // test's base array to get the resulting list.
+    const updater = onAssignmentsChange.mock.calls[0][0];
+    expect(updater(ASSIGNMENTS)).toEqual([
       ...ASSIGNMENTS,
       { agentId: 2, agentName: "Review agent", skillVersionId: 11, version: 3 },
     ]);
@@ -87,7 +91,8 @@ describe("SkillAgentsPicker", () => {
     await waitFor(() =>
       expect(apiFetchMock).toHaveBeenCalledWith("/api/agents/1/skills/9", { method: "DELETE" }),
     );
-    expect(onAssignmentsChange).toHaveBeenCalledWith([]);
+    const updater = onAssignmentsChange.mock.calls[0][0];
+    expect(updater(ASSIGNMENTS)).toEqual([]);
   });
 
   it("shows an error when a toggle fails", async () => {

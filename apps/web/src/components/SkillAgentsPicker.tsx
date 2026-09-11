@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type { Agent } from "@agentfactory/core";
 import { Badge, MultiSelectCheckboxList, type MultiSelectItem } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
@@ -22,7 +22,7 @@ export function SkillAgentsPicker({
   skillId: number;
   currentVersionNumber?: number;
   assignments: SkillAssignment[];
-  onAssignmentsChange: (next: SkillAssignment[]) => void;
+  onAssignmentsChange: Dispatch<SetStateAction<SkillAssignment[]>>;
 }) {
   const { t } = useTranslation();
   const [allAgents, setAllAgents] = useState<Agent[] | null>(null);
@@ -52,15 +52,15 @@ export function SkillAgentsPicker({
       const existing = assignments.find((a) => a.agentId === agentId);
       if (existing) {
         await apiFetch(`/api/agents/${agentId}/skills/${skillId}`, { method: "DELETE" });
-        onAssignmentsChange(assignments.filter((a) => a.agentId !== agentId));
+        onAssignmentsChange((prev) => prev.filter((a) => a.agentId !== agentId));
       } else {
         const pin = await apiFetch<{ skillVersionId: number }>(`/api/agents/${agentId}/skills`, {
           method: "POST",
           body: JSON.stringify({ skillId }),
         });
         const agentName = allAgents?.find((a) => a.id === agentId)?.name ?? "";
-        onAssignmentsChange([
-          ...assignments,
+        onAssignmentsChange((prev) => [
+          ...prev,
           { agentId, agentName, skillVersionId: pin.skillVersionId, version: currentVersionNumber ?? 0 },
         ]);
       }
@@ -84,17 +84,26 @@ export function SkillAgentsPicker({
     };
   });
   const selectedIds = new Set(assignments.map((a) => a.agentId));
+  const draftOnlyIds = currentVersionNumber === undefined ? (allAgents ?? []).map((a) => a.id) : [];
+  const disabledIds = new Set([...busyAgentIds, ...draftOnlyIds]);
 
   return (
     <div>
       {error && <p className="mb-3 text-xs text-red-400">{error}</p>}
-      <MultiSelectCheckboxList
-        items={items}
-        selectedIds={selectedIds}
-        onToggle={handleToggle}
-        disabledIds={busyAgentIds}
-        emptyMessage={t("skills.detail.noOrgAgents")}
-      />
+      {currentVersionNumber === undefined && (
+        <p className="mb-3 text-xs text-[var(--color-neutral-500)]">{t("skills.detail.noPublishedVersion")}</p>
+      )}
+      {allAgents === null ? (
+        <p className="text-sm text-[var(--color-neutral-500)]">{t("common.loading")}</p>
+      ) : (
+        <MultiSelectCheckboxList
+          items={items}
+          selectedIds={selectedIds}
+          onToggle={handleToggle}
+          disabledIds={disabledIds}
+          emptyMessage={t("skills.detail.noOrgAgents")}
+        />
+      )}
     </div>
   );
 }

@@ -446,9 +446,10 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
         </div>
 
         <div>
-          <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+          <span className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
             {t("teamsV2.skillsLabel")}
-          </label>
+          </span>
+          <p className="mb-1.5 text-xs text-[var(--color-neutral-600)]">{t("teamsV2.skillsHelp")}</p>
           <AgentSkillsPicker agentId={agent.id} />
         </div>
       </div>

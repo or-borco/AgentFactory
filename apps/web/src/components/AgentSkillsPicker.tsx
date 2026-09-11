@@ -7,7 +7,7 @@ import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 
 // Mirrors the AgentSkillSummary shape returned by GET /api/agents/[agentId]/skills
-// (packages/db/src/repositories/agent-skills.ts) — kept local rather than imported from
+// (packages/db/src/repositories/agent-skills.ts). Kept local rather than imported from
 // @agentfactory/db since client components only pull domain shapes from @agentfactory/core.
 interface AssignedSkill {
   agentId: number;
@@ -141,13 +141,17 @@ export function AgentSkillsPicker({ agentId }: { agentId: number }) {
   return (
     <div>
       {error && <p className="mb-3 text-xs text-red-400">{error}</p>}
-      <MultiSelectCheckboxList
-        items={items}
-        selectedIds={selectedIds}
-        onToggle={handleToggle}
-        disabledIds={disabledIds}
-        emptyMessage={t("agents.skills.emptyState")}
-      />
+      {allSkills === null ? (
+        <p className="text-sm text-[var(--color-neutral-500)]">{t("common.loading")}</p>
+      ) : (
+        <MultiSelectCheckboxList
+          items={items}
+          selectedIds={selectedIds}
+          onToggle={handleToggle}
+          disabledIds={disabledIds}
+          emptyMessage={t("agents.skills.emptyState")}
+        />
+      )}
     </div>
   );
 }

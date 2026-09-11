@@ -138,6 +138,8 @@ describe("AgentSkillsPicker", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: /Onboarding/ }));
 
     await waitFor(() => expect(screen.getByText("boom")).toBeInTheDocument());
+    // There's no optimistic update to revert: state is only set after a successful response, so
+    // a failed toggle simply means the checkbox never becomes checked in the first place.
     expect(screen.getByRole("checkbox", { name: /Onboarding/ })).not.toBeChecked();
   });
 });
