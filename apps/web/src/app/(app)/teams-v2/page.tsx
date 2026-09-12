@@ -9,6 +9,7 @@ import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
 import { parseSharedContext, serializeSharedContext } from "@/lib/shared-context";
 import { SharedContextPanels } from "@/components/SharedContextPanels";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
+import { AgentSkillsPicker } from "@/components/AgentSkillsPicker";
 import { apiFetch } from "@/lib/api-client";
 
 const selectClassName =
@@ -442,6 +443,14 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
             <option value="fallback">{t("teamsV2.onContextOverflowFallback")}</option>
             <option value="fail_fast">{t("teamsV2.onContextOverflowFailFast")}</option>
           </select>
+        </div>
+
+        <div>
+          <span className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
+            {t("teamsV2.skillsLabel")}
+          </span>
+          <p className="mb-1.5 text-xs text-[var(--color-neutral-600)]">{t("teamsV2.skillsHelp")}</p>
+          <AgentSkillsPicker agentId={agent.id} />
         </div>
       </div>
 

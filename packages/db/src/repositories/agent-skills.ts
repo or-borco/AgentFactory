@@ -69,8 +69,10 @@ export async function unassignSkillFromAgent(agentId: number, skillId: number): 
   return rows.length > 0;
 }
 
-// Reverse lookup for the skill detail page (Task 3) — read-only there; unassign/upgrade actions
-// live only on the agent page (Task 4), so the two pages never race to mutate the same pin.
+// Reverse lookup for the skill detail page. Both the agent page and the skill page assign/unassign
+// pins here; concurrent writes to the same (agent_id, skill_id) row are safe because
+// assignSkillToAgent's onConflictDoUpdate makes them resolve as last-write-wins with no corruption
+// risk. Only the version-upgrade action (updateAgentSkillVersion) remains agent-page-only.
 export async function listSkillAssignments(
   skillId: number,
 ): Promise<Array<{ agentId: number; agentName: string; skillVersionId: number; version: number }>> {

@@ -11,3 +11,4 @@ export * from "./Truncate";
 export * from "./EmptyState";
 export * from "./Tabs";
 export * from "./UsageMeter";
+export * from "./MultiSelectCheckboxList";
