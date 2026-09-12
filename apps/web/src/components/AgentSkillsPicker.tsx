@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { Skill, SkillVersion } from "@agentfactory/core";
-import { MultiSelectCheckboxList, type MultiSelectItem } from "@agentfactory/shared";
+import { Badge, MultiSelectCheckboxList, type MultiSelectItem } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 
@@ -110,24 +110,27 @@ export function AgentSkillsPicker({ agentId }: { agentId: number }) {
         id: s.id,
         label: s.name,
         trailing: (
-          <select
-            aria-label={t("agents.skills.versionLabel")}
-            value={a.skillVersionId}
-            disabled={busySkillIds.has(s.id)}
-            onChange={(e) => handleUpgrade(s.id, Number(e.target.value))}
-            style={{
-              padding: "3px 6px",
-              borderRadius: "var(--radius-sm)",
-              border: "1px solid var(--color-neutral-700)",
-              background: "var(--color-surface)",
-              color: "var(--color-text)",
-              fontSize: 13,
-            }}
-          >
-            {(versionsBySkill[s.id] ?? []).map((v) => (
-              <option key={v.id} value={v.id}>{`v${v.version}`}</option>
-            ))}
-          </select>
+          <div className="flex items-center gap-2">
+            <Badge>{`v${a.version}`}</Badge>
+            <select
+              aria-label={t("agents.skills.versionLabel")}
+              value={a.skillVersionId}
+              disabled={busySkillIds.has(s.id)}
+              onChange={(e) => handleUpgrade(s.id, Number(e.target.value))}
+              style={{
+                padding: "3px 6px",
+                borderRadius: "var(--radius-sm)",
+                border: "1px solid var(--color-neutral-700)",
+                background: "var(--color-surface)",
+                color: "var(--color-text)",
+                fontSize: 13,
+              }}
+            >
+              {(versionsBySkill[s.id] ?? []).map((v) => (
+                <option key={v.id} value={v.id}>{`v${v.version}`}</option>
+              ))}
+            </select>
+          </div>
         ),
       };
     }

@@ -73,8 +73,12 @@ test("assign, upgrade, and unassign a skill on an agent", async ({ page, registe
   expect(removeRes.status()).toBe(204);
   expect(await (await page.request.get(`/api/agents/${agent.id}/skills`)).json()).toEqual([]);
 
+  // The skill still exists in the org, just unassigned from this agent: the checkbox list
+  // keeps showing every org skill (unlike the old dropdown, which only listed assigned ones),
+  // so the row stays present, just unchecked, rather than the list going empty.
   await page.reload();
-  await expect(page.getByText("No skills assigned yet.")).toBeVisible();
+  await expect(page.getByRole("checkbox", { name: "Conventional commits" })).not.toBeChecked();
+  await expect(page.locator("span", { hasText: /^v2$/ })).not.toBeVisible();
 });
 
 test("assigning a skill with no published version is rejected with 400", async ({ page, registeredUser }) => {
