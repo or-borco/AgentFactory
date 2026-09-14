@@ -100,6 +100,77 @@ function JiraConnectModal({
   );
 }
 
+// Read-only helper: `Connection.config` is typed as `Record<string, unknown>` (it's the field
+// GET /api/connections returns verbatim to the browser, so it deliberately carries no secret
+// shape), so the write-back setting is narrowed defensively rather than cast.
+function writeBackComment(conn: Connection): boolean {
+  const config = conn.config as { writeBack?: { comment?: boolean } } | undefined;
+  return config?.writeBack?.comment ?? true;
+}
+
+// Per-connection write-back config, shown only for `kind: "tasks"` connections. Comment-on-PR is
+// the only setting there is (Product decision 3: no status transition, not even opt-in) — see
+// docs/superpowers/specs/2026-09-12-jira-integration-design.md.
+function TaskWriteBackConfig({
+  conn,
+  t,
+  onUpdated,
+}: {
+  conn: Connection;
+  t: Translate;
+  onUpdated: (connection: Connection) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const comment = writeBackComment(conn);
+
+  const handleToggle = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await apiFetch<Connection>("/api/connections/jira", {
+        method: "PATCH",
+        body: JSON.stringify({ connectionId: conn.id, writeBack: { comment: !comment } }),
+      });
+      onUpdated(updated);
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : t("connections.jiraWriteBack.saveFailed"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 border-t border-[var(--color-neutral-800)] pt-3">
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        className="text-xs font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)] transition-colors hover:text-[var(--color-text)]"
+      >
+        {t("connections.jiraWriteBack.configureLabel")}
+      </button>
+      {expanded && (
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-[var(--color-text)]">{t("connections.jiraWriteBack.commentToggleLabel")}</p>
+            <p className="mt-0.5 text-xs text-[var(--color-neutral-500)]">{t("connections.jiraWriteBack.commentToggleHelp")}</p>
+          </div>
+          <input
+            type="checkbox"
+            checked={comment}
+            disabled={saving}
+            onChange={handleToggle}
+            aria-label={t("connections.jiraWriteBack.commentToggleLabel")}
+            className="h-4 w-4 shrink-0 accent-[var(--color-accent)]"
+          />
+        </div>
+      )}
+      {error && <p className="mt-2 text-xs text-[var(--color-status-red)]">{error}</p>}
+    </div>
+  );
+}
+
 function healthTone(health: ConnectionHealth) {
   if (health === "healthy") return "success" as const;
   if (health === "needs-attention") return "warning" as const;
@@ -112,36 +183,49 @@ const SECTIONS: { kind: ConnectionKind; labelKey: TranslationKey }[] = [
   { kind: "tasks", labelKey: "connections.kind.tasks" },
 ];
 
-function ConnectionRow({ conn, t, onDisconnect }: { conn: Connection; t: Translate; onDisconnect: () => void }) {
+function ConnectionRow({
+  conn,
+  t,
+  onDisconnect,
+  onConfigUpdated,
+}: {
+  conn: Connection;
+  t: Translate;
+  onDisconnect: () => void;
+  onConfigUpdated: (connection: Connection) => void;
+}) {
   return (
-    <Card className="flex items-center justify-between px-5 py-4">
-      <div className="flex items-center gap-3">
-        <div
-          className="flex items-center justify-center bg-[var(--color-neutral-800)] text-[var(--color-neutral-500)]"
-          style={{ width: 40, height: 40, borderRadius: "var(--radius-md)" }}
-        >
-          <LinkIcon size={16} />
+    <Card className="px-5 py-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div
+            className="flex items-center justify-center bg-[var(--color-neutral-800)] text-[var(--color-neutral-500)]"
+            style={{ width: 40, height: 40, borderRadius: "var(--radius-md)" }}
+          >
+            <LinkIcon size={16} />
+          </div>
+          <p className="text-sm font-semibold text-[var(--color-text)]">
+            {t(`connections.provider.${conn.provider}`)} · {conn.label}
+          </p>
         </div>
-        <p className="text-sm font-semibold text-[var(--color-text)]">
-          {t(`connections.provider.${conn.provider}`)} · {conn.label}
-        </p>
+        <div className="flex items-center gap-3">
+          <Badge tone={healthTone(conn.health)}>
+            <span className="flex items-center gap-1">
+              {conn.health === "needs-attention" && <AlertIcon size={11} />}
+              {t(`connections.health.${conn.health}`)}
+            </span>
+          </Badge>
+          <button
+            type="button"
+            onClick={onDisconnect}
+            aria-label={t("connections.disconnect")}
+            className="text-[var(--color-neutral-500)] transition-colors hover:text-[var(--color-status-red)]"
+          >
+            <TrashIcon size={16} />
+          </button>
+        </div>
       </div>
-      <div className="flex items-center gap-3">
-        <Badge tone={healthTone(conn.health)}>
-          <span className="flex items-center gap-1">
-            {conn.health === "needs-attention" && <AlertIcon size={11} />}
-            {t(`connections.health.${conn.health}`)}
-          </span>
-        </Badge>
-        <button
-          type="button"
-          onClick={onDisconnect}
-          aria-label={t("connections.disconnect")}
-          className="text-[var(--color-neutral-500)] transition-colors hover:text-[var(--color-status-red)]"
-        >
-          <TrashIcon size={16} />
-        </button>
-      </div>
+      {conn.kind === "tasks" && <TaskWriteBackConfig conn={conn} t={t} onUpdated={onConfigUpdated} />}
     </Card>
   );
 }
@@ -149,10 +233,14 @@ function ConnectionRow({ conn, t, onDisconnect }: { conn: Connection; t: Transla
 // The interactive body of the Connections surface — extracted so it can be embedded inside
 // /settings (see apps/web/src/app/(app)/settings/page.tsx) rather than living on its own route.
 export function ConnectionsList() {
-  const { connections, deleteConnection, addConnection } = useMockBackend();
+  const { connections: backendConnections, deleteConnection, addConnection } = useMockBackend();
   const { t } = useTranslation();
   const [pendingDelete, setPendingDelete] = useState<Connection | null>(null);
   const [activeModal, setActiveModal] = useState<"jira" | null>(null);
+  // useMockBackend() has no updateConnection — the PATCH write-back toggle applies its result
+  // over the fetched list locally rather than reaching into the shared client cache.
+  const [configOverrides, setConfigOverrides] = useState<Record<number, Connection>>({});
+  const connections = backendConnections.map((c) => configOverrides[c.id] ?? c);
 
   return (
     <div>
@@ -187,7 +275,13 @@ export function ConnectionsList() {
             </h3>
             <div className="space-y-2">
               {items.map((conn) => (
-                <ConnectionRow key={conn.id} conn={conn} t={t} onDisconnect={() => setPendingDelete(conn)} />
+                <ConnectionRow
+                  key={conn.id}
+                  conn={conn}
+                  t={t}
+                  onDisconnect={() => setPendingDelete(conn)}
+                  onConfigUpdated={(updated) => setConfigOverrides((s) => ({ ...s, [updated.id]: updated }))}
+                />
               ))}
             </div>
           </div>

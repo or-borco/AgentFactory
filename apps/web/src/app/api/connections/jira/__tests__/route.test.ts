@@ -4,6 +4,8 @@ const requireAuthContextMock = vi.fn();
 const listConnectionsMock = vi.fn();
 const createConnectionMock = vi.fn();
 const createConnectionSecretMock = vi.fn();
+const getConnectionMock = vi.fn();
+const updateConnectionMock = vi.fn();
 
 vi.mock("@/server/auth", () => ({ requireAuthContext: () => requireAuthContextMock() }));
 // @agentfactory/db throws at import when DATABASE_URL is unset, which it is in the unit test env
@@ -12,9 +14,11 @@ vi.mock("@agentfactory/db", () => ({
   listConnections: (...args: unknown[]) => listConnectionsMock(...args),
   createConnection: (...args: unknown[]) => createConnectionMock(...args),
   createConnectionSecret: (...args: unknown[]) => createConnectionSecretMock(...args),
+  getConnection: (...args: unknown[]) => getConnectionMock(...args),
+  updateConnection: (...args: unknown[]) => updateConnectionMock(...args),
 }));
 
-import { POST } from "../route";
+import { PATCH, POST } from "../route";
 
 // The real JiraTaskProvider is exercised as-is (not mocked) so this test also proves the route
 // wires it correctly — only the network boundary (global fetch) is stubbed.
@@ -38,6 +42,12 @@ function post(body: Record<string, unknown>) {
   );
 }
 
+function patch(body: Record<string, unknown>) {
+  return PATCH(
+    new Request("http://localhost/api/connections/jira", { method: "PATCH", body: JSON.stringify(body) }),
+  );
+}
+
 const validBody = {
   siteUrl: "https://acme.atlassian.net",
   accountEmail: "svc@acme.com",
@@ -49,6 +59,8 @@ beforeEach(() => {
   listConnectionsMock.mockReset().mockResolvedValue([]);
   createConnectionMock.mockReset();
   createConnectionSecretMock.mockReset().mockResolvedValue(42);
+  getConnectionMock.mockReset();
+  updateConnectionMock.mockReset();
   fetchMock.mockReset();
 });
 
@@ -198,5 +210,68 @@ describe("POST /api/connections/jira", () => {
     expect(secondRes.status).toBe(201);
     expect(createConnectionSecretMock).toHaveBeenCalledOnce();
     expect(createConnectionMock).toHaveBeenCalledOnce();
+  });
+});
+
+const existingTasksConnection = {
+  id: 5,
+  orgId: 3,
+  provider: "jira" as const,
+  kind: "tasks" as const,
+  label: "https://acme.atlassian.net",
+  health: "healthy" as const,
+  config: { siteUrl: "https://acme.atlassian.net", accountEmail: "svc@acme.com", accountId: "acc-1" },
+  auth: "api_token" as const,
+  createdAt: "2026-09-14T00:00:00.000Z",
+};
+
+describe("PATCH /api/connections/jira", () => {
+  it("401s when unauthenticated", async () => {
+    requireAuthContextMock.mockResolvedValue(undefined);
+
+    const res = await patch({ connectionId: 5, writeBack: { comment: false } });
+
+    expect(res.status).toBe(401);
+    expect(getConnectionMock).not.toHaveBeenCalled();
+  });
+
+  it("404s when the connection doesn't belong to the org or isn't kind:tasks", async () => {
+    getConnectionMock.mockResolvedValue(undefined);
+
+    const res = await patch({ connectionId: 5, writeBack: { comment: false } });
+
+    expect(res.status).toBe(404);
+    expect(updateConnectionMock).not.toHaveBeenCalled();
+  });
+
+  it("merges writeBack.comment into the existing config, preserving siteUrl/accountEmail/accountId", async () => {
+    getConnectionMock.mockResolvedValue(existingTasksConnection);
+    updateConnectionMock.mockResolvedValue({
+      ...existingTasksConnection,
+      config: { ...existingTasksConnection.config, writeBack: { comment: false } },
+    });
+
+    const res = await patch({ connectionId: 5, writeBack: { comment: false } });
+
+    expect(res.status).toBe(200);
+    expect(updateConnectionMock).toHaveBeenCalledExactlyOnceWith(3, 5, {
+      config: {
+        siteUrl: "https://acme.atlassian.net",
+        accountEmail: "svc@acme.com",
+        accountId: "acc-1",
+        writeBack: { comment: false },
+      },
+    });
+    const json = await res.json();
+    expect(json.config.writeBack).toEqual({ comment: false });
+  });
+
+  it("400s when writeBack.comment isn't a boolean", async () => {
+    getConnectionMock.mockResolvedValue(existingTasksConnection);
+
+    const res = await patch({ connectionId: 5, writeBack: {} });
+
+    expect(res.status).toBe(400);
+    expect(updateConnectionMock).not.toHaveBeenCalled();
   });
 });
