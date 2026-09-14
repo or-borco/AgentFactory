@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Button, EmptyState, PageHeader } from "@agentfactory/shared";
+import { Button, EmptyState, PageHeader, TooltipBubble } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { StatusPill } from "@/components/StatusPill";
-import { TasksIcon } from "@/lib/icons";
+import { TasksIcon, AlertIcon } from "@/lib/icons";
 
 export default function TasksPage() {
   const { tasks, agents } = useMockBackend();
@@ -109,10 +109,26 @@ export default function TasksPage() {
 
                   {/* Status */}
                   <td style={{ padding: "11px 12px", whiteSpace: "nowrap" }}>
-                    <StatusPill
-                      status={task.status}
-                      label={t(`tasks.status.${task.status}` as `tasks.status.${typeof task.status}`)}
-                    />
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <StatusPill
+                        status={task.status}
+                        label={t(`tasks.status.${task.status}` as `tasks.status.${typeof task.status}`)}
+                      />
+                      {task.externalRef && task.externalRef.writeBackFailure && (
+                        <span
+                          className="group/tooltip relative inline-flex"
+                          style={{ color: "var(--color-status-amber)" }}
+                        >
+                          <AlertIcon size={13} />
+                          <TooltipBubble
+                            label={t("writeBackFailure.listTooltip", {
+                              provider: t(`connections.provider.${task.externalRef.provider}`),
+                              message: task.externalRef.writeBackFailure.message,
+                            })}
+                          />
+                        </span>
+                      )}
+                    </div>
                   </td>
 
                   {/* Assignee */}

@@ -14,6 +14,7 @@ import { apiFetch } from "@/lib/api-client";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
 import { RunContextPanel } from "@/components/RunContextPanel";
 import { RunEvalPanel } from "@/components/RunEvalPanel";
+import { WriteBackFailureBanner } from "@/components/WriteBackFailureBanner";
 import type { Run, TaskContextItem, TaskStatus } from "@agentfactory/core";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
 import { groupErrorsByRun, unattachedRunErrors } from "@/lib/run-errors";
@@ -874,6 +875,12 @@ export default function TaskDetailPage() {
             </div>
           )}
         </div>
+
+        {task.externalRef?.writeBackFailure && (
+          <div style={{ padding: "16px 24px 0" }}>
+            <WriteBackFailureBanner task={task} onDismiss={() => refreshTask(task.id)} />
+          </div>
+        )}
 
         {/* Transcript tab */}
         {activeTab === "transcript" && (
