@@ -38,31 +38,34 @@ where the old one was musl, and Postgres cannot detect the collation-provider ch
 
 ## 3. Configure environment variables
 
-Copy the example env files and fill them in:
+`apps/web` and `apps/worker` share almost every env var (`DATABASE_URL`, `BLOB_DIR`,
+`CONNECTION_SECRET_KEY`, the GitHub App credentials — a document the web app writes has to resolve
+to the same place the worker reads it from, a token the web app encrypts has to decrypt the same
+way in both processes, and so on), so there's a single `.env.local` at the repo root rather than
+one per app. One command sets it up:
 
 ```bash
-cp apps/web/.env.example apps/web/.env.local
-cp apps/worker/.env.example apps/worker/.env.local
+pnpm setup:env
 ```
 
-- `apps/web/.env.local` — needs `DATABASE_URL` and `REDIS_URL` (the defaults already match the
-  `docker-compose.yml` services above, so they usually work as-is). `GITHUB_APP_ID`,
-  `GITHUB_APP_SLUG`, and `GITHUB_APP_PRIVATE_KEY` are only needed for the Connections feature —
-  see [Setting up the GitHub App](#setting-up-the-github-app) below.
-- `apps/worker/.env.local` — same `DATABASE_URL`/`REDIS_URL`, plus `ANTHROPIC_API_KEY` and the
-  same `GITHUB_APP_ID`/`GITHUB_APP_PRIVATE_KEY` as the web app (the worker mints its own GitHub
-  clone tokens directly). Also sets `SANDBOX_IMAGE`, used in step 6.
-- **Both files** need the same `BLOB_STORE` and `BLOB_DIR`. Uploaded team documents are written by
-  the web app and read by the worker, and a relative `BLOB_DIR` resolves against the repo root
-  (not the process's working directory), so the default `BLOB_DIR=.blobs` means `<repo>/.blobs`
-  for both processes. The directory is created on first upload and is gitignored. Set
-  `BLOB_STORE=s3` with `S3_BUCKET` instead if you have a bucket.
-- **Both files** also need the same `CONNECTION_SECRET_KEY` — the AES-256-GCM key that encrypts
-  connection credentials (Jira API tokens, etc.) before they're stored. Generate one with
-  `openssl rand -base64 32` and copy the same value into both `.env.local` files. **Rotating this
-  key orphans every stored credential**: existing `connection_secrets` rows become undecryptable,
-  and affected users will need to reconnect (re-enter their Jira site credentials, etc.) before
-  those connections work again.
+This copies `.env.example` to `.env.local` if you don't have one yet, generates
+`CONNECTION_SECRET_KEY` for you (a random key, not something you obtain from anywhere — no reason
+to make you run `openssl` by hand), and symlinks `apps/web/.env.local` and
+`apps/worker/.env.local` to the root file, so both processes keep finding a config file exactly
+where they already expect one, with nothing to duplicate or keep in sync. Safe to re-run.
+
+Everything else in the generated file already has a working default (`DATABASE_URL`/`REDIS_URL`
+match the `docker-compose.yml` services above, `BLOB_STORE=fs`/`BLOB_DIR=.blobs` needs no
+adjustment for local dev). Two things need a value you fill in by hand:
+
+- `GITHUB_APP_ID` / `GITHUB_APP_SLUG` / `GITHUB_APP_PRIVATE_KEY` — only needed for the Connections
+  feature — see [Setting up the GitHub App](#setting-up-the-github-app) below.
+- `ANTHROPIC_API_KEY` — only needed to run the worker (real agent execution), not to click around
+  the web UI.
+
+**Rotating `CONNECTION_SECRET_KEY` orphans every stored credential**: existing `connection_secrets`
+rows become undecryptable, and affected users will need to reconnect (re-enter their Jira site
+credentials, etc.) before those connections work again.
 
 ## 4. Run database migrations and seed data
 
@@ -92,7 +95,7 @@ Log in with the demo credentials above.
 The worker is what actually executes an agent turn, inside a sandboxed Docker container. It's not
 required to click around the UI mock, but is needed for real runs.
 
-Build the sandbox image it uses (referenced by `SANDBOX_IMAGE` in `apps/worker/.env.local`):
+Build the sandbox image it uses (referenced by `SANDBOX_IMAGE` in `.env.local`):
 
 ```bash
 docker build -t agentfactory-sandbox:local apps/worker/sandbox-image
@@ -105,7 +108,7 @@ pnpm dev:worker
 ```
 
 If your Docker daemon isn't at the default `/var/run/docker.sock` (Colima, Rancher Desktop, etc.),
-set `DOCKER_HOST` in `apps/worker/.env.local` — check `docker context ls` for the right socket path.
+set `DOCKER_HOST` in `.env.local` — check `docker context ls` for the right socket path.
 
 ## Setting up the GitHub App
 
@@ -120,7 +123,7 @@ admin route that uses GitHub's manifest flow to create it for you:
    and asks you to confirm creation.
 3. After confirming, GitHub redirects back to the app's callback route, which exchanges the
    one-time code for real credentials and prints them out.
-4. Copy the printed values into **both** `apps/web/.env.local` and `apps/worker/.env.local`:
+4. Copy the printed values into the root `.env.local`:
    ```
    GITHUB_APP_ID=...
    GITHUB_APP_SLUG=...          # web only

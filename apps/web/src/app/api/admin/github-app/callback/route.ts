@@ -43,7 +43,7 @@ export async function GET(request: Request) {
 
   return new Response(
     [
-      "GitHub App created. Copy these into apps/web/.env.local, then restart the dev server:\n",
+      "GitHub App created. Copy these into your root .env.local, then restart the dev server(s):\n",
       `GITHUB_APP_ID=${app.id}`,
       `GITHUB_APP_SLUG=${app.slug}`,
       `GITHUB_APP_PRIVATE_KEY=${app.pem.replace(/\n/g, "\\n")}`,
