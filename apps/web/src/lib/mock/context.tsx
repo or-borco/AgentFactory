@@ -2,11 +2,21 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import type { Agent, ChatMessage, Connection, OrgMember, OverflowPolicy, Run, Session, Task, Team, TaskExternalRef } from "@agentfactory/core";
-import type { ExternalAttachment } from "@agentfactory/integrations";
+import type { ExternalAttachment, ExternalIssue } from "@agentfactory/integrations";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey, TranslationVars } from "@/lib/i18n/paths";
 import { findErrorCodeForRun } from "@/lib/run-errors";
+
+// runTask's result when POST /api/tasks/[taskId]/run responds 409 { code: "task_stale" } (see
+// apps/web/src/app/api/tasks/[taskId]/run/route.ts) — a discriminated return rather than a thrown
+// error, mirroring checkTaskSync's own `{ stale: false } | { stale: true; latest }` shape server-side.
+// (An earlier version of this threw a TaskStaleError instead; that tripped
+// react-hooks/purity on every caller — try/catch around the impure setRunStartedAt(Date.now())
+// call made the linter unable to prove those callers were still event handlers.)
+export type RunTaskResult =
+  | { stale: false; task: Task; session: Session; runId: number }
+  | { stale: true; latest: ExternalIssue };
 
 type DisplayMessage = ChatMessage & { streaming?: boolean; error?: boolean };
 
@@ -81,7 +91,12 @@ interface MockBackendValue extends MockState {
   updateTask: (taskId: number, patch: Partial<Task>) => Promise<void>;
   refreshTask: (taskId: number) => Promise<void>;
   deleteTask: (taskId: number) => Promise<void>;
-  runTask: (taskId: number) => Promise<{ task: Task; session: Session; runId: number }>;
+  /** `body.acknowledgeStale` is forwarded to the run route as-is (see Task 7 Step 4 of the Jira
+   *  plan) — omit it for a normal run; pass `{ acknowledgeStale: true }` only from the stale-run
+   *  dialog's "Run anyway" action, after the user has already seen the diff. Resolves to
+   *  `{ stale: true, latest }` (never throws for this case) when the route responds 409
+   *  `{ code: "task_stale" }` — see the `RunTaskResult` comment above. */
+  runTask: (taskId: number, body?: { acknowledgeStale?: boolean }) => Promise<RunTaskResult>;
   deleteConnection: (connectionId: number) => Promise<void>;
   /** Merges a just-created connection into the client cache (e.g. after `POST /api/connections/jira`
    *  succeeds) without a full re-fetch, mirroring how `deleteConnection` updates the same list. */
@@ -290,17 +305,32 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const runTask = useCallback(
-    async (taskId: number) => {
-      const result = await apiFetch<{ task: Task; session: Session; runId: number }>(
-        `/api/tasks/${taskId}/run`,
-        { method: "POST" },
-      );
+    async (taskId: number, body?: { acknowledgeStale?: boolean }): Promise<RunTaskResult> => {
+      // Bypasses apiFetch here (unlike every other call in this file) because a 409
+      // `{ code: "task_stale", latest }` body needs to survive intact — apiFetch only ever
+      // preserves a response body's `error` string, which this route doesn't send.
+      const res = await fetch(`/api/tasks/${taskId}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body ?? {}),
+      });
+      if (res.status === 409) {
+        const data = await res.json().catch(() => ({}) as Record<string, unknown>);
+        if (data.code === "task_stale") {
+          return { stale: true, latest: data.latest as ExternalIssue };
+        }
+      }
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`POST /api/tasks/${taskId}/run failed: ${res.status} ${text}`);
+      }
+      const result = (await res.json()) as { task: Task; session: Session; runId: number };
       setState((s) => ({
         ...s,
         tasks: s.tasks.map((tk) => (tk.id === taskId ? result.task : tk)),
         sessions: [...s.sessions, result.session],
       }));
-      return result;
+      return { stale: false, ...result };
     },
     [],
   );
