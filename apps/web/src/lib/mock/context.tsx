@@ -76,6 +76,9 @@ interface MockBackendValue extends MockState {
   deleteTask: (taskId: number) => Promise<void>;
   runTask: (taskId: number) => Promise<{ task: Task; session: Session; runId: number }>;
   deleteConnection: (connectionId: number) => Promise<void>;
+  /** Merges a just-created connection into the client cache (e.g. after `POST /api/connections/jira`
+   *  succeeds) without a full re-fetch, mirroring how `deleteConnection` updates the same list. */
+  addConnection: (connection: Connection) => void;
 }
 
 // Best-effort lookup of the classified ErrorCode for a failed run, via the same events endpoint
@@ -273,6 +276,12 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     [showToast],
   );
 
+  // Called by the Jira connect modal after its own POST succeeds — the request/response handling
+  // stays in the modal (it needs the error message inline), this just lands the result in state.
+  const addConnection = useCallback((connection: Connection) => {
+    setState((s) => ({ ...s, connections: [...s.connections, connection] }));
+  }, []);
+
   const runTask = useCallback(
     async (taskId: number) => {
       const result = await apiFetch<{ task: Task; session: Session; runId: number }>(
@@ -401,6 +410,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     deleteTask,
     runTask,
     deleteConnection,
+    addConnection,
   };
 
   return <MockBackendContext.Provider value={value}>{children}</MockBackendContext.Provider>;

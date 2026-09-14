@@ -32,7 +32,6 @@ export async function getConnection(orgId: number, id: number): Promise<Connecti
   const [row] = await db.select().from(connections).where(and(eq(connections.orgId, orgId), eq(connections.id, id)));
   return row ? toConnection(row) : undefined;
 }
-
 export interface NewConnectionInput {
   provider: ConnectionProvider;
   kind: ConnectionKind;

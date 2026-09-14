@@ -170,7 +170,19 @@ const en = {
       "needs-attention": "needs attention",
       expired: "expired",
     },
-    jira: {},
+    jira: {
+      connect: "Connect Jira",
+      modalTitle: "Connect a Jira Cloud site",
+      siteUrl: "Site URL",
+      siteUrlHelp: "Your Jira Cloud site, e.g. https://your-team.atlassian.net",
+      accountEmail: "Account email",
+      apiToken: "API token",
+      apiTokenHelp: "Create one at id.atlassian.com/manage-profile/security/api-tokens",
+      serviceAccountWarning:
+        "Use a dedicated Jira service account rather than a personal one — the API token carries the full permissions of whoever created it.",
+      verifyFailed: "Couldn't verify this Jira site. Check the site URL, email, and API token, then try again.",
+      alreadyConnected: "Already connected to {label}. Disconnect it before connecting another.",
+    },
     jiraWriteBack: {},
   },
   tasks: {
