@@ -65,6 +65,10 @@ jobs:
           --health-retries 10
     env:
       DATABASE_URL: postgres://agentfactory:agentfactory@localhost:5432/agentfactory_test
+      # Test-only key, not a real secret — encrypts nothing that leaves this CI run. Matches the
+      # DATABASE_URL pattern above: inline in the workflow rather than a repo secret, since it
+      # protects test data only. See packages/db/src/crypto.ts for what reads this.
+      CONNECTION_SECRET_KEY: Cl7xnHIGc8Wu/srrF72PrJjWnZWsBwJe6SWg3Iu1PhQ=
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
