@@ -2,10 +2,14 @@
 // their orgId, but does not yet verify resource-level ownership (same documented gap as
 // /api/runs/[runId] and /api/sessions/[sessionId]/messages).
 import { NextResponse } from "next/server";
-import { createTask, listTasks } from "@agentfactory/db";
-import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
+import { createTask, createTaskContextItem, insertContentBlob, listTasks } from "@agentfactory/db";
+import { enqueueRepoMapWarmJob, enqueueTaskContextIngestJob } from "@agentfactory/queue";
 import { isValidModelId } from "@agentfactory/core";
+import type { ExternalAttachment } from "@agentfactory/integrations";
+import { createBlobStore } from "@agentfactory/storage";
 import { requireAuthContext } from "@/server/auth";
+import { resolveTaskProvider } from "@/server/task-provider";
+import { MAX_UPLOAD_BYTES } from "@/app/api/tasks/[taskId]/context-items/route";
 
 export async function GET() {
   const ctx = await requireAuthContext();
@@ -28,6 +32,7 @@ export async function POST(request: Request) {
     area: body.area ?? undefined,
     codebase: body.codebase ?? undefined,
     model: body.model ?? undefined,
+    externalRef: body.externalRef ?? undefined,
   });
 
   // Creating a task with a codebase is the most common way a repository first becomes relevant,
@@ -43,6 +48,44 @@ export async function POST(request: Request) {
     enqueueRepoMapWarmJob(task.orgId, task.codebase).catch((err) => {
       console.error(`Failed to enqueue repo map warm job for task ${task.id}:`, err);
     });
+  }
+
+  // Ingest the linked issue's attachments — same request, same route, because there is no task
+  // id to attach documents to before this point (see the Jira integration plan's Task 5, Step 4).
+  // The client already fetched ExternalIssue.attachments when it called Fetch on the From-issue
+  // field (tasks/new/page.tsx) and sends that list along here; downloading the actual bytes still
+  // has to happen server-side, since that needs the org's decrypted tasks-provider credential,
+  // which never reaches the browser. This is the exact sequence
+  // apps/web/src/app/api/tasks/[taskId]/context-items/route.ts's POST handler runs for a manual
+  // upload. Wrapped so a broken attachment fetch never fails the task creation itself — the task
+  // and its externalRef must exist either way.
+  if (task.externalRef && Array.isArray(body.attachments) && body.attachments.length > 0) {
+    try {
+      const resolved = await resolveTaskProvider(ctx.orgId);
+      if (resolved) {
+        const blobStore = createBlobStore();
+        for (const attachment of body.attachments as ExternalAttachment[]) {
+          if (attachment.sizeBytes > MAX_UPLOAD_BYTES) continue; // skip oversized, don't drop the rest
+          const bytes = await resolved.provider.fetchAttachment(attachment);
+          const { sha256, sizeBytes } = await blobStore.put(ctx.orgId, bytes, attachment.mime);
+          await insertContentBlob(ctx.orgId, sha256, sizeBytes, attachment.mime);
+          const item = await createTaskContextItem({
+            taskId: task.id,
+            orgId: ctx.orgId,
+            title: attachment.filename,
+            sizeBytes,
+            sha256,
+            mime: attachment.mime,
+            source: "jira",
+          });
+          // undefined on a duplicate (taskId, sha256) — a silent no-op, not an error. Can't
+          // happen on a fresh task today, but the same loop is reused by the refresh flow later.
+          if (item) await enqueueTaskContextIngestJob(item.id);
+        }
+      }
+    } catch (err) {
+      console.error(`Failed to ingest issue attachments for task ${task.id}:`, err);
+    }
   }
 
   return NextResponse.json(task, { status: 201 });
