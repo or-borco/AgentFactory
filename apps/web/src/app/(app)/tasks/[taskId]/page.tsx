@@ -9,6 +9,7 @@ import { useTranslation } from "@/lib/i18n/context";
 import { StatusMenu } from "@/components/StatusMenu";
 import { AssigneeSelect } from "@/components/AssigneeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { TaskStaleDialog } from "@/components/TaskStaleDialog";
 import { CheckIcon, TrashIcon, EditIcon, XIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
@@ -16,6 +17,7 @@ import { RunContextPanel } from "@/components/RunContextPanel";
 import { RunEvalPanel } from "@/components/RunEvalPanel";
 import { WriteBackFailureBanner } from "@/components/WriteBackFailureBanner";
 import type { Run, TaskContextItem, TaskStatus } from "@agentfactory/core";
+import type { ExternalIssue } from "@agentfactory/integrations";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
 import { groupErrorsByRun, unattachedRunErrors } from "@/lib/run-errors";
 
@@ -86,6 +88,12 @@ export default function TaskDetailPage() {
   // linked-issue badge and needs its own copy of the data to link a failed item out to the
   // issue (ContextDocumentsPanel has no notion of externalRef).
   const [linkedIssueItems, setLinkedIssueItems] = useState<TaskContextItem[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  // Shared by both the Refresh action and the Run button's 409 task_stale catch — the same
+  // TaskStaleDialog is opened for either, with different actions per staleMode (see handleRun,
+  // handleRefresh, and the dialog mount at the bottom of this component).
+  const [staleLatest, setStaleLatest] = useState<ExternalIssue | null>(null);
+  const [staleMode, setStaleMode] = useState<"refresh" | "run" | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
@@ -235,16 +243,100 @@ export default function TaskDetailPage() {
     }
   };
 
+  const closeStaleDialog = () => {
+    setStaleLatest(null);
+    setStaleMode(null);
+  };
+
   const handleRun = async () => {
     if (!task) return;
     setStarting(true);
     try {
       const result = await runTask(task.id);
+      if (result.stale) {
+        setStaleLatest(result.latest);
+        setStaleMode("run");
+        return;
+      }
       setRunStatus("queued");
       setRunStartedAt(Date.now());
       pollRun(result.runId, result.session.id);
     } finally {
       setStarting(false);
+    }
+  };
+
+  // Manual refresh, next to the linked-issue badge. `{ stale: false }` is the common case — a
+  // brief toast, reusing the same notify()/toast mechanism every other mutation on this page
+  // already uses, rather than inventing a second confirmation pattern for this one action.
+  const handleRefresh = async () => {
+    if (!task || refreshing) return;
+    setRefreshing(true);
+    try {
+      const result = await apiFetch<{ stale: boolean; latest?: ExternalIssue }>(
+        `/api/tasks/${task.id}/sync`,
+        { method: "POST" },
+      );
+      if (result.stale && result.latest) {
+        setStaleLatest(result.latest);
+        setStaleMode("refresh");
+      } else {
+        notify("taskDetail.sync.upToDate");
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Dialog primary action when opened from Refresh: apply the fetched issue, then re-fetch the
+  // task so the page reflects the update, then close.
+  const handleUpdateTask = async () => {
+    if (!task) return;
+    await apiFetch(`/api/tasks/${task.id}/sync`, { method: "POST", body: JSON.stringify({ apply: true }) });
+    await refreshTask(task.id);
+    closeStaleDialog();
+  };
+
+  // Dialog primary action when opened from Run: apply, then re-run without acknowledgeStale —
+  // the task is fresh now, so the run route's own check will pass. Falling back to re-opening the
+  // dialog on a still-stale result (rather than assuming success) covers the rare race where the
+  // issue changed again between apply and this re-POST.
+  const handleUpdateAndRun = async () => {
+    if (!task) return;
+    try {
+      await apiFetch(`/api/tasks/${task.id}/sync`, { method: "POST", body: JSON.stringify({ apply: true }) });
+      const result = await runTask(task.id);
+      if (result.stale) {
+        setStaleLatest(result.latest);
+        return;
+      }
+      closeStaleDialog();
+      setRunStatus("queued");
+      setRunStartedAt(Date.now());
+      pollRun(result.runId, result.session.id);
+    } finally {
+      // The try/finally isn't cleaning anything up here — it's what convinces
+      // react-hooks/purity that setRunStartedAt(Date.now()) below is scoped to this
+      // (event-triggered) callback rather than something that could run during render, the same
+      // shape handleRun above already relies on. A bare `if`-then-impure-call reads identically
+      // at runtime but the linter can't prove it, so it flags it.
+    }
+  };
+
+  // Dialog secondary action when opened from Run: proceed against the old content on purpose —
+  // acknowledgeStale skips the route's check server-side, so this call always resolves with
+  // stale: false.
+  const handleRunAnyway = async () => {
+    if (!task) return;
+    try {
+      const result = await runTask(task.id, { acknowledgeStale: true });
+      if (result.stale) return; // unreachable given acknowledgeStale, but keeps the branch typed
+      closeStaleDialog();
+      setRunStatus("queued");
+      setRunStartedAt(Date.now());
+      pollRun(result.runId, result.session.id);
+    } finally {
+      // See the comment in handleUpdateAndRun above.
     }
   };
 
@@ -658,19 +750,37 @@ export default function TaskDetailPage() {
                 )}
                 {task.externalRef && (
                   <MetaRow label={t("taskDetail.linkedIssue.rowLabel")}>
-                    <a
-                      href={task.externalRef.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ textDecoration: "none" }}
-                    >
-                      <Badge tone="neutral">
-                        {t("taskDetail.linkedIssue.badge", {
-                          provider: t(`connections.provider.${task.externalRef.provider}`),
-                          key: task.externalRef.key,
-                        })}
-                      </Badge>
-                    </a>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <a
+                        href={task.externalRef.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ textDecoration: "none" }}
+                      >
+                        <Badge tone="neutral">
+                          {t("taskDetail.linkedIssue.badge", {
+                            provider: t(`connections.provider.${task.externalRef.provider}`),
+                            key: task.externalRef.key,
+                          })}
+                        </Badge>
+                      </a>
+                      <button
+                        onClick={handleRefresh}
+                        disabled={refreshing}
+                        title={t("taskDetail.sync.refreshTooltip")}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          padding: 0,
+                          fontSize: 12,
+                          color: "var(--color-accent)",
+                          cursor: refreshing ? "default" : "pointer",
+                          opacity: refreshing ? 0.6 : 1,
+                        }}
+                      >
+                        {refreshing ? t("taskDetail.sync.refreshing") : t("taskDetail.sync.refresh")}
+                      </button>
+                    </div>
                   </MetaRow>
                 )}
               </dl>
@@ -816,6 +926,30 @@ export default function TaskDetailPage() {
             setConfirmingStatus(null);
             if (status) await applyStatusChange(status);
           }}
+        />
+      )}
+
+      {staleLatest && staleMode === "refresh" && (
+        <TaskStaleDialog
+          task={task}
+          latest={staleLatest}
+          primaryLabel={t("taskDetail.sync.updateTask")}
+          secondaryLabel={t("taskDetail.sync.dismiss")}
+          onPrimary={handleUpdateTask}
+          onSecondary={closeStaleDialog}
+          onClose={closeStaleDialog}
+        />
+      )}
+
+      {staleLatest && staleMode === "run" && (
+        <TaskStaleDialog
+          task={task}
+          latest={staleLatest}
+          primaryLabel={t("taskDetail.sync.updateAndRun")}
+          secondaryLabel={t("taskDetail.sync.runAnyway")}
+          onPrimary={handleUpdateAndRun}
+          onSecondary={handleRunAnyway}
+          onClose={closeStaleDialog}
         />
       )}
 
