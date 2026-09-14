@@ -32,6 +32,7 @@ function githubConnection(id: number, installationId: number): Connection {
     label: `installation-${installationId}`,
     health: "healthy",
     config: { installationId },
+    auth: "none",
     createdAt: new Date().toISOString(),
   };
 }
