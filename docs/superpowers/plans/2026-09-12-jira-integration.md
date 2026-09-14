@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Note that `subagent-driven-development` dispatches one implementer at a time by design ("never dispatch multiple implementation subagents in parallel"); for the concurrent waves below, either dispatch each wave's tasks together per `superpowers:dispatching-parallel-agents`, or run one `executing-plans`/worktree session per lane and merge — see "Parallel execution" below.
 
-**Goal:** Let an org connect a Jira Cloud site, create an AgentFactory task from a Jira issue by pasting its key or URL (pulling in its attachments so the agent is aware of them), have the linked Jira issue receive a comment (and optionally a status transition) when a run opens the pull request, and keep that task checked against Jira via a manual refresh and an automatic pre-run staleness check.
+**Goal:** Let an org connect a Jira Cloud site, create an AgentFactory task from a Jira issue by pasting its key or URL (pulling in its attachments so the agent is aware of them), have the linked Jira issue receive a comment linking the PR when a run opens it (comment only — no status transition, Product decision 3), and keep that task checked against Jira via a manual refresh and an automatic pre-run staleness check.
 
 **Architecture:** A new `connection_secrets` table plus `connections.auth`/`credential_ref` gives the platform its first encrypted credential store (AES-256-GCM under `CONNECTION_SECRET_KEY`), built exactly as `ARCHITECTURE.md:205` specifies. A new `packages/integrations` workspace package holds a `TaskProvider` port and its first adapter `JiraTaskProvider`, reached through a `createTaskProvider()` factory modelled on `createBlobStore()`; no Jira-shaped type leaves that package. `apps/web` gains a connect/verify route and a Connections UI action; `apps/worker` gains a single write-back call at the existing one-shot PR-open hook point in `worker.ts`. Attachments ride the already-built but unwired `task_context_items` + `content_blobs` pipeline (`apps/web/src/app/api/tasks/[taskId]/context-items/route.ts` is the template) rather than a new store, and the pre-run staleness check is one extra branch in the existing `POST /api/tasks/[taskId]/run` route, not a new execution path. Nothing in the sandbox, the prompt-composition *pipeline's mechanism*, or the `AgentRuntime` path changes — `materialiseTaskDocuments` (`apps/worker/src/task-documents.ts`) gets one small, additive change (Task 7) so it also names unindexed Jira attachments in the "not available in your checkout" line it already emits.
 
@@ -10,11 +10,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-12-jira-integration-design.md` — read it before starting any task; this plan implements it task-by-task and does not repeat its rationale.
 
-> **Blocked on sign-off.** The spec closes with four product questions (API-token-before-OAuth, no issue creation / no continuous sync, transition-on-PR-open, Cloud-only). Task 1 must not start until those are answered — a "no" to any of them changes the schema or the scope, not just the code.
+> **Signed off.** The spec's four product questions (API-token-before-OAuth, no issue creation / no continuous sync, transition-on-PR-open, Cloud-only) are all answered — see the spec's "Product decisions" section. Notably, transition-on-PR-open was answered **no**: write-back is comment-only, permanently, not opt-in. This plan already reflects that answer throughout; Task 1 may start.
 
 ## Global Constraints
 
-- **No Jira-shaped type may appear in `packages/core`, `packages/db`, or any API route payload.** `fields.summary`, ADF nodes, transition payloads, and Atlassian error bodies are translated inside `packages/integrations/src/jira/` and never escape it. This is the `AgentRuntime`/`ScmProvider` rule from `ARCHITECTURE.md` applied to the `tasks` kind, and it is the single constraint most likely to be violated by accident.
+- **No Jira-shaped type may appear in `packages/core`, `packages/db`, or any API route payload.** `fields.summary`, ADF nodes, and Atlassian error bodies are translated inside `packages/integrations/src/jira/` and never escape it. This is the `AgentRuntime`/`ScmProvider` rule from `ARCHITECTURE.md` applied to the `tasks` kind, and it is the single constraint most likely to be violated by accident.
 - **No credential is ever returned by an API route, logged, or written into `connections.config`.** `GET /api/connections` already returns `config` verbatim to the browser (`apps/web/src/app/api/connections/route.ts:5-9`), so `config` is a public field by construction. Secrets live only in `connection_secrets.ciphertext`.
 - **No credential reaches the sandbox.** Every Jira HTTP call runs in the Next.js server process or the worker host process. Do not add a Jira env var to the sandbox spec, and do not pass a site URL or token through `runAgentTurn`. See `apps/worker/src/scm-provider.ts:218-276` for the standing reasoning.
 - **Write-back never fails a run.** Every call in Task 6 is wrapped so a provider error emits a `RunEvent` and returns; the run still reports `pr_open`. Mirror `skills-materialize.ts`, which returns `[]` and logs rather than throwing.
@@ -338,7 +338,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 No change to `pnpm-workspace.yaml` — it already globs `packages/*`.
 
 **Interfaces:**
-- Produces (used by Tasks 4, 5, 6): `TaskProvider`, `ExternalIssue`, `IssueTransition`, `ProviderError`, and `createTaskProvider(connection: Connection, secret: Record<string, string>): TaskProvider`.
+- Produces (used by Tasks 4, 5, 6): `TaskProvider`, `ExternalIssue`, `ProviderError`, and `createTaskProvider(connection: Connection, secret: Record<string, string>): TaskProvider`. No `IssueTransition` — Product decision 3 removed transitioning before this task landed, so the port never grows it.
 - Consumes: `Connection` and `ConnectionProvider` from `@agentfactory/core` (types only — this package must not depend on `@agentfactory/db`, or the worker's dependency graph gains a cycle).
 
 - [ ] **Step 1: Scaffold the package**
@@ -373,7 +373,6 @@ export interface ExternalIssue {
   /** Provider's own last-modified timestamp. What Task 7's staleness check compares. */
   updated: string;
 }
-export interface IssueTransition { id: string; name: string; toStatus: string }
 
 export class ProviderError extends Error {
   constructor(readonly status: number, message: string) { super(message); }
@@ -386,10 +385,9 @@ export interface TaskProvider {
   parseIssueReference(text: string): string | undefined;
   fetchIssue(key: string): Promise<ExternalIssue | undefined>;
   fetchAttachment(attachment: ExternalAttachment): Promise<Uint8Array>;
-  listTransitions(key: string): Promise<IssueTransition[]>;
   addComment(key: string, body: string): Promise<void>;
-  transitionIssue(key: string, transitionId: string): Promise<void>;
 }
+// No listTransitions/transitionIssue (Product decision 3). Five methods; nothing speculative.
 
 export function createTaskProvider(connection: Connection, secret: Record<string, string>): TaskProvider;
 ```
@@ -398,7 +396,7 @@ export function createTaskProvider(connection: Connection, secret: Record<string
 
 - [ ] **Step 5: Write `JiraTaskProvider` and its test, test first**
 
-Record fixtures for `GET /rest/api/3/myself`, `GET /rest/api/3/issue/{key}`, `GET /rest/api/3/issue/{key}/transitions`, and the error bodies for 401, 404, and 429. The test stubs `globalThis.fetch` and asserts: the `Authorization` header is `Basic base64(email:token)`; `fetchIssue` maps `fields.summary` → `title`, ADF `fields.description` → Markdown, `fields.status.name` → `status`, `fields.issuetype.name` → `issueType`, `fields.labels` → `labels`, `fields.updated` → `updated`, `fields.attachment[]` → `attachments` (`filename`/`mimeType`/`size`/`content` mapped to `ExternalAttachment`'s shape), and builds `url` from the connection's `siteUrl`; a 404 returns `undefined` rather than throwing (an issue that does not exist is a normal user outcome); a 401 throws `ProviderError` with `isAuthFailure === true`; a 429 is retried once after honouring `Retry-After` (bounded — one retry, capped delay) and then throws. `fetchAttachment` sends the same `Authorization` header as `fetchIssue` against the attachment's `contentUrl` (Jira's attachment content endpoint requires auth same as everything else) and returns the raw body as `Uint8Array`.
+Record fixtures for `GET /rest/api/3/myself`, `GET /rest/api/3/issue/{key}`, and the error bodies for 401, 404, and 429 — no `/issue/{key}/transitions` fixture, since `listTransitions` no longer exists (Product decision 3). The test stubs `globalThis.fetch` and asserts: the `Authorization` header is `Basic base64(email:token)`; `fetchIssue` maps `fields.summary` → `title`, ADF `fields.description` → Markdown, `fields.status.name` → `status`, `fields.issuetype.name` → `issueType`, `fields.labels` → `labels`, `fields.updated` → `updated`, `fields.attachment[]` → `attachments` (`filename`/`mimeType`/`size`/`content` mapped to `ExternalAttachment`'s shape), and builds `url` from the connection's `siteUrl`; a 404 returns `undefined` rather than throwing (an issue that does not exist is a normal user outcome); a 401 throws `ProviderError` with `isAuthFailure === true`; a 429 is retried once after honouring `Retry-After` (bounded — one retry, capped delay) and then throws. `fetchAttachment` sends the same `Authorization` header as `fetchIssue` against the attachment's `contentUrl` (Jira's attachment content endpoint requires auth same as everything else) and returns the raw body as `Uint8Array`.
 
 `addComment` posts an ADF document, not a Markdown string — Jira Cloud REST v3 rejects a plain-string comment body. Build the minimal `{ type: "doc", version: 1, content: [...] }` envelope inside the adapter and cover it with a test, because this is the single most likely thing to be wrong on first run against a real site.
 
@@ -438,7 +436,7 @@ Cover: unauthenticated → 401; a `verify()` failure → 400 with a message the 
 
 - [ ] **Step 2: Implement `POST /api/connections/jira`**
 
-Body: `{ siteUrl, accountEmail, apiToken, label? }`. **First, before anything else:** `listConnections(orgId)` and check for an existing `kind === "tasks"` row (any provider) — return `409` naming it (`"Already connected to {label}. Disconnect it before connecting another."`) and stop; this is the cheapest possible check, so it goes before `verify()`, not after, to avoid a wasted Jira API call on a request that was always going to fail. Normalise `siteUrl` (strip trailing slash, require `https:`, reject a non-`atlassian.net` host only if the team decides Cloud-only in the spec sign-off). Order from here matters: **`verify()`, then write the secret, then write the connection.** Store `auth: "api_token"`, `kind: "tasks"`, `provider: "jira"`, and a `config` of `{ siteUrl, accountEmail, accountId, writeBack: { comment: true } }` — note `config` is public by construction, so `accountId` is fine there and `apiToken` never is.
+Body: `{ siteUrl, accountEmail, apiToken, label? }`. **First, before anything else:** `listConnections(orgId)` and check for an existing `kind === "tasks"` row (any provider) — return `409` naming it (`"Already connected to {label}. Disconnect it before connecting another."`) and stop; this is the cheapest possible check, so it goes before `verify()`, not after, to avoid a wasted Jira API call on a request that was always going to fail. Normalise `siteUrl` (strip trailing slash, require `https:`, reject a non-`atlassian.net` host — Cloud only is confirmed, Product decision 4). Order from here matters: **`verify()`, then write the secret, then write the connection.** Store `auth: "api_token"`, `kind: "tasks"`, `provider: "jira"`, and a `config` of `{ siteUrl, accountEmail, accountId, writeBack: { comment: true } }` — note `config` is public by construction, so `accountId` is fine there and `apiToken` never is.
 
 - [ ] **Step 3: Cascade the secret on disconnect**
 
@@ -582,7 +580,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing test**
 
-Five cases, all with a stubbed provider: a task with no `externalRef` is a no-op and makes no provider call; a task with a Jira ref posts a comment containing the PR URL and the task ref; `config.writeBack.transitionTo` set also calls `transitionIssue` with that id; **a provider that throws produces an error event, sets `externalRef.writeBackFailure`, and the function still resolves** — this is the case the Global Constraint exists for, and it is the one most likely to regress; a successful call explicitly leaves `writeBackFailure` unset on the `updateTask` call (a task's first, successful write-back must never appear to have failed).
+Five cases, all with a stubbed provider: a task with no `externalRef` is a no-op and makes no provider call; a task with a Jira ref posts a comment containing the PR URL and the task ref; `config.writeBack.comment === false` makes no provider call either (the one remaining toggle, off); **a provider that throws produces an error event, sets `externalRef.writeBackFailure`, and the function still resolves** — this is the case the Global Constraint exists for, and it is the one most likely to regress; a successful call explicitly leaves `writeBackFailure` unset on the `updateTask` call (a task's first, successful write-back must never appear to have failed).
 
 The error-handling shape to copy is already in the tree: `worker.ts:236-245` wraps `fetchIssue` in a try/catch that emits an `error` event and continues, with a comment explaining that the failure "previously vanished silently". Match it.
 
@@ -598,6 +596,8 @@ export async function notifyIssueOfPullRequest(
 ```
 
 Resolve the connection and secret the same way `apps/web/src/server/task-provider.ts` does. The worker cannot import from `apps/web`, so this duplicates ~15 lines of resolution logic — which is the established, documented tradeoff (`apps/worker/src/scm-provider.ts:28-30`). If a third consumer appears, move `resolveTaskProvider` into `packages/integrations` and delete both copies.
+
+The whole write surface is `if (connection.config.writeBack?.comment !== false) await provider.addComment(key, body)` — no transition branch (Product decision 3 removed `transitionTo`/`transitionIssue` entirely, not just their default). `writeBack.comment` defaults to `true` (Task 4 sets it on connect), so this only skips posting when a user has explicitly turned it off in the Configure panel (Step 4).
 
 Wrap the entire body in a try/catch that emits an `error` event and returns. Set connection health on an auth failure, exactly as Task 4 Step 4 does. In the catch, also call `updateTask(task.id, { externalRef: { ...task.externalRef, writeBackFailure: { message, occurredAt: new Date().toISOString() } } })` — a new call this function makes for no other reason, but a small one: `updateTask` already exists (Task 1), takes a partial patch, and this is a one-field write against a row this function has already loaded. On the success path, if `task.externalRef?.writeBackFailure` was already set (a task whose earlier write-back failed and is somehow retried — not possible yet since write-back fires once, but cheap to guard against future retry work), clear it the same way with `writeBackFailure: undefined`.
 
@@ -618,7 +618,10 @@ Confirm `seq` still increments correctly afterwards — it is a mutable counter 
 
 - [ ] **Step 4: Build the write-back config UI**
 
-For `kind: "tasks"` connections only, a panel with a comment-on-PR toggle and an optional transition target. The transition dropdown is populated by asking the user for a sample issue key and calling `listTransitions` through a new route — transition ids are workflow-scoped and there is no site-wide list to fetch.
+For `kind: "tasks"` connections only, a panel with a single comment-on-PR toggle. Nothing else to
+configure — Product decision 3 removed transitioning, so there is no dropdown, no per-project
+transition lookup, and no `listTransitions` route to build. Default the toggle on at connect time
+(Task 4), so turning it off is an explicit opt-out, not an opt-in most orgs would never discover.
 
 - [ ] **Step 5: Add the tasks-list indicator**
 
