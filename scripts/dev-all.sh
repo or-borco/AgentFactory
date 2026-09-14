@@ -9,9 +9,9 @@ cd "$(dirname "$0")/.."
 docker compose up -d --wait
 
 # Matches docker-compose.yml's own service config exactly (the standard local-dev connection
-# string documented in apps/web/.env.example and apps/worker/.env.example) — passed explicitly
-# rather than relying on a developer's own .env.local, so migrations and seeding always target
-# the Postgres this script just started regardless of what else might be configured.
+# string documented in the root .env.example) — passed explicitly rather than relying on a
+# developer's own .env.local, so migrations and seeding always target the Postgres this script
+# just started regardless of what else might be configured.
 DATABASE_URL="postgres://agentfactory:agentfactory@localhost:5432/agentfactory" \
   pnpm --filter @agentfactory/db db:migrate
 
