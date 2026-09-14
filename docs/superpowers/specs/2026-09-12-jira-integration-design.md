@@ -1,7 +1,7 @@
 # Jira integration — design spec
 
 **Date:** 2026-09-12
-**Status:** draft — needs sign-off on the four questions at the end before Task 1 starts
+**Status:** approved — the four product questions are answered; see "Product decisions" at the end. Task 1 may start.
 **Issue:** or-borco/AgentFactory#169
 
 > The issue asks us to "flesh out exact requirements … before implementation". This document is
@@ -29,8 +29,8 @@ Make Jira a real `tasks`-kind `Connection`, so that:
 1. An org admin can connect a Jira Cloud site from `/connections`.
 2. Creating a task from a Jira issue key or URL prefills title, description, and acceptance
    criteria, records the link, and pulls in the issue's attachments so the agent is aware of them.
-3. When a run opens a PR for a linked task, the Jira issue gets a comment with the PR URL — and,
-   if the connection is configured for it, a status transition.
+3. When a run opens a PR for a linked task, the Jira issue gets a comment linking the PR — comment
+   only, no status transition (Product decision 3: transitions are permanently out of scope).
 4. A task linked to Jira can be refreshed on demand, and is checked for drift the moment a user
    starts a run, so the agent never works from a copy that is silently out of date.
 
@@ -146,13 +146,11 @@ describes the M0 mock phase; the code is well ahead of it.
 | 2 | Read one issue by key or URL: summary, description, status, issue type, labels, URL | Jira → AF | Powers task prefill; mirrors `scm-provider.fetchIssue` |
 | 3 | Parse a Jira issue key (`PROJ-123`) or browse URL out of free text | — | Mirrors `scm-provider.parseIssueReference`; the paste-a-link flow is how GitHub issues already work |
 | 4 | Link a Task to a Jira issue (`tasks.external_ref`) and surface the link in the task UI | — | Without a stored link there is nothing to write back to |
-| 5 | Post a comment on the linked issue when a run opens a PR | AF → Jira | Closes the loop the user currently closes by hand |
-| 6 | Optionally transition the linked issue to a configured status when the PR opens | AF → Jira | The other half of that manual loop; opt-in per connection |
-| 7 | List available transitions for an issue, so the transition target is picked from a dropdown rather than typed | Jira → AF | Transition IDs are per-project and per-workflow; a free-text field would be a support burden |
-| 8 | Encrypted at-rest storage for connection credentials (`connection_secrets` + `connections.credential_ref`) | — | The new primitive (see Ground truth); reusable by Slack/Monday/Asana |
-| 9 | Pull an issue's attachments (filename, mime, size, content) into the task as `task_context_items`, so the agent can see them | Jira → AF | An attachment is often the actual bug report (a screenshot, a log file); without it the agent works from a partial issue |
-| 10 | Refresh a linked task from Jira on demand, and check for drift the moment a run starts, prompting the user to update before proceeding | Jira → AF | The task is a point-in-time copy; without a check, an agent can run against a description the reporter has since corrected |
-| 11 | Surface a failed write-back with a banner on the task and a signal on the tasks list, not just a `RunEvent` on the transcript | — | "Never fails a run" (capability 5/6) must not mean "never tells anyone" — a silently broken comment defeats the reason the loop exists |
+| 5 | Post a comment on the linked issue when a run opens a PR, linking the PR — the whole of write-back (Product decision 3: no transition) | AF → Jira | Closes the loop the user currently closes by hand |
+| 6 | Encrypted at-rest storage for connection credentials (`connection_secrets` + `connections.credential_ref`) | — | The new primitive (see Ground truth); reusable by Slack/Monday/Asana |
+| 7 | Pull an issue's attachments (filename, mime, size, content) into the task as `task_context_items`, so the agent can see them | Jira → AF | An attachment is often the actual bug report (a screenshot, a log file); without it the agent works from a partial issue |
+| 8 | Refresh a linked task from Jira on demand, and check for drift the moment a run starts, prompting the user to update before proceeding | Jira → AF | The task is a point-in-time copy; without a check, an agent can run against a description the reporter has since corrected |
+| 9 | Surface a failed write-back with a banner on the task and a signal on the tasks list, not just a `RunEvent` on the transcript | — | "Never fails a run" (capability 5) must not mean "never tells anyone" — a silently broken comment defeats the reason the loop exists |
 
 ### Out of scope (and why)
 
@@ -162,11 +160,18 @@ describes the M0 mock phase; the code is well ahead of it.
   questions we have no machinery for. If a team wants a Jira issue, they create it in Jira and
   link it.
 - **Continuous status sync.** No polling loop, no webhook, nothing that runs on a schedule or in
-  the background. Capability 10 is deliberately *pull, on explicit user action only* (a click on
+  the background. Capability 8 is deliberately *pull, on explicit user action only* (a click on
   Refresh, or a click on Run) — it answers "is this stale right now", it does not keep the task
   current on its own. This is a narrower reading of the same principle, not a reversal of it: the
   write surface is still exactly one moment (PR opened); this adds a *read* check at one other
   moment (about to run) that was previously not checked at all.
+- **Transitioning the linked issue's status.** Product decision 3: not opt-in, not configurable,
+  not happening. Jira workflows and their status fields are configured per project and change over
+  time, so a stored transition id is fragile in a way a comment linking the PR is not. Write-back
+  is comment-only — capability 5, full stop. If this changes later, it is a scope amendment with
+  its own sign-off, not a flag flip: it removes `listTransitions`/`transitionIssue` from the
+  `TaskProvider` port and `config.writeBack.transitionTo` from the connection config, so restoring
+  it means designing that surface again, not un-hiding something dormant.
 - **Jira as a trigger source** ("issue moved to Ready for Dev → run"). Requires the inbound webhook
   bus, the `triggers` table, provider-event-id idempotency, and loop protection — none of which
   exist (`ARCHITECTURE.md:186-190`, `ALPHA-SCOPE.md:91-92`). This is M5 work and should be one
@@ -219,12 +224,13 @@ is several hundred lines and has two consumers on day one; `scm-provider.ts:28-3
 "a third consumer" as the trigger to stop duplicating. `packages/core` is the wrong home — it is
 types-only with no runtime dependencies, and the adapter makes HTTP calls.
 
-**4. Provider types never cross the package boundary.** `TaskProvider` speaks in
-`ExternalIssue { key, title, description, status, issueType, labels, url }` and
-`IssueTransition { id, name, toStatus }`. Jira's `fields.summary`, `fields.description` (ADF!),
-`fields.issuetype`, and transition payloads are translated inside `JiraTaskProvider` and never
-escape it. In particular the Atlassian Document Format → Markdown conversion is an adapter
-concern, and the adapter returns plain strings.
+**4. Provider types never cross the package boundary.** `TaskProvider` speaks only in
+`ExternalIssue { key, title, description, status, issueType, labels, url }`. Jira's
+`fields.summary`, `fields.description` (ADF!), and `fields.issuetype` are translated inside
+`JiraTaskProvider` and never escape it. In particular the Atlassian Document Format → Markdown
+conversion is an adapter concern, and the adapter returns plain strings. (An earlier draft of this
+port also carried `IssueTransition` for a transition capability Product decision 3 removed
+entirely — the port is narrower now, not wider with an unused corner.)
 
 **5. All Jira calls run host-side — in the Next.js server or the worker process, never in the
 sandbox.** Identical reasoning to `scm-provider.ts`'s clone-token handling: the agent has
@@ -426,9 +432,11 @@ reference is a persistence detail the API must never serialise, and `Connection`
 `JiraConnectionConfig` is the non-secret half, stored in `connections.config`:
 
 ```ts
-{ siteUrl: string; accountEmail: string; accountId: string;
-  writeBack: { comment: boolean; transitionTo?: { id: string; name: string } } }
+{ siteUrl: string; accountEmail: string; accountId: string; writeBack: { comment: boolean } }
 ```
+
+No `transitionTo` — Product decision 3 removed transitioning entirely, not just its default. The
+only write-back setting left is whether the comment itself is on or off.
 
 ### The port
 
@@ -449,7 +457,6 @@ export interface ExternalIssue {
   /** The provider's own last-modified timestamp — what the staleness check compares against. */
   updated: string;
 }
-export interface IssueTransition { id: string; name: string; toStatus: string }
 
 export interface TaskProvider {
   /** Verify the credential and return the authenticated account. Called on connect. */
@@ -459,16 +466,18 @@ export interface TaskProvider {
   fetchIssue(key: string): Promise<ExternalIssue | undefined>;
   /** Downloads one attachment's bytes, authenticated the same way as every other call. */
   fetchAttachment(attachment: ExternalAttachment): Promise<Uint8Array>;
-  listTransitions(key: string): Promise<IssueTransition[]>;
   addComment(key: string, body: string): Promise<void>;
-  transitionIssue(key: string, transitionId: string): Promise<void>;
 }
 ```
 
+No `listTransitions`/`transitionIssue` — Product decision 3. Five methods, not seven; every one of
+them is called from somewhere in this spec.
+
 `JiraTaskProvider` implements it over Jira Cloud REST v3
-(`/rest/api/3/myself`, `/issue/{key}`, `/issue/{key}/transitions`, `/issue/{key}/comment`) with
-Basic auth. A `ProviderError { status, message }` normalises HTTP failures so callers can map
-401 → `expired` and everything else → `needs-attention` without reading Atlassian error bodies.
+(`/rest/api/3/myself`, `/issue/{key}`, `/issue/{key}/comment`) with Basic auth — no
+`/issue/{key}/transitions` call, since nothing in this design needs one. A `ProviderError { status,
+message }` normalises HTTP failures so callers can map 401 → `expired` and everything else →
+`needs-attention` without reading Atlassian error bodies.
 
 ### Flow: connect
 
@@ -570,9 +579,10 @@ At `apps/worker/src/worker.ts:418`, immediately after
 if (task.externalRef?.provider === "jira") → notifyIssueOfPullRequest(orgId, task, pr)
 ```
 
-which resolves the connection, decrypts the credential, posts a comment linking the PR, and — if
-`config.writeBack.transitionTo` is set — transitions the issue. Wrapped so nothing it does can
-throw into the run. Emits one `RunEvent` either way, so the transcript records what happened.
+which resolves the connection, decrypts the credential, and — if `config.writeBack.comment` is
+true — posts a comment linking the PR. That is the entire write surface (Product decision 3: no
+transition). Wrapped so nothing it does can throw into the run. Emits one `RunEvent` either way, so
+the transcript records what happened.
 
 On failure, the same catch block also sets `externalRef.writeBackFailure = { message, occurredAt }`
 via `updateTask` — the worker already imports and calls `updateTask` on this exact code path, so
@@ -610,9 +620,9 @@ All connection UI lives in `apps/web/src/components/ConnectionsList.tsx` (render
   rather than two hardcoded buttons, so Slack/Monday do not each add another branch. This one stays
   Jira-named on purpose — see Design decision 14 on why the connect flow can't be made generic for
   free the way the issue-lookup flow below can.
-- A per-connection **Configure** panel, shown only for `kind: "tasks"`, carrying the write-back
-  toggles; the transition target is populated from `listTransitions` against a sample issue key
-  the user supplies, so the user picks a name rather than typing a numeric id.
+- A per-connection **Configure** panel, shown only for `kind: "tasks"`, carrying the single
+  write-back toggle (comment on PR open — Product decision 3 leaves nothing else to configure
+  here).
 - The task creation form gains a **From issue** input — disabled with a tooltip until a tasks
   connection exists, then labeled with that connection's provider (Design decision 14). The task
   detail page shows a linked-issue badge, labeled the same way, linking to `external_ref.url`
@@ -628,10 +638,10 @@ Jira keys must be added deliberately; the type checker will not catch their abse
 
 - **Unit, `packages/integrations`** — `parseIssueReference` across keys, browse URLs, URLs with
   query strings, and text containing neither; ADF→Markdown for paragraphs, lists, code blocks, and
-  links; `fetchIssue`/`listTransitions`/`addComment` against recorded Jira response fixtures with
-  a stubbed `fetch`; error mapping for 401/403/404/429/500. Fixtures, not live calls — this is
-  also the first concrete instance of `ALPHA-SCOPE.md:36`'s "adapters against recorded provider
-  fixtures".
+  links; `fetchIssue`/`addComment` against recorded Jira response fixtures with a stubbed `fetch`;
+  error mapping for 401/403/404/429/500. Fixtures, not live calls — this is also the first concrete
+  instance of `ALPHA-SCOPE.md:36`'s "adapters against recorded provider fixtures". No
+  `listTransitions` fixture or test — that endpoint is never called (Product decision 3).
 - **Unit, `packages/db`** — encrypt→decrypt round trip; distinct ciphertexts for identical
   plaintext (IV is random); tamper detection (GCM auth tag rejects a flipped byte); a clear error
   when `CONNECTION_SECRET_KEY` is unset or the wrong length.
@@ -684,7 +694,7 @@ Jira keys must be added deliberately; the type checker will not catch their abse
 | 3 | The port + the adapter | `packages/integrations`: `TaskProvider`, `createTaskProvider`, `JiraTaskProvider`, ADF→Markdown, recorded fixtures | No — but the adapter is fully unit-tested |
 | 4 | Connect Jira | `POST /api/connections/jira`, single-tasks-connection enforcement, verify-on-save, secret cascade on delete, Connections UI + i18n | **Yes** — a Jira site appears on the Connections page; a second connect attempt is rejected |
 | 5 | Task ← issue + attachments | `GET /api/connections/tasks/issue` (provider-neutral route, currently only resolves Jira), disabled/labeled From-issue field, `external_ref` persisted, attachment fetch loop into `task_context_items`, linked-issue badge + attachment list on task detail | **Yes** — paste `PROJ-123`, get a filled-in task with its attachments listed |
-| 6 | Write-back + failure signal | `notifyIssueOfPullRequest` at the `worker.ts:418` hook point, config panel for comment/transition toggles, `TaskExternalRef.writeBackFailure`, the tasks-list indicator and task-detail banner/Dismiss | **Yes** — run an agent, watch the Jira issue get a PR comment; revoke the token and watch the banner and list indicator appear instead |
+| 6 | Write-back + failure signal | `notifyIssueOfPullRequest` at the `worker.ts:418` hook point, config panel with a single comment toggle (no transition — Product decision 3), `TaskExternalRef.writeBackFailure`, the tasks-list indicator and task-detail banner/Dismiss | **Yes** — run an agent, watch the Jira issue get a PR comment; revoke the token and watch the banner and list indicator appear instead |
 | 7 | Refresh + staleness check | `POST /api/tasks/[taskId]/sync`, diff UI, the pre-run check wired into `POST /api/tasks/[taskId]/run`, `materialiseTaskDocuments`'s `omitted`-list extension | **Yes** — edit a linked issue in Jira, click Run, see the prompt before it runs stale |
 
 1–3 are independently mergeable and invisible to users; each can land while the next is in review.
@@ -704,10 +714,6 @@ Jira keys must be added deliberately; the type checker will not catch their abse
 - **ADF conversion will be imperfect.** Jira descriptions can contain panels, macros, tables, and
   attachments that have no clean Markdown equivalent. The adapter should degrade to plain text
   rather than emit broken Markdown, and the prefill is user-editable before the task is saved.
-- **Transition IDs are workflow-scoped.** A transition valid for one project may not exist in
-  another. Storing a transition on the *connection* assumes one workflow per site. If that proves
-  wrong in practice, the setting moves to the task or the agent — a config-shape change, not an
-  architectural one.
 - **Rate limits.** Atlassian applies per-site rate limits with `Retry-After`. The write-back path
   is low-volume (once per task), but the adapter should honour `Retry-After` with a bounded retry
   rather than treating a 429 as a hard failure.
@@ -734,13 +740,27 @@ Jira keys must be added deliberately; the type checker will not catch their abse
   (a picker on the From-issue field, host-matching disambiguation), not a config flag — there is no
   cheap partial version of "which of two connections did this task mean."
 
-These are genuinely product calls, not engineering ones, and the issue explicitly asks for them
-to be settled first:
+## Product decisions (signed off)
 
-1. **API token before OAuth 2.0 3LO** — accepted risk of an account-scoped credential in exchange
-   for shipping weeks earlier?
-2. **No issue creation, no continuous sync** — is "AgentFactory is the system of record, Jira is a
-   linked upstream" the right product stance, or do users expect tasks to appear in Jira?
-3. **Transition-on-PR-open, configured per connection** — or is transitioning too opinionated to
-   do automatically at all, leaving only the comment?
-4. **Cloud only** — is there a known Data Center user we would be excluding?
+These were genuinely product calls, not engineering ones, and Task 1 was blocked on them. All four
+are now answered — this section is the record of what was decided and why, not an open question
+list. (The `## Decisions that need sign-off before Task 1 starts` header this replaces was
+accidentally dropped in an earlier revision of this document; restoring it here as this section,
+since the content it introduced is what actually got signed off.)
+
+1. **API token before OAuth 2.0 3LO — decided: API token.** Accepted for now. Revisit per Risk
+   above ("API tokens are account-scoped, not app-scoped") if it becomes a real problem in
+   practice; OAuth 2.0 3LO stays the documented upgrade path (Design decision 1), not a redesign.
+2. **No issue creation, no continuous sync — decided: correct as scoped.** "AgentFactory is the
+   system of record, Jira is a linked upstream" stands. No change to Scope.
+3. **Transition-on-PR-open — decided: no auto-transition, ever, not even opt-in.** The stated
+   reason is exactly the risk this spec already named: Jira status/workflow fields are configured
+   per project and change over time, so a stored transition id is fragile in a way a comment is
+   not. Write-back is **comment only** — the run's PR gets linked to the issue via the comment body
+   (the comment already includes the PR URL; that link *is* the connection between the two, there
+   is no separate Jira "issue link" object being created). This removes capability 6 and capability
+   7 from Scope, `listTransitions`/`transitionIssue` from the `TaskProvider` port, and
+   `config.writeBack.transitionTo` from the connection config shape — see the updated Scope,
+   Mechanism, and Testing sections above, and Task 3/Task 6 in the plan.
+4. **Cloud only — decided: correct as scoped.** No known Data Center user to accommodate. No change
+   to Scope.
