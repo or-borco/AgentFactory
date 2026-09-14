@@ -513,7 +513,12 @@ const en = {
     },
     sync: {},
   },
-  writeBackFailure: {},
+  writeBackFailure: {
+    title: "Couldn't notify {provider}",
+    listTooltip: "Couldn't notify {provider}: {message}",
+    dismiss: "Dismiss",
+    viewInProvider: "View in {provider}",
+  },
   toast: {
     taskCreated: "Task created",
     teamCreated: "Team created",
