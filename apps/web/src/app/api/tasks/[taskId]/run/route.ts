@@ -11,6 +11,7 @@ import {
 } from "@agentfactory/db";
 import { enqueueRunJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
+import { checkTaskSync } from "@/server/task-sync";
 
 function formatTaskBrief(task: Task): string {
   const lines: string[] = [task.description];
@@ -29,7 +30,7 @@ function formatTaskBrief(task: Task): string {
 }
 
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ taskId: string }> },
 ) {
   const ctx = await requireAuthContext();
@@ -42,6 +43,20 @@ export async function POST(
     return NextResponse.json({ error: "Task has no assignee" }, { status: 400 });
   if (task.sessionId)
     return NextResponse.json({ error: "Task already has a session" }, { status: 409 });
+
+  // No body is the common case (a plain Run click) — don't let an empty payload 500 the route.
+  const body = await req.json().catch(() => ({}));
+
+  // A task with no linked issue, or a request that already acknowledged staleness, never calls
+  // checkTaskSync at all — zero added latency for the common case. See Design decision 12
+  // (docs/superpowers/specs/2026-09-12-jira-integration-design.md): this is a UI-level
+  // confirmation before a run is enqueued, not an approval gate on a run already in flight.
+  if (task.externalRef && body.acknowledgeStale !== true) {
+    const sync = await checkTaskSync(ctx.orgId, task);
+    if (sync.stale) {
+      return NextResponse.json({ code: "task_stale", latest: sync.latest }, { status: 409 });
+    }
+  }
 
   const session = await createSession(ctx.orgId, task.assigneeAgentId, task.title);
   const brief = formatTaskBrief(task);
