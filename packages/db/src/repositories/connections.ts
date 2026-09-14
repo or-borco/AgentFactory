@@ -12,6 +12,7 @@ function toConnection(row: typeof connections.$inferSelect): Connection {
     label: row.label,
     health: row.health,
     config: row.config,
+    auth: row.auth,
     createdAt: row.createdAt.toISOString(),
   };
 }

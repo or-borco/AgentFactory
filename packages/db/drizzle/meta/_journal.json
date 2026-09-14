@@ -204,6 +204,13 @@
       "when": 1789068865934,
       "tag": "0028_petite_sheva_callister",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1789398170491,
+      "tag": "0029_curvy_edwin_jarvis",
+      "breakpoints": true
     }
   ]
 }
