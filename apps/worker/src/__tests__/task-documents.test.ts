@@ -135,6 +135,41 @@ describe("materialiseTaskDocuments", () => {
     expect(result.written).toEqual([`${TASK_DOCUMENT_DIR}/ready.md`]);
   });
 
+  it("names a failed document in omitted rather than letting it vanish silently", async () => {
+    listTaskContextItemsForOrgMock.mockResolvedValue([
+      item({ id: 1, title: "screenshot.png", status: "failed", source: "jira" }),
+    ]);
+    const writeFiles = vi.fn();
+    const store = fakeStore("x");
+    const provider = fakeSandbox({ writeFiles });
+
+    const result = await materialiseTaskDocuments(provider, "sbx", 70, 1, { blobStore: store });
+
+    expect(result).toEqual({ written: [], omitted: ["screenshot.png"] });
+    // Nothing usable exists for a failed item, so its bytes are never even requested.
+    expect(store.get).not.toHaveBeenCalled();
+    expect(writeFiles).not.toHaveBeenCalled();
+  });
+
+  it("resolves a mix of indexed, failed, and budget-overflow items together in one call", async () => {
+    listTaskContextItemsForOrgMock.mockResolvedValue([
+      item({ id: 1, title: "ready.md", status: "indexed", sizeBytes: 10 }),
+      item({ id: 2, title: "screenshot.png", status: "failed", source: "jira" }),
+      item({
+        id: 3,
+        title: "huge.md",
+        status: "indexed",
+        sizeBytes: TASK_DOCUMENTS_BUDGET_BYTES + 1,
+      }),
+    ]);
+    const provider = fakeSandbox();
+
+    const result = await materialiseTaskDocuments(provider, "sbx", 70, 1, { blobStore: fakeStore("x") });
+
+    expect(result.written).toEqual([`${TASK_DOCUMENT_DIR}/ready.md`]);
+    expect(result.omitted).toEqual(["screenshot.png", "huge.md"]);
+  });
+
   it("writes nothing and touches no sandbox when the task has no indexed documents", async () => {
     listTaskContextItemsForOrgMock.mockResolvedValue([item({ id: 1, title: "pending.md", status: "pending" })]);
     const writeFiles = vi.fn();
