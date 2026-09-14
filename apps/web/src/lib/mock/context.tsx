@@ -1,7 +1,8 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { Agent, ChatMessage, Connection, OrgMember, OverflowPolicy, Run, Session, Task, Team } from "@agentfactory/core";
+import type { Agent, ChatMessage, Connection, OrgMember, OverflowPolicy, Run, Session, Task, Team, TaskExternalRef } from "@agentfactory/core";
+import type { ExternalAttachment } from "@agentfactory/integrations";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey, TranslationVars } from "@/lib/i18n/paths";
@@ -42,6 +43,12 @@ interface NewTaskInput {
   codebase?: string;
   /** Overrides the assignee agent's default model for this task. */
   model?: Task["model"];
+  /** Set when the task was created from the From-issue field (see tasks/new/page.tsx). */
+  externalRef?: TaskExternalRef;
+  /** The linked issue's attachments, fetched client-side in Step 3 of the From-issue flow — the
+   *  server re-downloads their bytes itself (it holds the credential, the browser never does)
+   *  but needs this list to know what to fetch. Ignored unless `externalRef` is also set. */
+  attachments?: ExternalAttachment[];
 }
 
 interface MockBackendValue extends MockState {

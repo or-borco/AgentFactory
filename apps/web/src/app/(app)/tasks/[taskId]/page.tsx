@@ -14,7 +14,7 @@ import { apiFetch } from "@/lib/api-client";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
 import { RunContextPanel } from "@/components/RunContextPanel";
 import { RunEvalPanel } from "@/components/RunEvalPanel";
-import type { Run, TaskStatus } from "@agentfactory/core";
+import type { Run, TaskContextItem, TaskStatus } from "@agentfactory/core";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
 import { groupErrorsByRun, unattachedRunErrors } from "@/lib/run-errors";
 
@@ -80,6 +80,11 @@ export default function TaskDetailPage() {
   const [rawEvents, setRawEvents] = useState<RawEvent[]>([]);
   const [showToolCalls] = useState(false);
   const [showThinking] = useState(true);
+  // Only fetched for a linked-issue task — the Context tab's ContextDocumentsPanel already
+  // fetches the full list generically for every task, but this compact view lives beside the
+  // linked-issue badge and needs its own copy of the data to link a failed item out to the
+  // issue (ContextDocumentsPanel has no notion of externalRef).
+  const [linkedIssueItems, setLinkedIssueItems] = useState<TaskContextItem[]>([]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
@@ -96,6 +101,23 @@ export default function TaskDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [session?.id, messagesForSession],
   );
+
+  // Fetches once per linked task — good enough for this compact summary. The full-fidelity,
+  // auto-refreshing list already lives in the Context tab (ContextDocumentsPanel).
+  useEffect(() => {
+    if (!task?.externalRef) return;
+    let cancelled = false;
+    apiFetch<TaskContextItem[]>(`/api/tasks/${task.id}/context-items`)
+      .then((items) => {
+        if (!cancelled) setLinkedIssueItems(items);
+      })
+      .catch(() => {
+        if (!cancelled) setLinkedIssueItems([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task?.id, task?.externalRef]);
 
   const handleTranscriptScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -633,8 +655,69 @@ export default function TaskDetailPage() {
                     </a>
                   </MetaRow>
                 )}
+                {task.externalRef && (
+                  <MetaRow label={t("taskDetail.linkedIssue.rowLabel")}>
+                    <a
+                      href={task.externalRef.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ textDecoration: "none" }}
+                    >
+                      <Badge tone="neutral">
+                        {t("taskDetail.linkedIssue.badge", {
+                          provider: t(`connections.provider.${task.externalRef.provider}`),
+                          key: task.externalRef.key,
+                        })}
+                      </Badge>
+                    </a>
+                  </MetaRow>
+                )}
               </dl>
             </section>
+
+            {/* Attachments pulled in from the linked issue — a compact summary beside the badge
+                above; the full, auto-refreshing list (with upload/delete) lives in the Context
+                tab's ContextDocumentsPanel. A failed item links out to the issue itself, since
+                the bytes exist in the provider but aren't readable here. */}
+            {task.externalRef && linkedIssueItems.length > 0 && (
+              <section style={{ marginTop: 16 }}>
+                <SectionLabel>{t("taskDetail.linkedIssue.attachmentsLabel")}</SectionLabel>
+                <ul style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6, listStyle: "none", padding: 0 }}>
+                  {linkedIssueItems.map((item) => {
+                    const statusLabel =
+                      item.status === "indexed"
+                        ? t("taskDetail.linkedIssue.attachmentIndexed")
+                        : item.status === "failed"
+                          ? t("taskDetail.linkedIssue.attachmentFailed")
+                          : t("taskDetail.linkedIssue.attachmentPending");
+                    const tone = item.status === "indexed" ? "success" : item.status === "failed" ? "warning" : "neutral";
+                    return (
+                      <li
+                        key={item.id}
+                        style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "var(--color-neutral-400)" }}
+                      >
+                        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {item.title}
+                        </span>
+                        <Badge tone={tone}>{statusLabel}</Badge>
+                        {item.status === "failed" && task.externalRef && (
+                          <a
+                            href={task.externalRef.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: 11, color: "var(--color-accent)", textDecoration: "none", flexShrink: 0 }}
+                          >
+                            {t("taskDetail.linkedIssue.viewInProvider", {
+                              provider: t(`connections.provider.${task.externalRef.provider}`),
+                            })}
+                          </a>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
 
             {task.status === "assigned" && !task.sessionId && task.assigneeAgentId && (
               <div style={{ marginTop: 20 }}>
