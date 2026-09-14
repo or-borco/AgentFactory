@@ -92,3 +92,19 @@ export async function setConnectionHealth(orgId: number, id: number, health: Con
     .set({ health })
     .where(and(eq(connections.orgId, orgId), eq(connections.id, id)));
 }
+
+/**
+ * Internal accessor for the encrypted-credential reference, org-scoped. Deliberately separate
+ * from `Connection`/`toConnection` — GET /api/connections returns `Connection` verbatim to the
+ * browser, so `credentialRef` must never be assembled onto that public shape. Used only by
+ * server-side resolvers that turn around and call `readConnectionSecret(orgId, credentialRef)`
+ * (e.g. apps/web/src/server/task-provider.ts's `resolveTaskProvider`). Returns `undefined` for a
+ * missing or wrong-org row, `null` when the row exists but has no credential set.
+ */
+export async function getConnectionCredentialRef(orgId: number, id: number): Promise<number | null | undefined> {
+  const [row] = await db
+    .select({ credentialRef: connections.credentialRef })
+    .from(connections)
+    .where(and(eq(connections.orgId, orgId), eq(connections.id, id)));
+  return row?.credentialRef;
+}
