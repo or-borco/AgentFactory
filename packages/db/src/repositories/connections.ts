@@ -32,21 +32,6 @@ export async function getConnection(orgId: number, id: number): Promise<Connecti
   const [row] = await db.select().from(connections).where(and(eq(connections.orgId, orgId), eq(connections.id, id)));
   return row ? toConnection(row) : undefined;
 }
-
-/**
- * Org-scoped read of a connection's credential reference only, for cascade-deleting its secret on
- * disconnect. Deliberately separate from `Connection`/`toConnection`: `Connection` is exactly what
- * `GET /api/connections` serialises to the browser, and `credentialRef` is a persistence detail
- * that must never reach it (see packages/core/src/domain.ts's `Connection` type).
- */
-export async function getConnectionCredentialRef(orgId: number, id: number): Promise<number | null | undefined> {
-  const [row] = await db
-    .select({ credentialRef: connections.credentialRef })
-    .from(connections)
-    .where(and(eq(connections.orgId, orgId), eq(connections.id, id)));
-  return row?.credentialRef;
-}
-
 export interface NewConnectionInput {
   provider: ConnectionProvider;
   kind: ConnectionKind;
