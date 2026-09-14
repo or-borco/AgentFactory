@@ -1,4 +1,5 @@
 import type { Connection } from "@agentfactory/core";
+import { JiraTaskProvider } from "./jira/jira-task-provider";
 
 export interface ExternalAttachment {
   filename: string;
@@ -47,10 +48,20 @@ export interface TaskProvider {
 }
 
 // The one place an adapter is chosen. Mirrors createBlobStore() (packages/storage/src/index.ts):
-// no adapter exists yet, so every provider currently throws. A later PR adds a "jira" case once
-// JiraTaskProvider is built.
+// every provider without an adapter throws a clear error.
 export function createTaskProvider(connection: Connection, secret: Record<string, string>): TaskProvider {
   switch (connection.provider) {
+    case "jira": {
+      const { siteUrl, accountEmail } = connection.config;
+      if (typeof siteUrl !== "string" || typeof accountEmail !== "string") {
+        throw new Error(`Jira connection ${connection.id} is missing siteUrl/accountEmail in its config`);
+      }
+      const { apiToken } = secret;
+      if (typeof apiToken !== "string") {
+        throw new Error(`Jira connection ${connection.id} is missing an apiToken secret`);
+      }
+      return new JiraTaskProvider({ siteUrl, accountEmail, apiToken });
+    }
     default:
       throw new Error(`Unknown task provider "${connection.provider}"`);
   }
