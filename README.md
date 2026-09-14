@@ -57,6 +57,12 @@ cp apps/worker/.env.example apps/worker/.env.local
   (not the process's working directory), so the default `BLOB_DIR=.blobs` means `<repo>/.blobs`
   for both processes. The directory is created on first upload and is gitignored. Set
   `BLOB_STORE=s3` with `S3_BUCKET` instead if you have a bucket.
+- **Both files** also need the same `CONNECTION_SECRET_KEY` — the AES-256-GCM key that encrypts
+  connection credentials (Jira API tokens, etc.) before they're stored. Generate one with
+  `openssl rand -base64 32` and copy the same value into both `.env.local` files. **Rotating this
+  key orphans every stored credential**: existing `connection_secrets` rows become undecryptable,
+  and affected users will need to reconnect (re-enter their Jira site credentials, etc.) before
+  those connections work again.
 
 ## 4. Run database migrations and seed data
 
