@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import type { Task, TaskStatus } from "@agentfactory/core";
+import type { Task, TaskExternalRef, TaskStatus } from "@agentfactory/core";
 import { db } from "../client";
 import { tasks } from "../schema";
 
@@ -19,6 +19,7 @@ function toTask(row: typeof tasks.$inferSelect): Task {
     model: row.model ?? undefined,
     prNumber: row.prNumber ?? undefined,
     prUrl: row.prUrl ?? undefined,
+    externalRef: row.externalRef ?? undefined,
     createdBy: row.createdBy,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -55,6 +56,7 @@ export interface NewTaskInput {
   codebase?: string;
   /** Overrides the assignee agent's default model for this task. */
   model?: Task["model"];
+  externalRef?: TaskExternalRef;
 }
 
 export async function createTask(
@@ -76,6 +78,7 @@ export async function createTask(
       area: input.area,
       codebase: input.codebase,
       model: input.model,
+      externalRef: input.externalRef,
     })
     .returning();
 
@@ -101,6 +104,7 @@ export interface UpdateTaskInput {
   model?: Task["model"] | null;
   prNumber?: number;
   prUrl?: string;
+  externalRef?: TaskExternalRef | null;
 }
 
 export async function updateTask(id: number, patch: UpdateTaskInput): Promise<Task> {

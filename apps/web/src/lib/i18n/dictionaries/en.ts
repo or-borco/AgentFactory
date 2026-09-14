@@ -170,6 +170,8 @@ const en = {
       "needs-attention": "needs attention",
       expired: "expired",
     },
+    jira: {},
+    jiraWriteBack: {},
   },
   tasks: {
     title: "Tasks",
@@ -263,6 +265,9 @@ const en = {
     noActivity: "No activity yet",
     noActivitySub: "Tasks will appear here once agents start working.",
     updatedAt: "Updated {time}",
+  },
+  taskCreate: {
+    linkedIssue: {},
   },
   taskDetail: {
     criteria: "Acceptance criteria",
@@ -470,7 +475,10 @@ const en = {
     documentsUploadFailed: "Couldn't upload that file — it may already be in this team's documents.",
     documentsDeleteFailed: "Couldn't remove that document. Try again.",
     documentsLoadError: "Couldn't load this team's documents.",
+    linkedIssue: {},
+    sync: {},
   },
+  writeBackFailure: {},
   toast: {
     taskCreated: "Task created",
     teamCreated: "Team created",

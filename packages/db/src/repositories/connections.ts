@@ -1,5 +1,11 @@
 import { and, eq } from "drizzle-orm";
-import type { Connection, ConnectionKind, ConnectionProvider } from "@agentfactory/core";
+import type {
+  Connection,
+  ConnectionAuthKind,
+  ConnectionHealth,
+  ConnectionKind,
+  ConnectionProvider,
+} from "@agentfactory/core";
 import { db } from "../client";
 import { connections } from "../schema";
 
@@ -32,6 +38,11 @@ export interface NewConnectionInput {
   kind: ConnectionKind;
   label: string;
   config: Record<string, unknown>;
+  // Both optional. `auth` defaults to "none" at the DB level (connections.auth has a NOT NULL
+  // DEFAULT 'none'), so omitting it here is correct for the GitHub case; callers that do need a
+  // credential (e.g. connecting Jira) pass both together once the secret has already been written.
+  auth?: ConnectionAuthKind;
+  credentialRef?: number | null;
 }
 
 export async function createConnection(orgId: number, input: NewConnectionInput): Promise<Connection> {
@@ -43,6 +54,8 @@ export async function createConnection(orgId: number, input: NewConnectionInput)
       kind: input.kind,
       label: input.label,
       config: input.config,
+      ...(input.auth !== undefined ? { auth: input.auth } : {}),
+      ...(input.credentialRef !== undefined ? { credentialRef: input.credentialRef } : {}),
     })
     .returning();
   return toConnection(row);
@@ -50,4 +63,32 @@ export async function createConnection(orgId: number, input: NewConnectionInput)
 
 export async function deleteConnection(id: number): Promise<void> {
   await db.delete(connections).where(eq(connections.id, id));
+}
+
+export interface ConnectionPatch {
+  label?: string;
+  config?: Record<string, unknown>;
+  health?: ConnectionHealth;
+  credentialRef?: number | null;
+}
+
+export async function updateConnection(
+  orgId: number,
+  id: number,
+  patch: ConnectionPatch,
+): Promise<Connection | undefined> {
+  const [row] = await db
+    .update(connections)
+    .set(patch)
+    .where(and(eq(connections.orgId, orgId), eq(connections.id, id)))
+    .returning();
+  return row ? toConnection(row) : undefined;
+}
+
+/** Called from the credential paths: 401 -> "expired", any other provider failure -> "needs-attention". */
+export async function setConnectionHealth(orgId: number, id: number, health: ConnectionHealth): Promise<void> {
+  await db
+    .update(connections)
+    .set({ health })
+    .where(and(eq(connections.orgId, orgId), eq(connections.id, id)));
 }

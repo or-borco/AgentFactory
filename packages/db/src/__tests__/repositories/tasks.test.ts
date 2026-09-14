@@ -1,6 +1,7 @@
+import type { TaskExternalRef } from "@agentfactory/core";
 import { describe, expect, it } from "vitest";
 import "../setup.js";
-import { attachTaskSession, getTaskBySessionId, updateTask } from "../../repositories/tasks.js";
+import { attachTaskSession, createTask, getTaskBySessionId, updateTask } from "../../repositories/tasks.js";
 import { insertAgent, insertOrg, insertSession, insertTask, insertUser } from "../fixtures.js";
 
 describe("getTaskBySessionId", () => {
@@ -44,5 +45,46 @@ describe("updateTask", () => {
       prUrl: "https://github.com/acme-org/platform/pull/7",
       status: "pr_open",
     });
+  });
+});
+
+describe("externalRef", () => {
+  const ref: TaskExternalRef = {
+    provider: "jira",
+    key: "PROJ-123",
+    url: "https://acme.atlassian.net/browse/PROJ-123",
+    lastKnownUpdated: "2026-09-01T00:00:00.000Z",
+  };
+
+  it("is undefined when unset", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+    const task = await insertTask(org.id, user.id);
+
+    expect(task.externalRef).toBeUndefined();
+  });
+
+  it("round-trips through create", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+
+    const task = await createTask(org.id, user.id, {
+      title: "Fix login bug",
+      description: "",
+      acceptanceCriteria: [],
+      externalRef: ref,
+    });
+
+    expect(task.externalRef).toEqual(ref);
+  });
+
+  it("round-trips through update", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+    const task = await insertTask(org.id, user.id);
+
+    const updated = await updateTask(task.id, { externalRef: ref });
+
+    expect(updated.externalRef).toEqual(ref);
   });
 });
