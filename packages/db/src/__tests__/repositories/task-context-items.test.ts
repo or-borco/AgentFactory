@@ -65,6 +65,44 @@ describe("task-context-items repository", () => {
     await expect(getTaskContextItem(item.id)).resolves.toEqual(item);
   });
 
+  // Accepting `source` as repository input is the only DB-side change attachments need
+  // (jira-integration-design.md, Design decision 9): a later PR tags Jira-derived items
+  // `source: "jira"`, unrelated to the ingestion logic exercised elsewhere in this file.
+  it("stores and returns a caller-provided source", async () => {
+    const { org, task, user } = await setupTaskWithBlob();
+
+    const item = await createTaskContextItem({
+      taskId: task.id,
+      orgId: org.id,
+      title: "Issue attachment",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+      uploadedBy: user.id,
+      source: "jira",
+    });
+
+    expect(item?.source).toBe("jira");
+    await expect(getTaskContextItem(item!.id)).resolves.toMatchObject({ source: "jira" });
+  });
+
+  // Regression guard: omitting `source` must still fall through to the column's own "upload"
+  // default, exactly as it did before NewTaskContextItem accepted the field.
+  it("defaults source to upload when not specified", async () => {
+    const { org, task } = await setupTaskWithBlob();
+
+    const item = await createTaskContextItem({
+      taskId: task.id,
+      orgId: org.id,
+      title: "Design doc",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+    });
+
+    expect(item?.source).toBe("upload");
+  });
+
   // The route turns this undefined into a 409. Two items over one blob would both match
   // retrieval and spend the byte budget twice on identical text.
   it("returns undefined when the same bytes are uploaded to the same task twice", async () => {
