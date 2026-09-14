@@ -234,6 +234,8 @@ export interface TaskExternalRef {
   url: string;
   /** The provider's own last-modified timestamp as of the last fetch, for a future staleness check. */
   lastKnownUpdated: string;
+  /** Set when the most recent write-back attempt (worker/task-notify.ts) failed; cleared on the next success. */
+  writeBackFailure?: { message: string; occurredAt: ISODateTime };
 }
 
 export interface Task {

@@ -70,6 +70,7 @@ import { materialiseTaskDocuments, type MaterialisedTaskDocuments } from "./task
 import { materialiseSkills } from "./skills-materialize";
 import { processEvalJob } from "./eval-runner";
 import { ingestTaskContextItem, ingestTeamContextItem } from "./context-ingest";
+import { notifyIssueOfPullRequest } from "./task-notify";
 
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
@@ -416,6 +417,10 @@ const runWorker = new Worker<RunJobData>(
             }),
           );
           await updateTask(task.id, { prNumber: pr.number, prUrl: pr.url, status: "pr_open" });
+          // Inside the `result.pushed && !task.prNumber` guard on purpose: that guard is what makes
+          // PR opening happen exactly once per task, so the Jira comment inherits the same
+          // once-only property for free. Never throws - see task-notify.ts.
+          await notifyIssueOfPullRequest(agent.orgId, task, pr, (type, data) => createEvent(runId, seq++, type, data));
           // Dev-only diagnostic for optimizing the pipeline, not a persisted metric: session.createdAt
           // is stamped once, at the moment "Run agent" is clicked (createSession's only call site),
           // so this is the true end-to-end time even when the push happens on a later run in the

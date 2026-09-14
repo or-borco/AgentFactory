@@ -99,6 +99,9 @@ importers:
       '@agentfactory/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@agentfactory/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
       '@agentfactory/queue':
         specifier: workspace:*
         version: link:../../packages/queue

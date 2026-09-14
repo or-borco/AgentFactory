@@ -13,6 +13,7 @@
   "dependencies": {
     "@agentfactory/core": "workspace:*",
     "@agentfactory/db": "workspace:*",
+    "@agentfactory/integrations": "workspace:*",
     "@agentfactory/queue": "workspace:*",
     "@agentfactory/storage": "workspace:*",
     "@huggingface/transformers": "^3.7.0",
