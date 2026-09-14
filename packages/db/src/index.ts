@@ -1,6 +1,7 @@
 export * from "./client";
 export * from "./schema";
 export * from "./password";
+export * from "./crypto";
 export * from "./repositories/orgs";
 export * from "./repositories/users";
 export * from "./repositories/memberships";
