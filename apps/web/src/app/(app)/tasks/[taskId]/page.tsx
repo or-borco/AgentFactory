@@ -1142,6 +1142,7 @@ function ErrorNotice({ messages }: { messages: string[] }) {
 function ThinkingBlock({ steps }: { steps: ThinkStep[] }) {
   const [collapsed, setCollapsed] = useState(false);
   const { t } = useTranslation();
+  const latestStep = steps[steps.length - 1];
   return (
     <div
       style={{
@@ -1182,6 +1183,7 @@ function ThinkingBlock({ steps }: { steps: ThinkStep[] }) {
         </svg>
         <span
           style={{
+            flexShrink: 0,
             fontSize: 10,
             fontWeight: 600,
             textTransform: "uppercase",
@@ -1192,6 +1194,20 @@ function ThinkingBlock({ steps }: { steps: ThinkStep[] }) {
         >
           {t("taskDetail.thinking")}
         </span>
+        {collapsed && latestStep && (
+          <span
+            title={latestStep.detail}
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontSize: 12.5,
+              color: "var(--color-neutral-500)",
+            }}
+          >
+            {latestStep.label}
+          </span>
+        )}
       </button>
       {!collapsed && (
         <div style={{ padding: "0 12px 10px 14px", display: "flex", flexDirection: "column", gap: 4 }}>
