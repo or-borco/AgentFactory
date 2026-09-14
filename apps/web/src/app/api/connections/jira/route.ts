@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createConnection, createConnectionSecret, listConnections } from "@agentfactory/db";
+import { createConnection, createConnectionSecret, getConnection, listConnections, updateConnection } from "@agentfactory/db";
 import { JiraTaskProvider, ProviderError } from "@agentfactory/integrations";
 import { requireAuthContext } from "@/server/auth";
 
@@ -88,4 +88,35 @@ export async function POST(request: Request) {
   });
 
   return NextResponse.json(connection, { status: 201 });
+}
+
+// Updates the org's write-back config for its Jira connection. Comment-on-PR is the only setting
+// there is (Product decision 3, docs/superpowers/specs/2026-09-12-jira-integration-design.md —
+// transitions are permanently out of scope, not just undefaulted). Merges into the existing
+// `config` rather than replacing it, so siteUrl/accountEmail/accountId survive the write.
+export async function PATCH(request: Request) {
+  const ctx = await requireAuthContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const body = await request.json();
+  const connectionId = Number(body.connectionId);
+  if (!Number.isFinite(connectionId)) {
+    return NextResponse.json({ error: "connectionId is required." }, { status: 400 });
+  }
+
+  const comment = body.writeBack?.comment;
+  if (typeof comment !== "boolean") {
+    return NextResponse.json({ error: "writeBack.comment must be a boolean." }, { status: 400 });
+  }
+
+  const connection = await getConnection(ctx.orgId, connectionId);
+  if (!connection || connection.kind !== "tasks") {
+    return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+  }
+
+  const updated = await updateConnection(ctx.orgId, connectionId, {
+    config: { ...connection.config, writeBack: { comment } },
+  });
+
+  return NextResponse.json(updated);
 }

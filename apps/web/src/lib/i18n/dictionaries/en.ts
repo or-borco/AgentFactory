@@ -183,7 +183,13 @@ const en = {
       verifyFailed: "Couldn't verify this Jira site. Check the site URL, email, and API token, then try again.",
       alreadyConnected: "Already connected to {label}. Disconnect it before connecting another.",
     },
-    jiraWriteBack: {},
+    jiraWriteBack: {
+      configureLabel: "Configure",
+      title: "Write-back",
+      commentToggleLabel: "Comment on PR open",
+      commentToggleHelp: "Post a comment on the linked Jira issue with a link to the PR when a run opens one. This is the only write-back action, there is no status transition.",
+      saveFailed: "Couldn't save this setting. Try again.",
+    },
   },
   tasks: {
     title: "Tasks",
