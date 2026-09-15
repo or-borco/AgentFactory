@@ -52,7 +52,7 @@ export async function resolveEvalArtefact(
         // can no longer say where. Unfetchable, not never-committed.
         throw new Error("run recorded a commit range but its task has no codebase");
       }
-      const target = await deps.resolveTarget(orgId, task.codebase, sessionBranchName(session));
+      const target = await deps.resolveTarget(orgId, task.codebase, sessionBranchName(session, task));
       // undefined here means no GitHub installation for this org can see the repo at all.
       if (!target) {
         throw new Error(`no GitHub installation found for repo "${task.codebase}"`);

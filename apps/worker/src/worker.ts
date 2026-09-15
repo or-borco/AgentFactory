@@ -169,7 +169,7 @@ const runWorker = new Worker<RunJobData>(
       let skillNames: string[] = [];
       let repoSync: SandboxEnvironment["repoSync"];
       if (task?.codebase) {
-        workspace = await resolveCloneTarget(agent.orgId, task.codebase, sessionBranchName(session));
+        workspace = await resolveCloneTarget(agent.orgId, task.codebase, sessionBranchName(session, task));
         if (!workspace) {
           throw new Error(
             `Task ${task.ref}'s codebase "${task.codebase}" isn't accessible via any connected GitHub installation`,

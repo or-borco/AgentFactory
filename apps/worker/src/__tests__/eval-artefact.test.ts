@@ -12,7 +12,7 @@ vi.mock("@agentfactory/db", () => ({ getFinalAssistantMessageForRun: vi.fn(), li
 const { ArtefactUnavailableError, resolveEvalArtefact } = await import("../eval-artefact");
 
 const SESSION = { id: 12, orgId: 1, agentId: 3 } as unknown as Session;
-const TASK_WITH_REPO = { id: 5, codebase: "acme/backend" } as Task;
+const TASK_WITH_REPO = { id: 5, ref: "T-005", title: "Fix the thing", codebase: "acme/backend" } as Task;
 const RANGE: RunCommitRange = { baseSha: "a".repeat(40), headSha: "b".repeat(40) };
 // The run under test pushed commits; every case that needs "this run committed nothing"
 // overrides commitRange and workspaceSnapshot explicitly.
@@ -49,12 +49,12 @@ describe("resolveEvalArtefact", () => {
     expect(deps.getFinalMessage).not.toHaveBeenCalled();
   });
 
-  it("resolves against the session's token-suffixed branch when it has one", async () => {
+  it("resolves against the task-and-title-derived branch when the session has a branchToken", async () => {
     const deps = makeDeps();
     const sessionWithToken = { ...SESSION, branchToken: "deadbeef" } as Session;
     await resolveEvalArtefact(RUN_THAT_PUSHED, sessionWithToken, TASK_WITH_REPO, 1, deps);
 
-    expect(deps.resolveTarget).toHaveBeenCalledWith(1, "acme/backend", "agent/session-12-deadbeef");
+    expect(deps.resolveTarget).toHaveBeenCalledWith(1, "acme/backend", "agent/t-005-fix-the-thing-deadbeef");
   });
 
   it("grades the final message when the run recorded no commits", async () => {
