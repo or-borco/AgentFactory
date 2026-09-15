@@ -479,7 +479,7 @@ export interface RunContextRetrieval {
 export interface Artifact {
   id: ID;
   runId: ID;
-  type: "pr" | "diff" | "file" | "report";
+  type: "pr" | "diff" | "file" | "report" | "review";
   label: string;
   url?: string;
 }
