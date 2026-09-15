@@ -16,6 +16,11 @@ const en = {
     settings: "Settings",
     workspaceFooter: "Team workspace",
     logout: "Log out",
+    theme: "Theme",
+    themeDark: "Dark",
+    themeLight: "Light",
+    switchToLightTheme: "Switch to light theme",
+    switchToDarkTheme: "Switch to dark theme",
   },
   auth: {
     nameLabel: "Full name",

@@ -3,15 +3,27 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "@/lib/i18n/context";
-import { ActivityIcon, BotIcon, LogOutIcon, SettingsIcon, SparklesIcon, TasksIcon, UsersIcon } from "@/lib/icons";
+import {
+  ActivityIcon,
+  BotIcon,
+  LogOutIcon,
+  MoonIcon,
+  SettingsIcon,
+  SparklesIcon,
+  SunIcon,
+  TasksIcon,
+  UsersIcon,
+} from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import { useAuth } from "@/lib/auth/context";
+import { useTheme } from "@/lib/theme/context";
 
 export function LeftPane({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { toast } = useMockBackend();
   const { t } = useTranslation();
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   const newNavItems = [
     { href: "/tasks", label: t("nav.tasks"), icon: TasksIcon },
@@ -77,6 +89,59 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+
+        {/* Theme */}
+        <button
+          type="button"
+          onClick={toggleTheme}
+          className="flex w-full items-center gap-[9px] border-t border-[var(--color-divider)] cursor-pointer"
+          style={{ padding: "11px 14px" }}
+          title={theme === "dark" ? t("nav.switchToLightTheme") : t("nav.switchToDarkTheme")}
+        >
+          <div
+            className="flex shrink-0 items-center justify-center rounded-full bg-[var(--color-neutral-700)]"
+            style={{ width: 28, height: 28 }}
+          >
+            {theme === "dark" ? (
+              <MoonIcon size={14} style={{ color: "var(--color-neutral-200)" }} />
+            ) : (
+              <SunIcon size={14} style={{ color: "var(--color-neutral-200)" }} />
+            )}
+          </div>
+          <div className="min-w-0 flex-1 text-left">
+            <div className="truncate" style={{ fontSize: 12, fontWeight: 500, color: "var(--color-text)" }}>
+              {t("nav.theme")}
+            </div>
+            <div style={{ fontSize: 11, color: "var(--color-neutral-500)" }}>
+              {theme === "dark" ? t("nav.themeDark") : t("nav.themeLight")}
+            </div>
+          </div>
+          <span
+            aria-hidden
+            style={{
+              width: 30,
+              height: 17,
+              borderRadius: 999,
+              background: theme === "dark" ? "var(--color-neutral-800)" : "var(--color-accent-500)",
+              position: "relative",
+              flexShrink: 0,
+              transition: "background 0.15s",
+            }}
+          >
+            <span
+              style={{
+                position: "absolute",
+                top: 2,
+                left: theme === "dark" ? 2 : 15,
+                width: 13,
+                height: 13,
+                borderRadius: "50%",
+                background: "var(--color-neutral-100)",
+                transition: "left 0.15s",
+              }}
+            />
+          </span>
+        </button>
 
         {/* Profile */}
         <div
