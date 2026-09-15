@@ -221,6 +221,22 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/scm:
+    dependencies:
+      '@agentfactory/core':
+        specifier: workspace:*
+        version: link:../core
+      '@agentfactory/db':
+        specifier: workspace:*
+        version: link:../db
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/shared:
     devDependencies:
       '@types/react':
