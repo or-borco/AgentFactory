@@ -12,7 +12,9 @@ export interface SelectProps extends NativeSelectProps {
   value: string;
   onChange: (value: string) => void;
   options: SelectOption[];
-  placeholder: string;
+  // Omit when the field always has a real selection (e.g. a run picker defaulting to the
+  // newest run) — no empty option is rendered in that case.
+  placeholder?: string;
   // Rendered right after the placeholder, before `options` — for a caller-specific option that
   // doesn't belong in the main list (e.g. the current value, kept selectable even though it's
   // fallen out of a freshly-fetched options list).
@@ -22,7 +24,7 @@ export interface SelectProps extends NativeSelectProps {
 export function Select({ value, onChange, options, placeholder, extraOptions, ...rest }: SelectProps) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
-      <option value="">{placeholder}</option>
+      {placeholder !== undefined && <option value="">{placeholder}</option>}
       {extraOptions?.map((option) => (
         <option key={option.key} value={option.value}>
           {option.label}

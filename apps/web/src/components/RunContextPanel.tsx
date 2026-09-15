@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PromptSegment, Run, RunContextRetrieval, RunPrompt, RunStatus } from "@agentfactory/core";
-import { EmptyState } from "@agentfactory/shared";
+import { EmptyState, Select } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
@@ -170,14 +170,19 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
     <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         {runs.length > 1 && (
-          <select
-            value={shownRunId ?? undefined}
-            onChange={(e) => {
-              setSelectedRunId(Number(e.target.value));
+          <Select
+            value={String(shownRunId)}
+            onChange={(v) => {
+              setSelectedRunId(Number(v));
               setShowRaw(false);
               setExpandedIds(new Set());
             }}
             aria-label={t("taskDetail.contextRunLabel")}
+            options={runs.map((run) => ({
+              key: run.id,
+              value: String(run.id),
+              label: `${t("taskDetail.contextRunLabel")} #${run.id} — ${new Date(run.createdAt).toLocaleString()}`,
+            }))}
             style={{
               background: "var(--color-surface)",
               border: "1px solid var(--color-divider)",
@@ -186,13 +191,7 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
               fontSize: 13,
               padding: "6px 10px",
             }}
-          >
-            {runs.map((run) => (
-              <option key={run.id} value={run.id}>
-                {`${t("taskDetail.contextRunLabel")} #${run.id} — ${new Date(run.createdAt).toLocaleString()}`}
-              </option>
-            ))}
-          </select>
+          />
         )}
         {prompt && (
           <button
