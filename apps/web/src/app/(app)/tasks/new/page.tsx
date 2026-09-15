@@ -7,7 +7,14 @@ import { Button, Breadcrumb, GroupedSelect, PageHeader, Select, TextInput, Texta
 import { apiFetch } from "@/lib/api-client";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
-import { DEFAULT_MODEL_ID, MODEL_CATALOG, type TaskExternalRef } from "@agentfactory/core";
+import {
+  DEFAULT_MODEL_ID,
+  MODEL_CATALOG,
+  TASK_CONTEXT_MIME_CONFIG,
+  isTaskContextMimeAllowed,
+  taskContextExtensionMime,
+  type TaskExternalRef,
+} from "@agentfactory/core";
 import type { ExternalAttachment, ExternalIssue } from "@agentfactory/integrations";
 import { useRepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
 import { RepoMapWaitBanner } from "@/components/RepoMapWaitBanner";
@@ -16,20 +23,17 @@ import type { RepoOption } from "@agentfactory/scm";
 interface StagedFile {
   id: number;
   file: File;
+  previewUrl?: string;
 }
 
-// Mirrors ContextDocumentsPanel.tsx's own copy of these — see that file's comments for the
-// reasoning. A task doesn't exist yet at this point in the flow (see handleSubmit), so there is
-// no route to enforce these against client-side; this only corrects an unreliable browser mime
-// before the real upload, after the task is created.
-const ALLOWED_MIMES = ["text/markdown", "text/plain"];
-
-function extensionMime(filename: string): "text/markdown" | "text/plain" | null {
-  const lower = filename.toLowerCase();
-  if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "text/markdown";
-  if (lower.endsWith(".txt")) return "text/plain";
-  return null;
-}
+// A task doesn't exist yet at this point in the flow (see handleSubmit), so there is no route to
+// enforce this against client-side; this only corrects an unreliable browser mime before the real
+// upload, after the task is created. Reads from the same shared table ContextDocumentsPanel.tsx
+// uses for task scope, so the two stay in sync automatically.
+const CONTEXT_ACCEPT = [
+  ...Object.values(TASK_CONTEXT_MIME_CONFIG).flatMap((config) => config.extensions),
+  ...Object.keys(TASK_CONTEXT_MIME_CONFIG),
+].join(",");
 
 export default function NewTaskPage() {
   const router = useRouter();
@@ -128,16 +132,43 @@ export default function NewTaskPage() {
   // Files are staged client-side only — there is no taskId to upload against until the task
   // itself is created (see handleSubmit). No validation happens here; the real upload after
   // creation hits the same route the team panel does, and any rejection (size, type, duplicate)
-  // is reported the same way any other failed staged upload is.
+  // is reported the same way any other failed staged upload is. Images get a local object-URL
+  // preview since there's no server-side item yet to fetch a thumbnail from. Every URL handed out
+  // is tracked in a ref (not just component state) so the unmount cleanup below can revoke
+  // whatever's outstanding without depending on stagedFiles and re-running on every change.
+  const previewUrlsRef = useRef<Set<string>>(new Set());
+
   function handleFilesSelected(fileList: FileList | null) {
     if (!fileList || fileList.length === 0) return;
-    const staged = Array.from(fileList).map((file) => ({ id: nextStagedIdRef.current++, file }));
+    const staged = Array.from(fileList).map((file) => {
+      const previewUrl = file.type.startsWith("image/") ? URL.createObjectURL(file) : undefined;
+      if (previewUrl) previewUrlsRef.current.add(previewUrl);
+      return { id: nextStagedIdRef.current++, file, previewUrl };
+    });
     setStagedFiles((prev) => [...prev, ...staged]);
   }
 
   function removeStagedFile(id: number) {
-    setStagedFiles((prev) => prev.filter((staged) => staged.id !== id));
+    setStagedFiles((prev) => {
+      const removed = prev.find((staged) => staged.id === id);
+      if (removed?.previewUrl) {
+        URL.revokeObjectURL(removed.previewUrl);
+        previewUrlsRef.current.delete(removed.previewUrl);
+      }
+      return prev.filter((staged) => staged.id !== id);
+    });
   }
+
+  // Revoke whatever's still outstanding when the form unmounts (submit navigates away, cancel/back
+  // leaves the page). Captures the Set instance itself (stable for the component's lifetime, not
+  // a snapshot of its contents) so the cleanup sees every URL added up to unmount, not just those
+  // present when the effect ran.
+  useEffect(() => {
+    const urls = previewUrlsRef.current;
+    return () => {
+      for (const url of urls) URL.revokeObjectURL(url);
+    };
+  }, []);
 
   async function doSubmit() {
     if (!title.trim()) return;
@@ -174,8 +205,8 @@ export default function NewTaskPage() {
       const failedNames: string[] = [];
       for (const staged of stagedFiles) {
         let mime = staged.file.type;
-        if (!ALLOWED_MIMES.includes(mime)) {
-          const fallback = extensionMime(staged.file.name);
+        if (!isTaskContextMimeAllowed(mime)) {
+          const fallback = taskContextExtensionMime(staged.file.name);
           if (fallback) mime = fallback;
         }
         const uploadFile =
@@ -398,7 +429,7 @@ export default function NewTaskPage() {
             <input
               type="file"
               multiple
-              accept=".md,.markdown,.txt,text/markdown,text/plain"
+              accept={CONTEXT_ACCEPT}
               aria-label={t("tasks.create.contextUpload")}
               style={{
                 position: "absolute",
@@ -427,6 +458,19 @@ export default function NewTaskPage() {
                   key={staged.id}
                   style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--color-neutral-300)" }}
                 >
+                  {staged.previewUrl && (
+                    <img
+                      src={staged.previewUrl}
+                      alt={staged.file.name}
+                      style={{
+                        height: 32,
+                        width: 32,
+                        flexShrink: 0,
+                        borderRadius: "var(--radius-sm)",
+                        objectFit: "cover",
+                      }}
+                    />
+                  )}
                   <span
                     style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                   >

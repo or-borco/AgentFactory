@@ -244,7 +244,7 @@ const en = {
       contextLabel: "Context documents",
       contextDropHint: "Choose one or more files to attach",
       contextHelp:
-        "Markdown or plain text, up to 2 MB each. Uploaded once the task is created — you can add more, or retry a failed one, from the task's Context tab.",
+        "Markdown, plain text, JPEG, or PNG, up to 2 MB each. Uploaded once the task is created — you can add more, or retry a failed one, from the task's Context tab.",
       contextUpload: "Attach context documents",
       contextRemoveFile: "Remove",
       submit: "Create task",
