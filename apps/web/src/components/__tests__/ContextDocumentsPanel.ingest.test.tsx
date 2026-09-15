@@ -76,10 +76,18 @@ describe("ContextDocumentsPanel ingest states", () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText("Indexing…")).toBeInTheDocument());
+    // advanceTimersByTimeAsync (not the sync advanceTimersByTime) drains every microtask the
+    // fired interval's reload() chain produces — awaiting apiFetch, then setState — before
+    // returning, so the assertion below needs no waitFor of its own. A plain
+    // `act(async () => { vi.advanceTimersByTime(3000) })` only flushes one microtask tick,
+    // which happened to be enough in practice but was never guaranteed to be: this is what
+    // made the test flaky under real CI load, where the poll's async chain occasionally needs
+    // more ticks than that to settle, and the following waitFor's own polling is itself bound
+    // to real elapsed wall-clock time (via shouldAdvanceTime), racing that same load.
     await act(async () => {
-      vi.advanceTimersByTime(3000);
+      await vi.advanceTimersByTimeAsync(3000);
     });
-    await waitFor(() => expect(screen.getByText("Indexed")).toBeInTheDocument());
+    expect(screen.getByText("Indexed")).toBeInTheDocument();
     expect(apiFetchMock).toHaveBeenCalledTimes(2);
   });
 });
