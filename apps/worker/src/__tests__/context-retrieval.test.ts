@@ -306,7 +306,7 @@ describe("retrieveContext — team-only (unchanged behavior)", () => {
   // that a run must never DIE for a missing convenience. Retrieval degrades, exactly as
   // ensureRepoMap returns "".
   it("never throws into the run: a failing search becomes retrieval_failed", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logged = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 
     const result = await retrieveContext({ teamId: 7 }, "anything", {
       ...noopDeps(),
@@ -316,12 +316,12 @@ describe("retrieveContext — team-only (unchanged behavior)", () => {
     });
 
     expect(result).toEqual({ text: "", retrievals: [], omittedReason: "retrieval_failed" });
-    expect(consoleError).toHaveBeenCalled();
-    consoleError.mockRestore();
+    expect(logged).toHaveBeenCalled();
+    logged.mockRestore();
   });
 
   it("degrades the same way when the embedder itself fails", async () => {
-    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const logged = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const embedder = fakeEmbedder();
     embedder.embedQuery.mockRejectedValue(new Error("model load failed"));
 
@@ -332,7 +332,7 @@ describe("retrieveContext — team-only (unchanged behavior)", () => {
     });
 
     expect(result.omittedReason).toBe("retrieval_failed");
-    consoleError.mockRestore();
+    logged.mockRestore();
   });
 });
 

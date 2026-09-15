@@ -10,6 +10,9 @@ import {
   type RunEvalResult,
 } from "@agentfactory/core";
 import type { EvalArtefact } from "./eval-artefact";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("eval-judge");
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -605,16 +608,12 @@ export function logRetrievalCoverageGaps(
   // there is expected, not a degradation.
   if (!hasRetrievedBlock(retrieved)) return;
   if (retrieval === undefined) {
-    console.warn(
-      "eval-judge: a retrieved block was sent but the judge's report_eval call omitted the retrieval field",
-    );
+    log.warn("A retrieved block was sent but the judge's report_eval call omitted the retrieval field");
     return;
   }
   const injected = countInjectedExcerpts(retrieved);
   if (retrieval.chunks.length !== injected) {
-    console.warn(
-      `eval-judge: retrieval count mismatch — ${injected} excerpts were injected but the judge reported ${retrieval.chunks.length}`,
-    );
+    log.warn("Retrieval count mismatch", { injectedExcerpts: injected, reportedByJudge: retrieval.chunks.length });
   }
 }
 

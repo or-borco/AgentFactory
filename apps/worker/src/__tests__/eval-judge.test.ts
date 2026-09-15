@@ -990,34 +990,42 @@ describe("buildReportEvalTool", () => {
   });
 });
 
+// logRetrievalCoverageGaps logs through @agentfactory/logger (pino), which writes JSON lines to
+// stdout — spy there and parse the line rather than on console.warn, which the logger never calls.
+function loggedWarning(spy: ReturnType<typeof vi.spyOn<typeof process.stdout, "write">>) {
+  const call = spy.mock.calls.at(-1);
+  if (!call) return undefined;
+  return JSON.parse(String(call[0]));
+}
+
 describe("logRetrievalCoverageGaps", () => {
   it("warns when a retrieved block was sent but the judge omitted the retrieval field", () => {
-    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warned = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     logRetrievalCoverageGaps("[Excerpt 0] Auth handbook › Sessions\n\nSessions expire after 30 days.", undefined);
-    expect(warned).toHaveBeenCalledWith(
-      "eval-judge: a retrieved block was sent but the judge's report_eval call omitted the retrieval field",
-    );
+    expect(loggedWarning(warned)).toMatchObject({
+      msg: "A retrieved block was sent but the judge's report_eval call omitted the retrieval field",
+    });
     warned.mockRestore();
   });
 
   // The legitimate no-block case: nothing was sent, so an absent retrieval is exactly what is
   // expected, not a degradation.
   it("does not warn when retrieved was undefined to begin with", () => {
-    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warned = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     logRetrievalCoverageGaps(undefined, undefined);
     expect(warned).not.toHaveBeenCalled();
     warned.mockRestore();
   });
 
   it("does not warn when retrieved was sent but blank (no real block, mirrors buildJudgeUserMessage's own gate)", () => {
-    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warned = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     logRetrievalCoverageGaps("   ", undefined);
     expect(warned).not.toHaveBeenCalled();
     warned.mockRestore();
   });
 
   it("warns on a chunk-count mismatch between what was injected and what the judge reported", () => {
-    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warned = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const retrieved =
       "[Excerpt 0] Auth handbook › Sessions\n\nSessions expire after 30 days.\n\n" +
       "[Excerpt 1] Incident runbooks › Paging\n\nPage the on-call.";
@@ -1025,14 +1033,16 @@ describe("logRetrievalCoverageGaps", () => {
       chunks: [{ itemTitle: "Auth handbook", chunkIdx: 0, relevant: true, reason: "Relevant." }],
       precision: 1,
     });
-    expect(warned).toHaveBeenCalledWith(
-      "eval-judge: retrieval count mismatch — 2 excerpts were injected but the judge reported 1",
-    );
+    expect(loggedWarning(warned)).toMatchObject({
+      msg: "Retrieval count mismatch",
+      injectedExcerpts: 2,
+      reportedByJudge: 1,
+    });
     warned.mockRestore();
   });
 
   it("does not warn when the reported count matches the injected count", () => {
-    const warned = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const warned = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     const retrieved = "[Excerpt 0] Auth handbook › Sessions\n\nSessions expire after 30 days.";
     logRetrievalCoverageGaps(retrieved, {
       chunks: [{ itemTitle: "Auth handbook", chunkIdx: 0, relevant: true, reason: "Relevant." }],

@@ -17,9 +17,12 @@ import {
   type NewTaskContextChunk,
 } from "@agentfactory/db";
 import { createBlobStore, type BlobStore } from "@agentfactory/storage";
+import { createLogger } from "@agentfactory/logger";
 import { chunkDocument } from "./chunker";
 import { getEmbedder, type Embedder } from "./embedder";
 import { extractText } from "./text-extract";
+
+const log = createLogger("context-ingest");
 
 // One document's chunks are embedded in slices this size, with an await between them. The
 // ingest worker shares a process with the run worker at concurrency 1 (see worker.ts), so a
@@ -89,7 +92,7 @@ export async function ingestTeamContextItem(itemId: number, deps: Partial<Ingest
   if (!item) {
     // Cascade delete beat the job to it (team or org removed) — nothing to ingest and no row
     // to record a failure on.
-    console.error(`Context item ${itemId} not found; dropping job`);
+    log.error("Context item not found; dropping job", { itemId });
     return;
   }
 
@@ -97,7 +100,7 @@ export async function ingestTeamContextItem(itemId: number, deps: Partial<Ingest
   // are terminal and must stay that way; "indexing" is admitted precisely because a crash
   // mid-job is what leaves a row there, and the redelivery is how it recovers.
   if (item.status !== "pending" && item.status !== "indexing") {
-    console.error(`Context item ${itemId} is already ${item.status}; skipping redelivered job`);
+    log.error("Context item already processed; skipping redelivered job", { itemId, status: item.status });
     return;
   }
 
@@ -134,7 +137,7 @@ export async function ingestTeamContextItem(itemId: number, deps: Partial<Ingest
 
     await d.markTeamContextItemIndexed(itemId);
   } catch (err) {
-    console.error(`Context item ${itemId} ingest failed:`, err);
+    log.error("Context item ingest failed", { itemId, err });
     // The message, not the stack: it is rendered verbatim under the document's row in
     // /teams-v2, and it is the only explanation the uploader ever gets.
     const message = err instanceof Error ? err.message : String(err);
@@ -143,7 +146,7 @@ export async function ingestTeamContextItem(itemId: number, deps: Partial<Ingest
     } catch (writeErr) {
       // The failure write itself failed — nothing left to record it on. The row stays at
       // "indexing", which a redelivery will pick up.
-      console.error(`Context item ${itemId}: failed to record failure:`, writeErr);
+      log.error("Context item: failed to record failure", { itemId, err: writeErr });
     }
   }
 }
@@ -161,7 +164,7 @@ export async function ingestTaskContextItem(itemId: number, deps: Partial<TaskIn
   if (!item) {
     // Cascade delete beat the job to it (task or org removed) — nothing to ingest and no row
     // to record a failure on.
-    console.error(`Task context item ${itemId} not found; dropping job`);
+    log.error("Task context item not found; dropping job", { itemId });
     return;
   }
 
@@ -169,7 +172,7 @@ export async function ingestTaskContextItem(itemId: number, deps: Partial<TaskIn
   // are terminal and must stay that way; "indexing" is admitted precisely because a crash
   // mid-job is what leaves a row there, and the redelivery is how it recovers.
   if (item.status !== "pending" && item.status !== "indexing") {
-    console.error(`Task context item ${itemId} is already ${item.status}; skipping redelivered job`);
+    log.error("Task context item already processed; skipping redelivered job", { itemId, status: item.status });
     return;
   }
 
@@ -216,7 +219,7 @@ export async function ingestTaskContextItem(itemId: number, deps: Partial<TaskIn
 
     await d.markTaskContextItemIndexed(itemId);
   } catch (err) {
-    console.error(`Task context item ${itemId} ingest failed:`, err);
+    log.error("Task context item ingest failed", { itemId, err });
     // The message, not the stack: it is rendered verbatim under the document's row in the
     // task detail page's Context tab, and it is the only explanation the uploader ever gets.
     const message = err instanceof Error ? err.message : String(err);
@@ -225,7 +228,7 @@ export async function ingestTaskContextItem(itemId: number, deps: Partial<TaskIn
     } catch (writeErr) {
       // The failure write itself failed — nothing left to record it on. The row stays at
       // "indexing", which a redelivery will pick up.
-      console.error(`Task context item ${itemId}: failed to record failure:`, writeErr);
+      log.error("Task context item: failed to record failure", { itemId, err: writeErr });
     }
   }
 }

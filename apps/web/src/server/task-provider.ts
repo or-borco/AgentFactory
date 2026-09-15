@@ -1,6 +1,9 @@
 import type { Connection } from "@agentfactory/core";
 import { getConnectionCredentialRef, listConnections, readConnectionSecret } from "@agentfactory/db";
 import { createTaskProvider, type TaskProvider } from "@agentfactory/integrations";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("task-provider");
 
 // Resolves the org's one `tasks`-kind connection (whichever provider it is) and builds the
 // TaskProvider adapter for it. "First tasks connection" is safe to treat as *the* connection, not
@@ -28,7 +31,7 @@ export async function resolveTaskProvider(
 
     return { connection, provider: createTaskProvider(connection, secret) };
   } catch (err) {
-    console.error(`Failed to resolve task provider for connection ${connection.id}:`, err);
+    log.error("Failed to resolve task provider", { connectionId: connection.id, err });
     return undefined;
   }
 }

@@ -12,6 +12,9 @@ import {
 } from "@agentfactory/db";
 import { ArtefactUnavailableError, type EvalArtefact, resolveEvalArtefact } from "./eval-artefact";
 import { judgeCompliance, selectHumanSegments } from "./eval-judge";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("eval-runner");
 
 // Narrow function types rather than typeof imports so unit tests can stub each seam with a
 // plain vi.fn() — the production defaults are structurally compatible.
@@ -73,7 +76,7 @@ async function resolveRequest(evalId: number, run: Run, deps: EvalRunnerDeps): P
     const message = await deps.getTriggeringMessage(messageId);
     return message?.content?.trim() ? message.content : undefined;
   } catch (err) {
-    console.error(`Eval ${evalId}: triggering message ${messageId} lookup failed:`, err);
+    log.error("Eval: triggering message lookup failed", { evalId, messageId, err });
     return undefined;
   }
 }
@@ -89,7 +92,7 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
   if (!evalRow) {
     // Cascade delete beat the job to it (run/session/org removed) — nothing left to grade
     // and no row to record a failure on.
-    console.error(`Eval ${evalId} not found; dropping job`);
+    log.error("Eval not found; dropping job", { evalId });
     return;
   }
 
@@ -98,7 +101,7 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
   // back through "running" before landing on "done" again — or clobber a "failed" row's
   // terminal reason. Only a fresh "queued" row may proceed past this point.
   if (evalRow.status !== "queued") {
-    console.error(`Eval ${evalId} is already ${evalRow.status}; skipping redelivered job`);
+    log.error("Eval already processed; skipping redelivered job", { evalId, status: evalRow.status });
     return;
   }
 
@@ -147,7 +150,7 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
       artefact = await deps.resolveArtefact(run, session, task, evalRow.orgId);
     } catch (err) {
       if (err instanceof ArtefactUnavailableError) {
-        console.error(`Eval ${evalId}: ${err.message}`);
+        log.error("Eval artefact unavailable", { evalId, err });
         await deps.failEval(evalId, "artefact_unavailable");
         return;
       }
@@ -159,13 +162,13 @@ export async function processEvalJob(evalId: number, deps: EvalRunnerDeps = defa
     const { result, judgeModelId } = await deps.judge(humanSegments, artefact, request, retrieved);
     await deps.completeEval(evalId, result, judgeModelId);
   } catch (err) {
-    console.error(`Eval ${evalId} failed:`, err);
+    log.error("Eval failed", { evalId, err });
     try {
       await deps.failEval(evalId, classifyJudgeError(err));
     } catch (writeErr) {
       // The failure write itself failed — nothing left to record it on. Log and stop; this
       // function must not reject regardless of what broke.
-      console.error(`Eval ${evalId}: failed to record failure:`, writeErr);
+      log.error("Eval: failed to record failure", { evalId, err: writeErr });
     }
   }
 }

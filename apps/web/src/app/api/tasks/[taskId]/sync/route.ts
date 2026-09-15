@@ -11,6 +11,9 @@ import { requireAuthContext } from "@/server/auth";
 import { resolveTaskProvider } from "@/server/task-provider";
 import { checkTaskSync } from "@/server/task-sync";
 import { MAX_UPLOAD_BYTES } from "@/app/api/tasks/[taskId]/context-items/route";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("api:tasks:[taskId]:sync");
 
 // Applies a freshly-fetched issue onto its task: the same "persist link + ingest attachments"
 // sequence POST /api/tasks runs at task-creation time (apps/web/src/app/api/tasks/route.ts) —
@@ -50,7 +53,7 @@ async function applyLatestIssue(orgId: number, task: Task, latest: ExternalIssue
       if (item) await enqueueTaskContextIngestJob(item.id);
     }
   } catch (err) {
-    console.error(`Failed to ingest issue attachments while syncing task ${task.id}:`, err);
+    log.error("Failed to ingest issue attachments while syncing task", { taskId: task.id, err });
   }
 }
 

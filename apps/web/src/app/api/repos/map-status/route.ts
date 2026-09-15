@@ -3,6 +3,9 @@ import { getRepoMap } from "@agentfactory/db";
 import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
 import { resolveScmConnection } from "@agentfactory/scm";
 import { requireAuthContext } from "@/server/auth";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("api:repos:map-status");
 
 // Answers "is this repo mapped for its current commit?" for the task-creation and task-edit
 // forms' wait-choice banner (see docs/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md).
@@ -39,7 +42,7 @@ export async function POST(request: Request) {
   if (!repoFullName) return NextResponse.json({ error: "codebase is required" }, { status: 400 });
 
   await enqueueRepoMapWarmJob(ctx.orgId, repoFullName).catch((err: unknown) => {
-    console.error(`Failed to enqueue repo map warm job for ${repoFullName}:`, err);
+    log.error("Failed to enqueue repo map warm job", { repoFullName, err });
   });
   return new NextResponse(null, { status: 204 });
 }

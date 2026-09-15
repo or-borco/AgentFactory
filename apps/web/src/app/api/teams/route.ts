@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createTeam, listTeams } from "@agentfactory/db";
 import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("api:teams");
 
 export async function GET() {
   const ctx = await requireAuthContext();
@@ -18,7 +21,7 @@ export async function POST(request: Request) {
     // Fire-and-forget: the team row is already committed, so a transient queue/Redis failure
     // here must not turn a successful creation into an apparent 500 for the client.
     enqueueRepoMapWarmJob(ctx.orgId, team.defaultCodebase).catch((err) => {
-      console.error("Failed to enqueue repo map warm job:", err);
+      log.error("Failed to enqueue repo map warm job", { teamId: team.id, err });
     });
   }
   return NextResponse.json(team, { status: 201 });
