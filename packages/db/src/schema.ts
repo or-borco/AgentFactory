@@ -189,41 +189,56 @@ export const connections = pgTable("connections", {
 
 export const sessionOriginEnum = pgEnum("session_origin", ["web", "slack", "github", "jira", "cron"]);
 
-export const sessions = pgTable("sessions", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  orgId: integer("org_id")
-    .notNull()
-    .references(() => orgs.id, { onDelete: "cascade" }),
-  agentId: integer("agent_id")
-    .notNull()
-    .references(() => agents.id, { onDelete: "cascade" }),
-  title: text("title").notNull(),
-  origin: sessionOriginEnum("origin").notNull().default("web"),
-  externalThreadRef: text("external_thread_ref"),
-  // The warm sandbox container id for this session's runs — see Session.sandboxId in
-  // packages/core/src/domain.ts for why this is session-scoped, not run-scoped.
-  sandboxId: text("sandbox_id"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    agentId: integer("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    origin: sessionOriginEnum("origin").notNull().default("web"),
+    externalThreadRef: text("external_thread_ref"),
+    // The warm sandbox container id for this session's runs — see Session.sandboxId in
+    // packages/core/src/domain.ts for why this is session-scoped, not run-scoped.
+    sandboxId: text("sandbox_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Agent detail pages list sessions WHERE agent_id = ? — without this, a seq scan.
+    index("sessions_agent_id_idx").on(table.agentId),
+  ],
+);
 
 export const chatRoleEnum = pgEnum("chat_role", ["user", "assistant"]);
 
 // No org_id here — reachable via session_id. RLS isn't implemented yet (same documented gap
 // as teams/agents), so this isn't a new omission, just the same one.
-export const messages = pgTable("messages", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  sessionId: integer("session_id")
-    .notNull()
-    .references(() => sessions.id, { onDelete: "cascade" }),
-  role: chatRoleEnum("role").notNull(),
-  content: text("content").notNull(),
-  // Set only on assistant messages, to the run that produced them — the reverse of
-  // runs.triggeringMessageId below. Nullable: user messages never have one. `references` uses
-  // a lazy callback so this forward reference to `runs` (declared further down) resolves fine.
-  runId: integer("run_id").references((): AnyPgColumn => runs.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const messages = pgTable(
+  "messages",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    sessionId: integer("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    role: chatRoleEnum("role").notNull(),
+    content: text("content").notNull(),
+    // Set only on assistant messages, to the run that produced them — the reverse of
+    // runs.triggeringMessageId below. Nullable: user messages never have one. `references` uses
+    // a lazy callback so this forward reference to `runs` (declared further down) resolves fine.
+    runId: integer("run_id").references((): AnyPgColumn => runs.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // The chat transcript query is WHERE session_id = ? ORDER BY id — without this, a seq scan
+    // on every poll tick, same problem as events below.
+    index("messages_session_id_idx").on(table.sessionId),
+  ],
+);
 
 export const runStatusEnum = pgEnum("run_status", [
   "queued",
@@ -235,58 +250,66 @@ export const runStatusEnum = pgEnum("run_status", [
   "cancelled",
 ]);
 
-export const runs = pgTable("runs", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  sessionId: integer("session_id")
-    .notNull()
-    .references(() => sessions.id, { onDelete: "cascade" }),
-  status: runStatusEnum("status").notNull().default("queued"),
-  // The user message that caused this run — set at createRun time. Nullable: a future
-  // trigger-driven automatic run (cron/webhook, per ARCHITECTURE.md §2.6) won't have one.
-  triggeringMessageId: integer("triggering_message_id").references((): AnyPgColumn => messages.id, {
-    onDelete: "set null",
-  }),
-  // Unused until a real AgentRuntime adapter exists — see ARCHITECTURE.md §1 rule 3
-  // ("provider session IDs live in runs.provider_session_ref, never in business logic").
-  // Cheap to add now, avoids a migration later.
-  providerSessionRef: text("provider_session_ref"),
-  // The session's sandboxId at the moment providerSessionRef was recorded — resume state lives
-  // in that specific container's filesystem, not server-side, so a later run may only resume
-  // this ref if the session's CURRENT sandboxId still matches. Comparing against a snapshot
-  // taken once per run (before vs. after that run's own ensureSandbox call) is not equivalent:
-  // it only detects a recreation happening during that one run, not one that already happened
-  // before it started and has since gone unnoticed across several failed runs in a row — see
-  // docs/superpowers/specs/2026-09-08-session-context-reconstruction-design.md and its
-  // follow-up fix. Null for runs that predate this column, which correctly never matches any
-  // real sandboxId and so is always treated as "resume unsafe" — exactly the right default.
-  sandboxId: text("sandbox_id"),
-  promptHash: text("prompt_hash"),
-  costUsd: doublePrecision("cost_usd").notNull().default(0),
-  tokensUsed: integer("tokens_used").notNull().default(0),
-  budgetExceeded: boolean("budget_exceeded"),
-  // Snapshot of /workspace at run completion: path → utf-8 content. Excludes node_modules and
-  // binary files. Null until the run finishes or if the sandbox was unreachable at teardown.
-  workspaceSnapshot: jsonb("workspace_snapshot").$type<Record<string, string>>(),
-  // What this run added to the session's branch: the branch head before its push and after
-  // (RunCommitRange in @agentfactory/core). Null when the run pushed nothing — and also for
-  // runs that predate this column, which is why the eval path treats "no range but a
-  // non-empty workspace_snapshot" as unknowable rather than as "committed nothing". Small
-  // enough to sit in RUN_COLUMNS, unlike workspace_snapshot's sibling blobs below.
-  commitRange: jsonb("commit_range").$type<RunCommitRange>(),
-  // The exact system prompt this run's turn received, as ordered labeled segments
-  // (PromptSegment in @agentfactory/core; join of texts === the sent string, and
-  // prompt_hash on this row is the hash of that join). Null until the run composes
-  // a prompt — and permanently null for runs that fail before that point, which is
-  // itself diagnostic. Follows the workspaceSnapshot precedent for large per-run
-  // jsonb; read only via getRunPrompt, never selected into Run.
-  promptSegments: jsonb("prompt_segments").$type<PromptSegment[]>(),
-  // The ModelSpec that actually executed this run's turn — may differ from the agent/task's
-  // assigned model if context-overflow escalation (worker.ts) bumped it to a larger tier.
-  // Null until the run resolves a model (never set for runs that fail before that point).
-  model: jsonb("model").$type<ModelSpec>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  finishedAt: timestamp("finished_at", { withTimezone: true }),
-});
+export const runs = pgTable(
+  "runs",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    sessionId: integer("session_id")
+      .notNull()
+      .references(() => sessions.id, { onDelete: "cascade" }),
+    status: runStatusEnum("status").notNull().default("queued"),
+    // The user message that caused this run — set at createRun time. Nullable: a future
+    // trigger-driven automatic run (cron/webhook, per ARCHITECTURE.md §2.6) won't have one.
+    triggeringMessageId: integer("triggering_message_id").references((): AnyPgColumn => messages.id, {
+      onDelete: "set null",
+    }),
+    // Unused until a real AgentRuntime adapter exists — see ARCHITECTURE.md §1 rule 3
+    // ("provider session IDs live in runs.provider_session_ref, never in business logic").
+    // Cheap to add now, avoids a migration later.
+    providerSessionRef: text("provider_session_ref"),
+    // The session's sandboxId at the moment providerSessionRef was recorded — resume state lives
+    // in that specific container's filesystem, not server-side, so a later run may only resume
+    // this ref if the session's CURRENT sandboxId still matches. Comparing against a snapshot
+    // taken once per run (before vs. after that run's own ensureSandbox call) is not equivalent:
+    // it only detects a recreation happening during that one run, not one that already happened
+    // before it started and has since gone unnoticed across several failed runs in a row — see
+    // docs/superpowers/specs/2026-09-08-session-context-reconstruction-design.md and its
+    // follow-up fix. Null for runs that predate this column, which correctly never matches any
+    // real sandboxId and so is always treated as "resume unsafe" — exactly the right default.
+    sandboxId: text("sandbox_id"),
+    promptHash: text("prompt_hash"),
+    costUsd: doublePrecision("cost_usd").notNull().default(0),
+    tokensUsed: integer("tokens_used").notNull().default(0),
+    budgetExceeded: boolean("budget_exceeded"),
+    // Snapshot of /workspace at run completion: path → utf-8 content. Excludes node_modules and
+    // binary files. Null until the run finishes or if the sandbox was unreachable at teardown.
+    workspaceSnapshot: jsonb("workspace_snapshot").$type<Record<string, string>>(),
+    // What this run added to the session's branch: the branch head before its push and after
+    // (RunCommitRange in @agentfactory/core). Null when the run pushed nothing — and also for
+    // runs that predate this column, which is why the eval path treats "no range but a
+    // non-empty workspace_snapshot" as unknowable rather than as "committed nothing". Small
+    // enough to sit in RUN_COLUMNS, unlike workspace_snapshot's sibling blobs below.
+    commitRange: jsonb("commit_range").$type<RunCommitRange>(),
+    // The exact system prompt this run's turn received, as ordered labeled segments
+    // (PromptSegment in @agentfactory/core; join of texts === the sent string, and
+    // prompt_hash on this row is the hash of that join). Null until the run composes
+    // a prompt — and permanently null for runs that fail before that point, which is
+    // itself diagnostic. Follows the workspaceSnapshot precedent for large per-run
+    // jsonb; read only via getRunPrompt, never selected into Run.
+    promptSegments: jsonb("prompt_segments").$type<PromptSegment[]>(),
+    // The ModelSpec that actually executed this run's turn — may differ from the agent/task's
+    // assigned model if context-overflow escalation (worker.ts) bumped it to a larger tier.
+    // Null until the run resolves a model (never set for runs that fail before that point).
+    model: jsonb("model").$type<ModelSpec>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    // listRunsForSession and the events join below both filter WHERE session_id = ? —
+    // without this, a seq scan on every ~1.5s task-page poll tick.
+    index("runs_session_id_idx").on(table.sessionId),
+  ],
+);
 
 export const evalStatusEnum = pgEnum("eval_status", ["queued", "running", "done", "failed"]);
 
@@ -377,6 +400,9 @@ export const tasks = pgTable(
   },
   (t) => [
     check("tasks_title_max_length", sql`char_length(${t.title}) <= 200`),
+    // The task page looks up the task owning a session via WHERE session_id = ? —
+    // without this, a seq scan over every task in the org.
+    index("tasks_session_id_idx").on(t.sessionId),
   ],
 );
 
@@ -651,20 +677,31 @@ export const runContextRetrievals = pgTable(
 
 // No monthly partitioning yet — ARCHITECTURE.md flags this as "the one table that will hurt"
 // at scale, but partitioning tooling for zero rows is pure overhead. Revisit when it's real.
-export const events = pgTable("events", {
-  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
-  runId: integer("run_id")
-    .notNull()
-    .references(() => runs.id, { onDelete: "cascade" }),
-  seq: integer("seq").notNull(),
-  // Matches RunEvent["type"] from packages/core/src/events.ts (text, not an enum — the event
-  // type union is expected to grow as real runtimes land, same reasoning as agents.runtimeKind).
-  type: text("type").notNull(),
-  // Type-specific fields only (e.g. {text} for text_delta, {reason} for done) — id/runId/seq/
-  // createdAt are already real columns, not duplicated in here.
-  data: jsonb("data").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const events = pgTable(
+  "events",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    runId: integer("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    // Matches RunEvent["type"] from packages/core/src/events.ts (text, not an enum — the event
+    // type union is expected to grow as real runtimes land, same reasoning as agents.runtimeKind).
+    type: text("type").notNull(),
+    // Type-specific fields only (e.g. {text} for text_delta, {reason} for done) — id/runId/seq/
+    // createdAt are already real columns, not duplicated in here.
+    data: jsonb("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // listEventsForSession joins events -> runs ON events.run_id and orders by (run_id, seq) —
+    // this composite index covers both the join and the sort, and also makes a future
+    // WHERE run_id = ? AND seq > ? cursor query (see the polling-cursor sibling issue) an
+    // index range scan instead of a filter. The append-only, ever-growing events table is the
+    // hottest table in the schema: the task page polls this join every ~1.5s.
+    index("events_run_id_seq_idx").on(table.runId, table.seq),
+  ],
+);
 
 // Auto-generated CLAUDE.md-style summary of a repo, cached per exact commit so it self-
 // invalidates the moment the code moves on — see docs/superpowers/specs/
