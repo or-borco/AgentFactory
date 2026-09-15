@@ -215,4 +215,16 @@ describe("ingestTaskContextItem", () => {
       expect(deps.markTaskContextItemIndexed).toHaveBeenCalledWith(5);
     }
   });
+
+  // The skip branch keys off item.mime only — proving a Jira-sourced image gets the identical
+  // skip-to-indexed treatment as a manually uploaded one, with no source-based branching to keep
+  // in sync as new attachment sources are added.
+  it("marks a Jira-sourced image item indexed exactly like a manually uploaded one", async () => {
+    const deps = makeDeps(makeItem({ mime: "image/png", source: "jira" }));
+
+    await ingestTaskContextItem(5, deps);
+
+    expect(deps.blobStore.get).not.toHaveBeenCalled();
+    expect(deps.markTaskContextItemIndexed).toHaveBeenCalledWith(5);
+  });
 });

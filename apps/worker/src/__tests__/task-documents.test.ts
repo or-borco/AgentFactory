@@ -272,6 +272,26 @@ describe("materialiseTaskDocuments", () => {
     expect(new Uint8Array(written)).toEqual(pngBytes);
   });
 
+  // Materialization branches on item.mime alone, never item.source — this proves a Jira-sourced
+  // image (once ingestion has marked it indexed) is written as raw bytes exactly like a manually
+  // uploaded one.
+  it("writes a Jira-sourced image item's raw bytes exactly like a manually uploaded one", async () => {
+    const pngBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0xff, 0xd8]);
+    listTaskContextItemsForOrgMock.mockResolvedValue([
+      item({ id: 1, title: "screenshot.png", mime: "image/png", source: "jira" }),
+    ]);
+    const writeFiles = vi.fn();
+    const provider = fakeSandbox({ writeFiles });
+
+    await materialiseTaskDocuments(provider, "sbx", 70, 1, {
+      blobStore: { put: vi.fn(), get: vi.fn(async () => pngBytes) },
+    });
+
+    const written = writeFiles.mock.calls[0][1][`${TASK_DOCUMENT_DIR}/screenshot.png`];
+    expect(written).toBeInstanceOf(Buffer);
+    expect(new Uint8Array(written)).toEqual(pngBytes);
+  });
+
   it("still UTF-8-decodes a text document alongside an image in the same task", async () => {
     listTaskContextItemsForOrgMock.mockResolvedValue([
       item({ id: 1, title: "notes.md", mime: "text/markdown" }),
