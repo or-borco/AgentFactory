@@ -2072,63 +2072,6 @@ writes — the assistant message a review run stores is the rendered markdown, n
         const validated = validateReviewComments(structured, review.fullDiffText);
         transcriptText = renderReviewAsMarkdown(validated);
 
-        const hasNewContent = validated.comments.length > 0 || review.focusBaseSha !== review.focusHeadSha;
-        if (validated.comments.length > 0 || review.focusBaseSha === review.focusHeadSha ? false : true) {
-          // placeholder removed below — see the real condition in the next block
-        }
-
-        const resolvedForPost = await resolveScmConnection(agent.orgId, review.repoFullName);
-        const shouldPost = validated.comments.length > 0 || resolvedForPost !== undefined;
-        // Only skip posting when there is truly nothing new: no validated comments AND this pass
-        // covered zero new commits (focus range was empty because head hadn't moved since the
-        // last review). A non-empty range always posts, even with zero comments, because the
-        // agent may still have written a meaningful summary about genuinely new commits.
-        const rangeWasEmpty = review.focusBaseSha === review.focusHeadSha;
-        if (!(validated.comments.length === 0 && rangeWasEmpty)) {
-          if (!resolvedForPost) {
-            throw new Error(`No connected GitHub provider can post the review for ${review.repoFullName}`);
-          }
-          const posted = await resolvedForPost.provider.postReview(
-            resolvedForPost.connection,
-            review.repoFullName,
-            review.prNumber,
-            { summary: validated.summary, verdict: validated.verdict, comments: validated.comments },
-          );
-          await createPrReview(agent.orgId, task!.id, runId, {
-            repoFullName: review.repoFullName,
-            prNumber: review.prNumber,
-            baseSha: review.focusBaseSha === review.focusHeadSha ? review.focusBaseSha : review.focusBaseSha,
-            headSha: review.focusHeadSha,
-            verdict: validated.verdict,
-            postedAs: posted.postedAs,
-            githubReviewId: posted.id,
-            url: posted.url,
-            commentCount: validated.comments.length,
-            truncated: review.diffTruncated,
-          });
-          await createEvent(runId, seq++, "artifact", { artifactType: "review", label: "PR review", url: posted.url });
-        }
-        mark("review posted");
-      }
-
-      await createMessage(run.sessionId, "assistant", transcriptText, runId);
-      await createEvent(runId, seq++, "text_delta", { text: transcriptText });
-      await createEvent(runId, seq++, "done", { reason: "completed" });
-
-      await updateRunStatus(runId, "finalizing");
-```
-
-Clean up the stray placeholder lines (`hasNewContent`, the empty `if` block, and the unused
-`shouldPost` variable) that crept into the draft above — the real logic is just the
-`rangeWasEmpty` check immediately after. The block should read:
-
-```ts
-      let transcriptText = text;
-      if (review) {
-        const structured = parseStructuredReview(turnResult.structuredOutput);
-        const validated = validateReviewComments(structured, review.fullDiffText);
-        transcriptText = renderReviewAsMarkdown(validated);
-
         // Skip posting only when there is truly nothing new: no validated comments AND this pass
         // covered zero new commits (the focus range was empty because head hadn't moved since
         // the last review). This is what stops a content-free re-run from posting a duplicate
