@@ -15,6 +15,7 @@ import { apiFetch } from "@/lib/api-client";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
 import { RunContextPanel } from "@/components/RunContextPanel";
 import { RunEvalPanel } from "@/components/RunEvalPanel";
+import { PrReviewPanel } from "@/components/PrReviewPanel";
 import { WriteBackFailureBanner } from "@/components/WriteBackFailureBanner";
 import type { Run, TaskContextItem, TaskStatus } from "@agentfactory/core";
 import type { ExternalIssue } from "@agentfactory/integrations";
@@ -1319,6 +1320,7 @@ export default function TaskDetailPage() {
               <ContextDocumentsPanel scope={{ kind: "task", taskId: task.id }} members={orgMembers} />
             </div>
             <RunContextPanel runs={sessionRuns} />
+            <PrReviewPanel taskId={task.id} />
           </div>
         )}
         {activeTab === "evals" && <RunEvalPanel runs={sessionRuns} />}
