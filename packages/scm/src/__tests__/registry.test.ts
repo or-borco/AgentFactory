@@ -1,40 +1,30 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Connection } from "@agentfactory/core";
 import type { ScmProvider } from "../types";
 
 const listConnectionsMock = vi.fn<(orgId: number) => Promise<Connection[]>>();
 vi.mock("@agentfactory/db", () => ({ listConnections: (orgId: number) => listConnectionsMock(orgId) }));
 
-// Mock github module to avoid needing GITHUB_APP_ID during tests
-vi.mock("../github", () => ({
-  githubScmProvider: {
-    id: "github",
-    authorizeUrl: () => "",
-    completeInstall: async () => ({ label: "", config: {} }),
-    listRepos: async () => [],
-    async findRepoAccess() {
-      return undefined;
-    },
-    resolveCloneTarget: async () => "",
-    mintPushToken: async () => "",
-    fetchIssue: async () => ({ number: 1, title: "", body: "", state: "open" }),
-    resolveDefaultBranchSha: async () => "",
-    fetchCommitRangeDiff: async () => "",
-    openDraftPullRequest: async () => ({ url: "" }),
-    parseIssueReference: (text: string) => {
-      // Simple GitHub URL parser for testing
-      const match = text.match(/https:\/\/github\.com\/([^/]+)\/([^/]+)\/issues\/(\d+)/);
-      if (match) {
-        return { repoFullName: `${match[1]}/${match[2]}`, issueNumber: parseInt(match[3], 10) };
-      }
-      return undefined;
-    },
-  },
-}));
+// jsonwebtoken is mocked to avoid needing a real asymmetric key for tests
+vi.mock("jsonwebtoken", () => ({ default: { sign: vi.fn(() => "fake.app.jwt") } }));
 
 const { providers, getScmProvider, resolveScmConnection, parseIssueReferenceAcrossProviders } = await import(
   "../registry"
 );
+
+beforeEach(() => {
+  process.env.GITHUB_APP_ID = "12345";
+  process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  delete process.env.GITHUB_APP_ID;
+  delete process.env.GITHUB_APP_PRIVATE_KEY;
+  delete process.env.GITHUB_APP_SLUG;
+  providers.length = 1; // drop any stub provider a test registered, keep githubScmProvider
+  listConnectionsMock.mockReset();
+});
 
 function stubBitbucketProvider(): ScmProvider & { seenConnections: Connection[][] } {
   const seenConnections: Connection[][] = [];
@@ -77,11 +67,6 @@ function connection(id: number, provider: "github" | "bitbucket", config: Record
     createdAt: new Date().toISOString(),
   };
 }
-
-afterEach(() => {
-  providers.length = 1; // drop any stub provider a test registered, keep githubScmProvider
-  listConnectionsMock.mockReset();
-});
 
 describe("resolveScmConnection", () => {
   it("tries providers in registration order and returns the first match", async () => {
