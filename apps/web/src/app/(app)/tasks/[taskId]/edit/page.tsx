@@ -141,7 +141,7 @@ export default function EditTaskPage() {
             <GroupedSelect
               value={codebase}
               onChange={setCodebase}
-              style={selectStyle(!!codebase)}
+              className="w-full"
               placeholder={reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
               options={repos.map((repo) => ({
                 key: repo.id,
@@ -177,18 +177,6 @@ export default function EditTaskPage() {
       </form>
     </div>
   );
-}
-
-function selectStyle(hasValue: boolean): React.CSSProperties {
-  return {
-    width: "100%",
-    padding: "8px 28px 8px 10px",
-    borderRadius: "var(--radius-sm)",
-    border: "1px solid var(--color-neutral-700)",
-    background: "var(--color-surface)",
-    color: hasValue ? "var(--color-text)" : "var(--color-neutral-500)",
-    fontSize: 13,
-  };
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

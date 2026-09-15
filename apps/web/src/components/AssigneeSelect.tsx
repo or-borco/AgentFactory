@@ -1,7 +1,7 @@
 "use client";
 
 import type { Agent } from "@agentfactory/core";
-import { Select } from "@agentfactory/shared";
+import { inlineSelectStyle, Select } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 
 interface AssigneeSelectProps {
@@ -24,14 +24,7 @@ export function AssigneeSelect({ agents, value, disabled, onChange }: AssigneeSe
       onChange={(v) => onChange(v ? Number(v) : undefined)}
       placeholder={t("taskDetail.unassigned")}
       options={agents.map((a) => ({ key: a.id, value: String(a.id), label: a.name }))}
-      style={{
-        padding: "3px 6px",
-        borderRadius: "var(--radius-sm)",
-        border: "1px solid var(--color-neutral-700)",
-        background: "var(--color-surface)",
-        color: value !== undefined ? "var(--color-text)" : "var(--color-neutral-600)",
-        fontSize: 13,
-      }}
+      style={inlineSelectStyle(value !== undefined)}
     />
   );
 }
