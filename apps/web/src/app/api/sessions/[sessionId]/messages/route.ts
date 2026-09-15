@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
-import { createMessage, createRun, getSession, listMessages, touchSessionActivity } from "@agentfactory/db";
+import {
+  createMessage,
+  createRun,
+  getSession,
+  getTaskBySessionId,
+  listMessages,
+  touchSessionActivity,
+  updateTask,
+} from "@agentfactory/db";
 import { enqueueRunJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
 
@@ -20,6 +28,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
   const userMessage = await createMessage(id, "user", text);
   await touchSessionActivity(id);
   const session = await getSession(id);
+
+  // A new instruction is the user retrying after a failure — surface that the task is live
+  // again rather than leaving it stuck showing "Failed" while a run is actually in flight.
+  const task = await getTaskBySessionId(id);
+  if (task && task.status === "failed") {
+    await updateTask(task.id, { status: "in_progress" });
+  }
 
   const run = await createRun(id, userMessage.id);
   await enqueueRunJob(run.id);
