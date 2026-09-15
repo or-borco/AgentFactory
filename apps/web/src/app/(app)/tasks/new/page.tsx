@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Button, Breadcrumb, GroupedSelect, PageHeader, TextInput, Textarea, TooltipBubble } from "@agentfactory/shared";
+import { Button, Breadcrumb, GroupedSelect, PageHeader, Select, TextInput, Textarea, TooltipBubble } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
@@ -346,29 +346,23 @@ export default function NewTaskPage() {
 
         {/* Assignee */}
         <Field label={t("tasks.create.assigneeLabel")}>
-          <select
-            value={assigneeAgentId ?? ""}
-            onChange={(e) => handleAssigneeChange(e.target.value ? Number(e.target.value) : undefined)}
-            style={selectStyle(assigneeAgentId !== undefined)}
-          >
-            <option value="">{t("tasks.create.assigneePlaceholder")}</option>
-            {agents.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.name}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={assigneeAgentId !== undefined ? String(assigneeAgentId) : ""}
+            onChange={(value) => handleAssigneeChange(value ? Number(value) : undefined)}
+            className="w-full"
+            placeholder={t("tasks.create.assigneePlaceholder")}
+            options={agents.map((agent) => ({ key: agent.id, value: String(agent.id), label: agent.name }))}
+          />
         </Field>
 
         {/* Model */}
         <Field label={t("tasks.create.modelLabel")}>
-          <select value={modelId} onChange={(e) => handleModelChange(e.target.value)} style={selectStyle(true)}>
-            {MODEL_CATALOG.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={modelId}
+            onChange={handleModelChange}
+            className="w-full"
+            options={MODEL_CATALOG.map((entry) => ({ key: entry.id, value: entry.id, label: entry.label }))}
+          />
           <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>
             {!selectedAgent
               ? t("tasks.create.modelHelperNoAgent")
@@ -391,7 +385,7 @@ export default function NewTaskPage() {
             <GroupedSelect
               value={codebase}
               onChange={handleCodebaseChange}
-              style={selectStyle(!!codebase)}
+              className="w-full"
               placeholder={reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
               options={repos.map((repo) => ({
                 key: repo.id,
@@ -517,18 +511,6 @@ export default function NewTaskPage() {
       </form>
     </div>
   );
-}
-
-function selectStyle(hasValue: boolean): React.CSSProperties {
-  return {
-    width: "100%",
-    padding: "8px 10px",
-    borderRadius: "var(--radius-sm)",
-    border: "1px solid var(--color-neutral-700)",
-    background: "var(--color-surface)",
-    color: hasValue ? "var(--color-text)" : "var(--color-neutral-500)",
-    fontSize: 13,
-  };
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {

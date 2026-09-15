@@ -114,7 +114,7 @@ export function AgentFormModal({
           <GroupedSelect
             value={defaultCodebase}
             onChange={setDefaultCodebase}
-            className="w-full rounded-[var(--radius-md)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-3 py-2.5 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
+            className="w-full"
             placeholder={reposLoading ? t("agentForm.defaultCodebaseLoading") : t("agentForm.defaultCodebasePlaceholder")}
             extraOptions={hasCurrentRepo ? [] : [{ key: defaultCodebase, value: defaultCodebase, label: defaultCodebase }]}
             options={repos.map((repo) => ({

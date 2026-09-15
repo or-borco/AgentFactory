@@ -1,5 +1,5 @@
 import type { SelectHTMLAttributes } from "react";
-import { Select } from "./Select";
+import { Select, selectClassName } from "./Select";
 import type { SelectOption } from "./Select";
 
 export interface GroupedSelectOption extends SelectOption {
@@ -29,6 +29,7 @@ export function GroupedSelect({
   placeholder,
   extraOptions,
   groupLabel,
+  className,
   ...rest
 }: GroupedSelectProps) {
   const groups = [...new Set(options.map((option) => option.group))];
@@ -41,13 +42,19 @@ export function GroupedSelect({
         options={options}
         placeholder={placeholder}
         extraOptions={extraOptions}
+        className={className}
         {...rest}
       />
     );
   }
 
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={selectClassName(value, className)}
+      {...rest}
+    >
       {placeholder !== undefined && <option value="">{placeholder}</option>}
       {extraOptions?.map((option) => (
         <option key={option.key} value={option.value}>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Badge, Button, EmptyState, GroupedSelect, PageHeader, Tabs, TextInput, Textarea } from "@agentfactory/shared";
+import { Badge, Button, EmptyState, GroupedSelect, PageHeader, Select, Tabs, TextInput, Textarea } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import type { Agent, OverflowPolicy, Team } from "@agentfactory/core";
@@ -12,9 +12,6 @@ import { SharedContextPanels } from "@/components/SharedContextPanels";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
 import { AgentSkillsPicker } from "@/components/AgentSkillsPicker";
 import { apiFetch } from "@/lib/api-client";
-
-const selectClassName =
-  "w-full appearance-none rounded-[var(--radius-sm)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none";
 
 const SHARED_CONTEXT_MAX = 65536; // 64 KB
 
@@ -173,7 +170,7 @@ function NewTeamPanel({ onCreated, onCancel }: {
           <GroupedSelect
             value={defaultCodebase}
             onChange={setDefaultCodebase}
-            className={selectClassName}
+            className="w-full"
             placeholder={
               reposLoading ? t("teamsV2.teamDefaultCodebaseLoading") : t("teamsV2.teamDefaultCodebasePlaceholder")
             }
@@ -305,27 +302,27 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
           <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
             {t("teamsV2.modelLabel")}
           </label>
-          <select value={model} onChange={(e) => setModel(e.target.value)} className={selectClassName}>
-            {MODEL_CATALOG.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={model}
+            onChange={setModel}
+            className="w-full"
+            options={MODEL_CATALOG.map((entry) => ({ key: entry.id, value: entry.id, label: entry.label }))}
+          />
         </div>
 
         <div>
           <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
             {t("teamsV2.onContextOverflowLabel")}
           </label>
-          <select
+          <Select
             value={onContextOverflow}
-            onChange={(e) => setOnContextOverflow(e.target.value as OverflowPolicy)}
-            className={selectClassName}
-          >
-            <option value="fallback">{t("teamsV2.onContextOverflowFallback")}</option>
-            <option value="fail_fast">{t("teamsV2.onContextOverflowFailFast")}</option>
-          </select>
+            onChange={(value) => setOnContextOverflow(value as OverflowPolicy)}
+            className="w-full"
+            options={[
+              { key: "fallback", value: "fallback", label: t("teamsV2.onContextOverflowFallback") },
+              { key: "fail_fast", value: "fail_fast", label: t("teamsV2.onContextOverflowFailFast") },
+            ]}
+          />
         </div>
       </div>
 
@@ -424,27 +421,27 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
           <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
             {t("teamsV2.modelLabel")}
           </label>
-          <select value={model} onChange={(e) => setModel(e.target.value)} className={selectClassName}>
-            {MODEL_CATALOG.map((entry) => (
-              <option key={entry.id} value={entry.id}>
-                {entry.label}
-              </option>
-            ))}
-          </select>
+          <Select
+            value={model}
+            onChange={setModel}
+            className="w-full"
+            options={MODEL_CATALOG.map((entry) => ({ key: entry.id, value: entry.id, label: entry.label }))}
+          />
         </div>
 
         <div>
           <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
             {t("teamsV2.onContextOverflowLabel")}
           </label>
-          <select
+          <Select
             value={onContextOverflow}
-            onChange={(e) => setOnContextOverflow(e.target.value as OverflowPolicy)}
-            className={selectClassName}
-          >
-            <option value="fallback">{t("teamsV2.onContextOverflowFallback")}</option>
-            <option value="fail_fast">{t("teamsV2.onContextOverflowFailFast")}</option>
-          </select>
+            onChange={(value) => setOnContextOverflow(value as OverflowPolicy)}
+            className="w-full"
+            options={[
+              { key: "fallback", value: "fallback", label: t("teamsV2.onContextOverflowFallback") },
+              { key: "fail_fast", value: "fail_fast", label: t("teamsV2.onContextOverflowFailFast") },
+            ]}
+          />
         </div>
 
         <div>

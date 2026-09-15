@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EvalRequirement, Run, RunEval, RunStatus } from "@agentfactory/core";
-import { EmptyState, Select } from "@agentfactory/shared";
+import { compactSelectStyle, EmptyState, Select } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
@@ -172,15 +172,7 @@ export function RunEvalPanel({ runs }: { runs: Run[] }) {
             value: String(run.id),
             label: `${t("taskDetail.contextRunLabel")} #${run.id} · ${run.status}`,
           }))}
-          style={{
-            background: "var(--color-surface)",
-            border: "1px solid var(--color-divider)",
-            borderRadius: "var(--radius-md)",
-            color: "var(--color-text)",
-            fontSize: 13,
-            marginBottom: 16,
-            padding: "6px 10px",
-          }}
+          style={{ ...compactSelectStyle(String(shownRunId)), marginBottom: 16 }}
         />
       )}
 

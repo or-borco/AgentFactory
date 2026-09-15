@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PromptSegment, Run, RunContextRetrieval, RunPrompt, RunStatus } from "@agentfactory/core";
-import { EmptyState, Select } from "@agentfactory/shared";
+import { compactSelectStyle, EmptyState, Select } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
@@ -183,14 +183,7 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
               value: String(run.id),
               label: `${t("taskDetail.contextRunLabel")} #${run.id} — ${new Date(run.createdAt).toLocaleString()}`,
             }))}
-            style={{
-              background: "var(--color-surface)",
-              border: "1px solid var(--color-divider)",
-              borderRadius: "var(--radius-md)",
-              color: "var(--color-text)",
-              fontSize: 13,
-              padding: "6px 10px",
-            }}
+            style={compactSelectStyle(String(shownRunId))}
           />
         )}
         {prompt && (
