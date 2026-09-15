@@ -12,7 +12,8 @@ export interface GroupedSelectProps extends NativeSelectProps {
   value: string;
   onChange: (value: string) => void;
   options: GroupedSelectOption[];
-  placeholder: string;
+  // Omit when the field always has a real selection — no empty option is rendered in that case.
+  placeholder?: string;
   extraOptions?: SelectOption[];
   groupLabel: (group: string) => string;
 }
@@ -47,7 +48,7 @@ export function GroupedSelect({
 
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)} {...rest}>
-      <option value="">{placeholder}</option>
+      {placeholder !== undefined && <option value="">{placeholder}</option>}
       {extraOptions?.map((option) => (
         <option key={option.key} value={option.value}>
           {option.label}

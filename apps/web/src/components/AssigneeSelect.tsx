@@ -1,6 +1,7 @@
 "use client";
 
 import type { Agent } from "@agentfactory/core";
+import { Select } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 
 interface AssigneeSelectProps {
@@ -16,11 +17,13 @@ interface AssigneeSelectProps {
 export function AssigneeSelect({ agents, value, disabled, onChange }: AssigneeSelectProps) {
   const { t } = useTranslation();
   return (
-    <select
+    <Select
       aria-label={t("taskDetail.assignee")}
-      value={value ?? ""}
+      value={value !== undefined ? String(value) : ""}
       disabled={disabled}
-      onChange={(e) => onChange(e.target.value ? Number(e.target.value) : undefined)}
+      onChange={(v) => onChange(v ? Number(v) : undefined)}
+      placeholder={t("taskDetail.unassigned")}
+      options={agents.map((a) => ({ key: a.id, value: String(a.id), label: a.name }))}
       style={{
         padding: "3px 6px",
         borderRadius: "var(--radius-sm)",
@@ -29,13 +32,6 @@ export function AssigneeSelect({ agents, value, disabled, onChange }: AssigneeSe
         color: value !== undefined ? "var(--color-text)" : "var(--color-neutral-600)",
         fontSize: 13,
       }}
-    >
-      <option value="">{t("taskDetail.unassigned")}</option>
-      {agents.map((a) => (
-        <option key={a.id} value={a.id}>
-          {a.name}
-        </option>
-      ))}
-    </select>
+    />
   );
 }
