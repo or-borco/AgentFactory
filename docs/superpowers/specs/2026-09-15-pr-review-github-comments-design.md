@@ -26,7 +26,9 @@ done with a link to the posted review.
   receiver — ARCHITECTURE.md §2.6/§5, M5) is not.
 - **Detection: a PR link in the task, not an agent role.** No new "reviewer" role on `Agent`, no
   new task-kind field. The existing agent picker on the task form is unchanged — the user still
-  chooses which agent runs the task.
+  chooses which agent runs the task. If the description contains more than one GitHub PR URL,
+  the first one found (in description text order) is the one set as `reviewRef` — no UI to pick
+  among several; a task genuinely about two PRs is expected to be rare enough not to warrant one.
 - **What the agent sees:** the full repo checked out at the PR's head, not just the diff — so it
   can follow imports, check callers, read surrounding code.
 - **How comments reach GitHub:** the agent never holds a GitHub token. It ends its turn with a
