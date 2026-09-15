@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # One-command local env setup: creates the single root .env.local (from .env.example) if it
 # doesn't exist yet, auto-generates CONNECTION_SECRET_KEY (the one secret that doesn't need an
-# external account — no reason to make anyone run openssl by hand), and points apps/web/.env.local
+# external account — no reason to make anyone run openssl by hand), optionally prompts for
+# ANTHROPIC_API_KEY (skippable — only needed to run the worker), and points apps/web/.env.local
 # and apps/worker/.env.local at it via symlinks, so Next.js and dotenv/config each keep finding a
 # config file exactly where they already look, with only one real file to ever edit.
 #
@@ -34,6 +35,21 @@ if grep -qx "CONNECTION_SECRET_KEY=" "$ENV_LOCAL"; then
   echo "Generated CONNECTION_SECRET_KEY."
 fi
 
+# Offer to fill in ANTHROPIC_API_KEY interactively, same placeholder-only rule as above. Optional
+# (only needed to run the worker) and skippable with a bare Enter; skipped automatically when
+# stdin isn't a terminal (e.g. piped input, CI) so the script never hangs waiting for a prompt.
+if grep -qx "ANTHROPIC_API_KEY=" "$ENV_LOCAL" && [ -t 0 ]; then
+  echo ""
+  read -r -p "Enter your ANTHROPIC_API_KEY (only needed to run the worker — press Enter to skip): " anthropic_key
+  if [ -n "$anthropic_key" ]; then
+    sed -i.bak "s|^ANTHROPIC_API_KEY=\$|ANTHROPIC_API_KEY=${anthropic_key}|" "$ENV_LOCAL"
+    rm -f "$ENV_LOCAL.bak"
+    echo "Saved ANTHROPIC_API_KEY."
+  else
+    echo "Skipped — you can fill in ANTHROPIC_API_KEY in $ENV_LOCAL later."
+  fi
+fi
+
 link_env() {
   local app_dir="$1"
   local target="../../$ENV_LOCAL"
@@ -62,5 +78,10 @@ link_env "apps/web"
 link_env "apps/worker"
 
 echo ""
-echo "Done. Edit $ENV_LOCAL to fill in GITHUB_APP_* (see README's 'Setting up the GitHub App') and"
-echo "ANTHROPIC_API_KEY if you're running the worker — everything else already has a working default."
+if grep -qx "ANTHROPIC_API_KEY=" "$ENV_LOCAL"; then
+  echo "Done. Edit $ENV_LOCAL to fill in GITHUB_APP_* (see README's 'Setting up the GitHub App') and"
+  echo "ANTHROPIC_API_KEY if you're running the worker — everything else already has a working default."
+else
+  echo "Done. Edit $ENV_LOCAL to fill in GITHUB_APP_* (see README's 'Setting up the GitHub App') —"
+  echo "everything else already has a working default."
+fi
