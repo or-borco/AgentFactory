@@ -478,7 +478,7 @@ export default function NewTaskPage() {
 function selectStyle(hasValue: boolean): React.CSSProperties {
   return {
     width: "100%",
-    padding: "8px 10px",
+    padding: "8px 28px 8px 10px",
     borderRadius: "var(--radius-sm)",
     border: "1px solid var(--color-neutral-700)",
     background: "var(--color-surface)",
