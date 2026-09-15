@@ -430,6 +430,33 @@ describe("pushChangesIfDirty", () => {
     expect(script()).toContain("HEAD_SHA:");
   });
 
+  // Regression test for the sandbox pushing against a stale cached origin/$BRANCH_NAME ref: a
+  // warm sandbox never re-fetches its own session branch (only the default branch, in
+  // syncWithDefaultBranch), so if an earlier run in the same session already advanced the branch
+  // on the remote, a plain push against the old cached tip is rejected as non-fast-forward. The
+  // script must re-fetch and merge the branch's real remote tip before pushing.
+  it("re-fetches and merges the branch's remote tip before pushing, so a stale cached ref can't reject the push", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const { sandbox, script } = capturingSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
+    await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    const s = script();
+    expect(s).toContain('git fetch origin "$BRANCH_NAME"');
+    expect(s).toContain('git merge-base --is-ancestor "origin/$BRANCH_NAME" HEAD');
+    expect(s).toContain('git merge --no-edit "origin/$BRANCH_NAME"');
+    // The fetch/merge must happen before the push, not after — a merge that ran after pushing
+    // would do nothing to prevent the rejection it's meant to fix.
+    expect(s.indexOf('git fetch origin "$BRANCH_NAME"')).toBeLessThan(s.indexOf('git push --no-verify'));
+  });
+
+  it("aborts cleanly and still attempts the push when merging in the remote tip conflicts", async () => {
+    vi.stubGlobal("fetch", mockTokenMint());
+    const { sandbox, script } = capturingSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
+    await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    expect(script()).toContain("git merge --abort");
+  });
+
   it("omits the commit range when the sandbox reported no shas", async () => {
     vi.stubGlobal("fetch", mockTokenMint());
     const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
