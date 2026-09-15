@@ -1,9 +1,17 @@
 import { eq } from "drizzle-orm";
+import type { ConnectionHealth } from "@agentfactory/core";
 import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { db } from "../../client.js";
 import { orgs } from "../../schema.js";
-import { createConnection, deleteConnection, getConnection, listConnections } from "../../repositories/connections.js";
+import {
+  createConnection,
+  deleteConnection,
+  getConnection,
+  listConnections,
+  setConnectionHealth,
+  updateConnection,
+} from "../../repositories/connections.js";
 import { insertOrg } from "../fixtures.js";
 
 describe("connections repository", () => {
@@ -74,5 +82,76 @@ describe("connections repository", () => {
     await db.delete(orgs).where(eq(orgs.id, org.id));
 
     await expect(getConnection(org.id, connection.id)).resolves.toBeUndefined();
+  });
+
+  it("defaults auth to none on create", async () => {
+    const org = await insertOrg();
+    const connection = await createConnection(org.id, {
+      provider: "github",
+      kind: "scm",
+      label: "acme-org/platform",
+      config: {},
+    });
+
+    expect(connection.auth).toBe("none");
+  });
+
+  describe("updateConnection", () => {
+    it("updates label, config, and health", async () => {
+      const org = await insertOrg();
+      const connection = await createConnection(org.id, {
+        provider: "jira",
+        kind: "tasks",
+        label: "Acme Jira",
+        config: { siteUrl: "https://acme.atlassian.net" },
+      });
+
+      const updated = await updateConnection(org.id, connection.id, {
+        label: "Acme Jira (renamed)",
+        config: { siteUrl: "https://acme.atlassian.net", accountEmail: "bot@acme.com" },
+        health: "needs-attention",
+      });
+
+      expect(updated).toMatchObject({
+        label: "Acme Jira (renamed)",
+        config: { siteUrl: "https://acme.atlassian.net", accountEmail: "bot@acme.com" },
+        health: "needs-attention",
+      });
+    });
+
+    it("is org-scoped: an update with the wrong orgId returns undefined and mutates nothing", async () => {
+      const org1 = await insertOrg();
+      const org2 = await insertOrg();
+      const connection = await createConnection(org1.id, {
+        provider: "jira",
+        kind: "tasks",
+        label: "Acme Jira",
+        config: {},
+      });
+
+      const result = await updateConnection(org2.id, connection.id, { label: "Hijacked" });
+
+      expect(result).toBeUndefined();
+      await expect(getConnection(org1.id, connection.id)).resolves.toMatchObject({ label: "Acme Jira" });
+    });
+  });
+
+  describe("setConnectionHealth", () => {
+    it.each<ConnectionHealth>(["healthy", "needs-attention", "expired"])(
+      "round-trips health value %s",
+      async (health) => {
+        const org = await insertOrg();
+        const connection = await createConnection(org.id, {
+          provider: "jira",
+          kind: "tasks",
+          label: "Acme Jira",
+          config: {},
+        });
+
+        await setConnectionHealth(org.id, connection.id, health);
+
+        await expect(getConnection(org.id, connection.id)).resolves.toMatchObject({ health });
+      },
+    );
   });
 });

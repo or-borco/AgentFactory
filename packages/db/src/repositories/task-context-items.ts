@@ -10,6 +10,8 @@ export interface NewTaskContextItem {
   sizeBytes: number;
   sha256: string;
   mime: string;
+  // Omitted, the column's own default ("upload") applies. Jira-derived attachments pass "jira".
+  source?: string;
   uploadedBy?: number;
 }
 

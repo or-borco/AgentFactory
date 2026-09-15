@@ -147,6 +147,8 @@ export type ConnectionProvider =
 
 export type ConnectionHealth = "healthy" | "needs-attention" | "expired";
 
+export type ConnectionAuthKind = "none" | "api_token" | "oauth2";
+
 export interface Connection {
   id: ID;
   orgId: ID;
@@ -155,6 +157,7 @@ export interface Connection {
   label: string;
   health: ConnectionHealth;
   config: Record<string, unknown>;
+  auth: ConnectionAuthKind;
   createdAt: ISODateTime;
 }
 
@@ -222,6 +225,19 @@ export interface AcceptanceCriterion {
   done: boolean;
 }
 
+/** A task's link to the upstream issue it mirrors. AgentFactory remains the system of record. */
+export interface TaskExternalRef {
+  provider: ConnectionProvider;
+  /** Provider-native identifier, e.g. a Jira issue key "PROJ-123". */
+  key: string;
+  /** Browse URL, stored so the UI can link out without reconstructing it per provider. */
+  url: string;
+  /** The provider's own last-modified timestamp as of the last fetch, for a future staleness check. */
+  lastKnownUpdated: string;
+  /** Set when the most recent write-back attempt (worker/task-notify.ts) failed; cleared on the next success. */
+  writeBackFailure?: { message: string; occurredAt: ISODateTime };
+}
+
 export interface Task {
   id: ID;
   orgId: ID;
@@ -240,6 +256,7 @@ export interface Task {
   codebase?: string | null;
   prNumber?: number;
   prUrl?: string;
+  externalRef?: TaskExternalRef;
   createdBy: ID;
   createdAt: ISODateTime;
   updatedAt: ISODateTime;

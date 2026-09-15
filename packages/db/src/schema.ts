@@ -22,6 +22,7 @@ import type {
   PromptSegment,
   RunCommitRange,
   RunEvalResult,
+  TaskExternalRef,
   ToolPolicy,
 } from "@agentfactory/core";
 
@@ -143,6 +144,28 @@ export const agents = pgTable(
 export const connectionKindEnum = pgEnum("connection_kind", ["scm", "channel", "tasks"]);
 export const connectionHealthEnum = pgEnum("connection_health", ["healthy", "needs-attention", "expired"]);
 
+// Mirrors ConnectionAuthKind in packages/core/src/domain.ts. "none" is the GitHub case: the
+// platform App mints a scoped, hour-lived installation token on demand, so there is nothing to
+// store. Every other provider has to persist something, which is what connection_secrets is for.
+export const connectionAuthKindEnum = pgEnum("connection_auth_kind", ["none", "api_token", "oauth2"]);
+
+// The vault ARCHITECTURE.md §2.7 calls for: "Credential lives in the vault; only a reference
+// here." Deliberately a separate table rather than a column on `connections` — GET
+// /api/connections returns connections.config verbatim to the browser, so anything on that row
+// is one careless spread away from being public.
+export const connectionSecrets = pgTable("connection_secrets", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  orgId: integer("org_id")
+    .notNull()
+    .references(() => orgs.id, { onDelete: "cascade" }),
+  // AES-256-GCM: base64(iv[12] || authTag[16] || payload). keyVersion lets a future key rotation
+  // be a re-encrypt migration rather than a schema change.
+  ciphertext: text("ciphertext").notNull(),
+  keyVersion: integer("key_version").notNull().default(1),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const connections = pgTable("connections", {
   id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
   orgId: integer("org_id")
@@ -156,6 +179,11 @@ export const connections = pgTable("connections", {
   // installation tokens are minted on demand from the platform's GitHub App private key
   // (apps/web/src/server/github-app.ts), never persisted.
   config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}),
+  auth: connectionAuthKindEnum("auth").notNull().default("none"),
+  // Nullable, and "none" is the default, so every existing GitHub row is already correct with no
+  // backfill. set null (not cascade) on secret deletion: losing the credential must degrade the
+  // connection to unhealthy, not silently delete the user's configuration.
+  credentialRef: integer("credential_ref").references(() => connectionSecrets.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -338,6 +366,9 @@ export const tasks = pgTable(
     model: jsonb("model").$type<ModelSpec>(),
     prNumber: integer("pr_number"),
     prUrl: text("pr_url"),
+    // The upstream issue this task mirrors, e.g. { provider: "jira", key: "PROJ-123", url: ... }.
+    // Generic rather than a jira_issue_key column so Monday/Asana need no migration.
+    externalRef: jsonb("external_ref").$type<TaskExternalRef>(),
     createdBy: integer("created_by")
       .notNull()
       .references(() => users.id),

@@ -5,7 +5,6 @@ import { sql } from "drizzle-orm";
 import { createBlobStore } from "@agentfactory/storage";
 import {
   agents,
-  agentSkills,
   contentBlobs,
   events,
   memberships,
@@ -480,25 +479,6 @@ async function main() {
       "assuming. If you're thinking \"skip TDD just this once,\" that's the rationalization to stop and " +
       "notice.\n",
   });
-
-  await seedPublishedSkill(db, {
-    id: 1,
-    versionId: 1,
-    orgId: ORG_ID,
-    name: "Conventional commits",
-    slug: "conventional-commits",
-    description: "Validate and format commit messages against the Conventional Commits spec",
-    createdAt: hoursAgo(400),
-    instructions:
-      "Check that each commit message starts with a valid type (`feat`, `fix`, `chore`, `docs`, `refactor`, " +
-      "`test`, `perf`, `build`, `ci`), followed by an optional scope in parentheses, a colon, a space, and a " +
-      "concise imperative-mood summary. Flag and rewrite any commit message that doesn't conform.\n",
-  });
-
-  await db
-    .insert(agentSkills)
-    .values({ agentId: 1, skillId: 1, skillVersionId: 1, createdAt: hoursAgo(400) })
-    .onConflictDoNothing();
 
   await db
     .insert(sessions)

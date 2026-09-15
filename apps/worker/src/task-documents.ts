@@ -85,16 +85,27 @@ export async function materialiseTaskDocuments(
   try {
     const resolved = resolveDeps(deps);
     const items = await resolved.listTaskContextItemsForOrg(taskId, orgId);
-    // Only indexed items. A document still ingesting has no guarantee its bytes are complete or
-    // its extraction succeeded, and a failed one has nothing worth handing over.
+    // Only indexed items have bytes worth writing. A document still ingesting has no guarantee
+    // its bytes are complete or its extraction succeeded; a failed one has nothing usable at all
+    // (see the omitted-titles pass below, which still names it rather than letting it vanish).
     const indexed = items.filter((item) => item.status === "indexed");
-    if (indexed.length === 0) return EMPTY;
 
     const files: Record<string, string | Buffer> = {};
     const written: string[] = [];
     const omitted: string[] = [];
     const taken = new Set<string>();
     let usedBytes = 0;
+
+    // A failed item has nothing to write, but unlike "pending" it is a terminal state the agent
+    // should be told about rather than let vanish with no trace — same reasoning as the
+    // budget-overflow branch below, just a different reason for having nothing usable. Not scoped
+    // to any particular source: today only Jira-sourced attachments realistically fail ingestion
+    // (an unsupported mime type), but this filter has no business knowing that.
+    for (const item of items) {
+      if (item.status === "failed") omitted.push(item.title);
+    }
+
+    if (indexed.length === 0) return { written: [], omitted };
 
     for (const item of indexed) {
       // `continue`, not `break`: one oversized attachment should not hide every smaller one

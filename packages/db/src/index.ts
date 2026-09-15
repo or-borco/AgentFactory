@@ -1,6 +1,7 @@
 export * from "./client";
 export * from "./schema";
 export * from "./password";
+export * from "./crypto";
 export * from "./repositories/orgs";
 export * from "./repositories/users";
 export * from "./repositories/memberships";
@@ -8,6 +9,7 @@ export * from "./repositories/auth-sessions";
 export * from "./repositories/teams";
 export * from "./repositories/agents";
 export * from "./repositories/connections";
+export * from "./repositories/connection-secrets";
 export * from "./repositories/sessions";
 export * from "./repositories/messages";
 export * from "./repositories/runs";

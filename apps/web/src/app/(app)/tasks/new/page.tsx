@@ -3,11 +3,12 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Button, Breadcrumb, PageHeader, TextInput, Textarea } from "@agentfactory/shared";
+import { Button, Breadcrumb, PageHeader, TextInput, Textarea, TooltipBubble } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
-import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
+import { DEFAULT_MODEL_ID, MODEL_CATALOG, type TaskExternalRef } from "@agentfactory/core";
+import type { ExternalAttachment, ExternalIssue } from "@agentfactory/integrations";
 import { useRepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
 import { RepoMapWaitBanner } from "@/components/RepoMapWaitBanner";
 
@@ -36,12 +37,17 @@ function extensionMime(filename: string): "text/markdown" | "text/plain" | null 
 
 export default function NewTaskPage() {
   const router = useRouter();
-  const { agents, createTask, notify } = useMockBackend();
+  const { agents, connections, createTask, notify } = useMockBackend();
   const { t } = useTranslation();
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [criteriaRaw, setCriteriaRaw] = useState("");
+  const [issueRef, setIssueRef] = useState("");
+  const [fetchingIssue, setFetchingIssue] = useState(false);
+  const [issueFetchError, setIssueFetchError] = useState<string | null>(null);
+  const [issueAttachments, setIssueAttachments] = useState<ExternalAttachment[]>([]);
+  const [externalRef, setExternalRef] = useState<TaskExternalRef | undefined>(undefined);
   const [assigneeAgentId, setAssigneeAgentId] = useState<number | undefined>(undefined);
   const [modelId, setModelId] = useState(DEFAULT_MODEL_ID);
   const [modelTouched, setModelTouched] = useState(false);
@@ -68,6 +74,37 @@ export default function NewTaskPage() {
   }, []);
 
   const selectedAgent = agents.find((a) => a.id === assigneeAgentId);
+
+  // The From-issue field is provider-neutral (Design decision 14 in the Jira integration spec):
+  // it enables and labels itself from whichever `kind: "tasks"` connection the org has, never a
+  // hardcoded "Jira" string. No extra fetch — `connections` is already in useMockBackend()'s state.
+  const tasksConnection = connections.find((c) => c.kind === "tasks");
+
+  async function handleFetchIssue() {
+    if (!tasksConnection || !issueRef.trim() || fetchingIssue) return;
+    setFetchingIssue(true);
+    setIssueFetchError(null);
+    try {
+      const issue = await apiFetch<ExternalIssue>(
+        `/api/connections/tasks/issue?ref=${encodeURIComponent(issueRef.trim())}`,
+      );
+      // Prefill only — every field below stays editable afterward, and acceptance criteria are
+      // deliberately left untouched (not auto-extracted from the issue description).
+      setTitle(issue.title);
+      setDescription(issue.description);
+      setIssueAttachments(issue.attachments);
+      setExternalRef({
+        provider: tasksConnection.provider,
+        key: issue.key,
+        url: issue.url,
+        lastKnownUpdated: issue.updated,
+      });
+    } catch (err) {
+      setIssueFetchError(err instanceof Error ? err.message : t("taskCreate.linkedIssue.fetchFailed"));
+    } finally {
+      setFetchingIssue(false);
+    }
+  }
 
   // Pre-select the assignee's default codebase once the connected-repo list is known, but only
   // if the assigner hasn't already picked a repo themselves. If the agent's default isn't among
@@ -130,6 +167,8 @@ export default function NewTaskPage() {
         area: area.trim() || undefined,
         codebase: codebase.trim() || undefined,
         model,
+        externalRef,
+        attachments: externalRef ? issueAttachments : undefined,
       });
 
       // Staged files are POSTed one at a time only now that a real taskId exists. A failed
@@ -188,6 +227,63 @@ export default function NewTaskPage() {
       </div>
 
       <form onSubmit={handleSubmit} style={{ marginTop: 28, display: "flex", flexDirection: "column", gap: 20 }}>
+        {/* From issue — provider-neutral: disabled with a tooltip until the org has a
+            tasks-kind connection, then labeled and enabled for whichever provider that is. */}
+        <Field
+          label={
+            tasksConnection
+              ? t("taskCreate.linkedIssue.fromIssueLabel", {
+                  provider: t(`connections.provider.${tasksConnection.provider}`),
+                })
+              : t("taskCreate.linkedIssue.fromIssueLabelDisabled")
+          }
+        >
+          <div className="group/tooltip relative" style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <TextInput
+                placeholder={t("taskCreate.linkedIssue.refPlaceholder")}
+                value={issueRef}
+                onChange={(e) => setIssueRef(e.target.value)}
+                disabled={!tasksConnection || fetchingIssue}
+              />
+            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={!tasksConnection || fetchingIssue || !issueRef.trim()}
+              onClick={handleFetchIssue}
+            >
+              {fetchingIssue ? t("taskCreate.linkedIssue.fetching") : t("taskCreate.linkedIssue.fetch")}
+            </Button>
+            {!tasksConnection && <TooltipBubble label={t("taskCreate.linkedIssue.disabledTooltip")} />}
+          </div>
+          {issueFetchError && (
+            <p style={{ marginTop: 4, fontSize: 12, color: "#e8a44a" }}>{issueFetchError}</p>
+          )}
+          {issueAttachments.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              <p style={{ fontSize: 12, fontWeight: 600, color: "var(--color-neutral-500)" }}>
+                {t("taskCreate.linkedIssue.attachmentsLabel")}
+              </p>
+              <ul style={{ marginTop: 4, display: "flex", flexDirection: "column", gap: 4, listStyle: "none", padding: 0 }}>
+                {issueAttachments.map((attachment, i) => (
+                  <li
+                    key={i}
+                    style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, color: "var(--color-neutral-400)" }}
+                  >
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {attachment.filename}
+                    </span>
+                    <span style={{ flexShrink: 0, color: "var(--color-neutral-500)" }}>
+                      {t("teamsV2.documentsSize", { size: (attachment.sizeBytes / 1024).toFixed(1) })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </Field>
+
         {/* Title */}
         <Field label={t("tasks.create.titleLabel")}>
           <TextInput

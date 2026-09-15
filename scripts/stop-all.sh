@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Stops the web and worker dev processes (however they were started — `pnpm dev:all`,
-# `pnpm dev` / `pnpm dev:worker` separately, or a backgrounded/nohup'd copy of either).
-# Leaves Postgres/Redis running, matching dev-all.sh's own philosophy that those stay up
-# in the background; run `docker compose down` separately if you want those stopped too.
+# `pnpm dev` / `pnpm dev:worker` separately, or a backgrounded/nohup'd copy of either), then
+# tears down the Postgres/Redis containers `dev:all` started — the mirror image of dev-all.sh.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -32,3 +31,6 @@ done
 if [ "$stopped_any" = false ]; then
   echo "Nothing running."
 fi
+
+echo "Stopping Postgres/Redis (docker compose down)..."
+docker compose down
