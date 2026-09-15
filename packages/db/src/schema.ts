@@ -353,6 +353,46 @@ export const runEvals = pgTable(
   ],
 );
 
+export const reviewVerdictEnum = pgEnum("review_verdict", ["comment", "request_changes"]);
+
+// One row per review pass actually posted to GitHub — deliberately its own table, never columns
+// on runs, for the same reason run_evals is: the task page polls runs on a ~1.5s timer, and
+// "latest review for task X" / "last reviewed head_sha for task X" are both single indexed
+// lookups here instead. There is no persisted field on tasks identifying it as a review — see
+// parsePullRequestReference — so repo_full_name/pr_number are stored here, not looked up
+// elsewhere.
+export const prReviews = pgTable(
+  "pr_reviews",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    taskId: integer("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    runId: integer("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    repoFullName: text("repo_full_name").notNull(),
+    prNumber: integer("pr_number").notNull(),
+    baseSha: text("base_sha").notNull(),
+    headSha: text("head_sha").notNull(),
+    verdict: reviewVerdictEnum("verdict").notNull(),
+    postedAs: reviewVerdictEnum("posted_as").notNull(),
+    githubReviewId: text("github_review_id").notNull(),
+    url: text("url").notNull(),
+    commentCount: integer("comment_count").notNull().default(0),
+    truncated: boolean("truncated").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // getLatestPrReview/listPrReviewsForTask both filter WHERE task_id = ? ORDER BY created_at
+    // desc — without this, every task-page Review-block fetch is a sequential scan.
+    index("pr_reviews_task_id_created_at_idx").on(table.taskId, table.createdAt),
+  ],
+);
+
 // ── Tasks ───────────────────────────────────────────────────────────────────────
 // A Task is a human-authored unit of work (title, description, acceptance criteria) that
 // owns 0..1 sessions. It cannot simply extend Session because an open/unassigned task has

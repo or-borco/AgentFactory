@@ -484,6 +484,26 @@ export interface Artifact {
   url?: string;
 }
 
+export type ReviewVerdict = "comment" | "request_changes";
+
+export interface PrReview {
+  id: ID;
+  orgId: ID;
+  taskId: ID;
+  runId: ID;
+  repoFullName: string;
+  prNumber: number;
+  baseSha: string;
+  headSha: string;
+  verdict: ReviewVerdict;
+  postedAs: ReviewVerdict;
+  githubReviewId: string;
+  url: string;
+  commentCount: number;
+  truncated: boolean;
+  createdAt: ISODateTime;
+}
+
 export interface PolicyDecision {
   id: ID;
   runId: ID;
