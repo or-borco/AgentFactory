@@ -82,6 +82,25 @@ email:    demo@acme.test
 password: password
 ```
 
+## Running everything at once
+
+```bash
+pnpm dev:all
+```
+
+Starts Postgres/Redis, runs migrations and seeding, then runs the web app and worker together — a
+shortcut for step 2 above and steps 5-6 below. Ctrl+C stops the web/worker processes; Postgres/Redis
+keep running in the background.
+
+```bash
+pnpm stop:all
+```
+
+Stops the web/worker processes (however they were started) and tears down the Postgres/Redis
+containers `dev:all` started.
+
+Read on for the individual steps if you'd rather run pieces separately.
+
 ## 5. Run the web app
 
 ```bash
