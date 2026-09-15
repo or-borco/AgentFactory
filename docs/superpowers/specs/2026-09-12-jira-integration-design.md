@@ -125,6 +125,10 @@ describes the M0 mock phase; the code is well ahead of it.
   embedding-based `context-retrieval.ts`, and it runs before every turn regardless of what the
   agent asks for. A `"failed"` item (which is what an image or PDF attachment becomes today) is
   currently silently excluded — `materialiseTaskDocuments` never looks at failed items at all.
+  **Update (2026-09-15):** no longer true for images — see the note on Design decision 10 below.
+  A JPEG/PNG attachment now reaches `"indexed"` (not `"failed"`) and is materialized as a binary
+  file, via `docs/superpowers/specs/2026-09-11-task-context-image-uploads-design.md`. PDF/.docx
+  are unaffected and still land here as described.
 - **There is already a hook for telling the agent about content it can't see.**
   `prompt-composition.ts:99-102` renders a line — *"Attached to this task but NOT available in
   your checkout: …"* — today populated only by documents that didn't fit
@@ -276,6 +280,22 @@ today it silently drops non-`"indexed"` items; this design has it also collect J
 *"Attached to this task but NOT available in your checkout"* line names them. The agent is told a
 screenshot exists and where to see it, even though it cannot read the pixels — meeting "the agent
 must be aware of them" without a computer-vision or PDF-parsing project.
+
+**Update (2026-09-15):** this decision's premise for *images* specifically was superseded by
+`docs/superpowers/specs/2026-09-11-task-context-image-uploads-design.md`, merged after this
+design shipped. That work added a shared `TASK_CONTEXT_MIME_CONFIG` table (`packages/core`)
+marking `image/jpeg`/`image/png` as `requiresIndexing: false` — the ingest worker now skips
+straight to `status: "indexed"` for those mimes (no extraction attempted, and no
+`UnsupportedMimeError`/`"failed"` either), and `materialiseTaskDocuments` writes the image's raw
+bytes into the sandbox instead of treating it as a name-only, content-inaccessible attachment.
+Since this route's attachment-ingestion code (`apps/web/src/app/api/tasks/route.ts`) already
+funnels every attachment through the same `createTaskContextItem`/`enqueueTaskContextIngestJob`
+calls as a manual upload — and neither the ingest skip nor the materialization branch reads
+`item.source` — a Jira-sourced image attachment gets this exact same treatment with no
+Jira-specific code required. The agent still cannot read the pixels (no vision/OCR was added),
+but a Jira issue's screenshot now reaches the sandbox as a real, viewable file rather than only a
+name in an "unavailable" list. PDF/.docx attachments are untouched by this and still land at
+`"failed"` exactly as this design originally described.
 
 **11. Attachment content is fetched at the same moment and by the same code path as the issue
 itself — task creation — never re-fetched later.** `GET /api/connections/tasks/issue` already runs
@@ -529,7 +549,9 @@ prefills the task form now also, per attachment:
    `text/markdown` or `text/plain` attachment ends up `status: "indexed"` and is written into the
    sandbox by `materialiseTaskDocuments` before the next turn, exactly like a manually uploaded
    doc. Anything else ends up `status: "failed"` via the existing `UnsupportedMimeError`, and is
-   surfaced instead by the change in Design decision 10.
+   surfaced instead by the change in Design decision 10. **Update (2026-09-15):** "anything else"
+   no longer includes `image/jpeg`/`image/png` — those now also reach `status: "indexed"` and are
+   materialized (as raw bytes, not extracted text) per Design decision 10's update note above.
 
 An attachment over `MAX_UPLOAD_BYTES` (2 MB, `context-items/route.ts:18`) is skipped with the same
 limit, not a special Jira case — `BlobStore.put` has no size opinion, but nothing this design adds
