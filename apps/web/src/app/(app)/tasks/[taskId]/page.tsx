@@ -1364,7 +1364,7 @@ function ErrorNotice({ messages }: { messages: string[] }) {
 }
 
 function ThinkingBlock({ steps }: { steps: ThinkStep[] }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const { t } = useTranslation();
   const latestStep = steps[steps.length - 1];
   return (
