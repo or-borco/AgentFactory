@@ -11,11 +11,7 @@ import { DEFAULT_MODEL_ID, MODEL_CATALOG, type TaskExternalRef } from "@agentfac
 import type { ExternalAttachment, ExternalIssue } from "@agentfactory/integrations";
 import { useRepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
 import { RepoMapWaitBanner } from "@/components/RepoMapWaitBanner";
-
-interface RepoOption {
-  id: number;
-  fullName: string;
-}
+import type { RepoOption } from "@agentfactory/scm";
 
 interface StagedFile {
   id: number;
@@ -61,7 +57,7 @@ export default function NewTaskPage() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<RepoOption[]>("/api/connections/github/repos")
+    apiFetch<RepoOption[]>("/api/connections/repos")
       .then((result) => {
         if (!cancelled) setRepos(result);
       })
@@ -109,6 +105,7 @@ export default function NewTaskPage() {
   // Pre-select the assignee's default codebase once the connected-repo list is known, but only
   // if the assigner hasn't already picked a repo themselves. If the agent's default isn't among
   // the connected repos, fall back to no selection rather than showing an unusable value.
+  const repoProviders = [...new Set(repos.map((repo) => repo.provider))];
   const defaultCodebase = selectedAgent?.defaultCodebase;
   const preselectedCodebase =
     defaultCodebase && repos.some((repo) => repo.fullName === defaultCodebase) ? defaultCodebase : "";
@@ -369,11 +366,23 @@ export default function NewTaskPage() {
               <option value="">
                 {reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
               </option>
-              {repos.map((repo) => (
-                <option key={repo.id} value={repo.fullName}>
-                  {repo.fullName}
-                </option>
-              ))}
+              {repoProviders.length > 1
+                ? repoProviders.map((p) => (
+                    <optgroup key={p} label={t(`connections.provider.${p}`)}>
+                      {repos
+                        .filter((repo) => repo.provider === p)
+                        .map((repo) => (
+                          <option key={repo.id} value={repo.fullName}>
+                            {repo.fullName}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ))
+                : repos.map((repo) => (
+                    <option key={repo.id} value={repo.fullName}>
+                      {repo.fullName}
+                    </option>
+                  ))}
             </select>
             {!reposLoading && repos.length === 0 && (
               <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>

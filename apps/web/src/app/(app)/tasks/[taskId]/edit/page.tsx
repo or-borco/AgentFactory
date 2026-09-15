@@ -9,11 +9,7 @@ import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { useRepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
 import { RepoMapWaitBanner } from "@/components/RepoMapWaitBanner";
-
-interface RepoOption {
-  id: number;
-  fullName: string;
-}
+import type { RepoOption } from "@agentfactory/scm";
 
 export default function EditTaskPage() {
   const { taskId } = useParams<{ taskId: string }>();
@@ -31,6 +27,7 @@ export default function EditTaskPage() {
   const [submitting, setSubmitting] = useState(false);
   const [repos, setRepos] = useState<RepoOption[]>([]);
   const [reposLoading, setReposLoading] = useState(true);
+  const repoProviders = [...new Set(repos.map((repo) => repo.provider))];
 
   // Pre-fill the form once the task loads, without a `useEffect` (which would call setState
   // synchronously in an effect body, a pattern this project's lint config flags). Adjusting
@@ -52,7 +49,7 @@ export default function EditTaskPage() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<RepoOption[]>("/api/connections/github/repos")
+    apiFetch<RepoOption[]>("/api/connections/repos")
       .then((result) => {
         if (!cancelled) setRepos(result);
       })
@@ -146,11 +143,23 @@ export default function EditTaskPage() {
               <option value="">
                 {reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
               </option>
-              {repos.map((repo) => (
-                <option key={repo.id} value={repo.fullName}>
-                  {repo.fullName}
-                </option>
-              ))}
+              {repoProviders.length > 1
+                ? repoProviders.map((p) => (
+                    <optgroup key={p} label={t(`connections.provider.${p}`)}>
+                      {repos
+                        .filter((repo) => repo.provider === p)
+                        .map((repo) => (
+                          <option key={repo.id} value={repo.fullName}>
+                            {repo.fullName}
+                          </option>
+                        ))}
+                    </optgroup>
+                  ))
+                : repos.map((repo) => (
+                    <option key={repo.id} value={repo.fullName}>
+                      {repo.fullName}
+                    </option>
+                  ))}
             </select>
             {!reposLoading && repos.length === 0 && (
               <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>

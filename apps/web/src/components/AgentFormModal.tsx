@@ -7,11 +7,7 @@ import { Button, Textarea, TextInput } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { AgentMode } from "@agentfactory/core";
-
-interface RepoOption {
-  id: number;
-  fullName: string;
-}
+import type { RepoOption } from "@agentfactory/scm";
 
 export interface AgentFormValues {
   name: string;
@@ -45,7 +41,7 @@ export function AgentFormModal({
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<RepoOption[]>("/api/connections/github/repos")
+    apiFetch<RepoOption[]>("/api/connections/repos")
       .then((result) => {
         if (!cancelled) setRepos(result);
       })
@@ -60,6 +56,7 @@ export function AgentFormModal({
   // The agent's existing default might point at a repo that's no longer connected (or was set
   // before this field became a dropdown) — keep it selectable instead of silently discarding it.
   const hasCurrentRepo = !defaultCodebase || repos.some((repo) => repo.fullName === defaultCodebase);
+  const repoProviders = [...new Set(repos.map((repo) => repo.provider))];
 
   return (
     <Modal title={title} onClose={onClose}>
@@ -124,11 +121,23 @@ export function AgentFormModal({
               {reposLoading ? t("agentForm.defaultCodebaseLoading") : t("agentForm.defaultCodebasePlaceholder")}
             </option>
             {!hasCurrentRepo && <option value={defaultCodebase}>{defaultCodebase}</option>}
-            {repos.map((repo) => (
-              <option key={repo.id} value={repo.fullName}>
-                {repo.fullName}
-              </option>
-            ))}
+            {repoProviders.length > 1
+              ? repoProviders.map((p) => (
+                  <optgroup key={p} label={t(`connections.provider.${p}`)}>
+                    {repos
+                      .filter((repo) => repo.provider === p)
+                      .map((repo) => (
+                        <option key={repo.id} value={repo.fullName}>
+                          {repo.fullName}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))
+              : repos.map((repo) => (
+                  <option key={repo.id} value={repo.fullName}>
+                    {repo.fullName}
+                  </option>
+                ))}
           </select>
           <p className="mt-1.5 text-xs text-[var(--color-neutral-600)]">{t("agentForm.defaultCodebaseHelp")}</p>
           {!reposLoading && repos.length === 0 && (
