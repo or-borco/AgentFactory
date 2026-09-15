@@ -111,6 +111,24 @@ pnpm dev:worker
 If your Docker daemon isn't at the default `/var/run/docker.sock` (Colima, Rancher Desktop, etc.),
 set `DOCKER_HOST` in `.env.local` — check `docker context ls` for the right socket path.
 
+## Running everything at once
+
+Steps 2 and 4-6 above can be replaced by two commands:
+
+```bash
+pnpm dev:all
+```
+
+Starts Postgres/Redis, runs migrations and seeding, then runs the web app and worker together.
+Ctrl+C stops the web/worker processes; Postgres/Redis keep running in the background.
+
+```bash
+pnpm stop:all
+```
+
+Stops the web/worker processes (however they were started) and tears down the Postgres/Redis
+containers `dev:all` started.
+
 ## Connecting integrations
 
 Neither of these is needed to run the app or click around the UI — only for the Connections
