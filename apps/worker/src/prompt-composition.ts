@@ -13,6 +13,19 @@ export const PLATFORM_PREAMBLE =
   "commit it and open a pull request rather than pushing directly to a protected branch. Keep " +
   "your final response concise — it is shown to the team as the run's summary.\n\n---\n\n";
 
+// Sibling to PLATFORM_PREAMBLE for review runs — deliberately does NOT say "commit and open a
+// PR": a review run never commits, pushes, or has push credentials in the sandbox at all. It
+// also tells the agent up front how its answer reaches GitHub, since the agent otherwise has no
+// way to know its final message is parsed as structured data rather than read as prose.
+export const REVIEW_PLATFORM_PREAMBLE =
+  "You are an AgentFactory agent, reviewing a GitHub pull request. You run inside a sandboxed, " +
+  "read-only git checkout of the PR — you have no credentials to write to the remote repository " +
+  "and should not attempt to modify it in any way. Read the code as thoroughly as you need to " +
+  "(the full checkout is available, not just the diff). End your turn with a structured review: " +
+  "a short summary, a verdict of either 'comment' or 'request_changes', and a list of inline " +
+  "comments anchored to specific files and line numbers. The platform posts this as a real " +
+  "GitHub review after your turn ends — you never call GitHub yourself.\n\n---\n\n";
+
 export interface SandboxEnvironment {
   // Absolute path of the checkout inside the sandbox, or undefined when this run has no codebase
   // attached at all (a chat-only session — /workspace exists but holds no repo).
@@ -133,6 +146,41 @@ export function formatEnvironmentForPrompt(env: SandboxEnvironment): string {
   }
 
   return `## Environment (platform-authored, authoritative)\n\n${lines.join("\n")}\n\n---\n\n`;
+}
+
+export interface ReviewEnvironment {
+  workspacePath: string;
+  prNumber: number;
+  focusBaseSha: string;
+  focusHeadSha: string;
+  rewritten: boolean;
+  truncatedDiff: boolean;
+}
+
+// The review-run equivalent of formatEnvironmentForPrompt — states what the dev-run version
+// states (checkout location, "don't go looking for it"), but describes a PR range to review
+// instead of a branch to work on, and never mentions committing or pushing.
+export function formatReviewEnvironmentForPrompt(env: ReviewEnvironment): string {
+  const lines: string[] = [
+    `- Your git checkout is at \`${env.workspacePath}\`, checked out at pull request #${env.prNumber}'s ` +
+      "current head. Do not search the filesystem for it.",
+    `- Focus your review on the range \`${env.focusBaseSha}\`..\`${env.focusHeadSha}\`. The full PR diff ` +
+      "for that range is included below.",
+  ];
+  if (env.rewritten) {
+    lines.push(
+      "- This PR's branch history was rewritten (force-pushed) since the last review, so the range " +
+        "above covers the whole PR again rather than just what changed since last time — your prior " +
+        "comments may no longer apply cleanly to the new history.",
+    );
+  }
+  if (env.truncatedDiff) {
+    lines.push(
+      "- The diff below was truncated because this PR is very large. Use `git diff` yourself in the " +
+        "checkout to see the rest before finishing your review.",
+    );
+  }
+  return `## Environment\n\n${lines.join("\n")}\n\n---\n\n`;
 }
 
 export interface ComposedPrompt {
@@ -279,6 +327,7 @@ export function buildPriorConversationSegment(resumeIsValid: boolean, formatted:
 // sent (runs.prompt_segments) — `prompt` is derived from `segments`, never built separately, so
 // the stored record cannot drift from the sent string.
 export function composeSystemPrompt(
+  preamble: string,
   environment: string,
   priorConversation: PromptSegment,
   teamContext: PromptSegment,
@@ -287,7 +336,7 @@ export function composeSystemPrompt(
   agentSystemPrompt: string,
 ): ComposedPrompt {
   const segments: PromptSegment[] = [
-    { id: "platform_preamble", text: PLATFORM_PREAMBLE },
+    { id: "platform_preamble", text: preamble },
     { id: "environment", text: environment },
     priorConversation,
     repoMap,

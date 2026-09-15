@@ -42,6 +42,7 @@ import { SANDBOX_REAP_INTERVAL_MS, scanForIdleSandboxes } from "./sandbox-reap";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { type AgentTurnResult, InsufficientCreditError, PromptTooLongError, runAgentTurn } from "./agent-runtime";
 import {
+  PLATFORM_PREAMBLE,
   buildPriorConversationSegment,
   buildRepoMapSegment,
   buildRetrievedContextSegment,
@@ -304,6 +305,7 @@ const runWorker = new Worker<RunJobData>(
               retrieved.text,
             );
       const composed = composeSystemPrompt(
+        PLATFORM_PREAMBLE,
         environment,
         buildPriorConversationSegment(resumeIsValid, priorConversationText),
         buildTeamContextSegment(Boolean(team), teamContextPrefix),

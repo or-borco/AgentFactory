@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ChatMessage, PromptSegment } from "@agentfactory/core";
 import {
   PLATFORM_PREAMBLE,
+  REVIEW_PLATFORM_PREAMBLE,
   buildPriorConversationSegment,
   buildRepoMapSegment,
   buildRetrievedContextSegment,
@@ -10,6 +11,7 @@ import {
   composeSystemPrompt,
   formatEnvironmentForPrompt,
   formatPriorConversationForPrompt,
+  formatReviewEnvironmentForPrompt,
   hashPrompt,
 } from "../prompt-composition";
 
@@ -34,6 +36,7 @@ describe("composeSystemPrompt", () => {
   // repo map, so they sit after the map and before team context.
   it("orders preamble, environment, prior conversation, repo map, retrieved context, team context, agent system prompt", () => {
     const { prompt } = composeSystemPrompt(
+      PLATFORM_PREAMBLE,
       "## Environment\n\nCheckout is at /workspace.\n\n---\n\n",
       priorSeg("## Prior Conversation\n\nUser: what happened before?\n\n---\n\n"),
       teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
@@ -61,6 +64,7 @@ describe("composeSystemPrompt", () => {
 
   it("still leads with the platform preamble when every optional section is empty", () => {
     const { prompt } = composeSystemPrompt(
+      PLATFORM_PREAMBLE,
       "",
       priorSeg(""),
       teamSeg(""),
@@ -73,6 +77,7 @@ describe("composeSystemPrompt", () => {
 
   it("omits the repo map and retrieved context cleanly, leaving team context adjacent to the agent prompt", () => {
     const { prompt } = composeSystemPrompt(
+      PLATFORM_PREAMBLE,
       "",
       priorSeg(""),
       teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
@@ -88,6 +93,7 @@ describe("composeSystemPrompt", () => {
   // instruction layers. That separation is what measurably cost compliance (1/10 vs 10/10).
   it("never separates team context from the agent's own prompt with generated or retrieved bulk", () => {
     const { prompt } = composeSystemPrompt(
+      PLATFORM_PREAMBLE,
       "## Environment\n\n---\n\n",
       priorSeg(""),
       teamSeg("## Team Context\n\nUse pnpm.\n\n---\n\n"),
@@ -112,6 +118,7 @@ describe("composeSystemPrompt", () => {
     ];
     for (const c of cases) {
       const { segments, prompt } = composeSystemPrompt(
+        PLATFORM_PREAMBLE,
         "## Environment\n\n---\n\n",
         priorSeg(""),
         c.team,
@@ -134,6 +141,7 @@ describe("composeSystemPrompt", () => {
 
   it("passes the caller's omission reasons through and never marks unconditional segments omitted", () => {
     const { segments } = composeSystemPrompt(
+      PLATFORM_PREAMBLE,
       "",
       { id: "prior_conversation", text: "", omittedReason: "resume_valid" },
       { id: "team_context", text: "", omittedReason: "no_team" },
@@ -433,6 +441,68 @@ describe("formatEnvironmentForPrompt", () => {
   it("says nothing about a sync when repoSync is unset", () => {
     const result = formatEnvironmentForPrompt({ workspacePath: "/workspace" });
     expect(result).not.toContain("default branch");
+  });
+});
+
+describe("REVIEW_PLATFORM_PREAMBLE", () => {
+  it("never tells the agent to commit or push", () => {
+    expect(REVIEW_PLATFORM_PREAMBLE.toLowerCase()).not.toMatch(/commit|push/);
+  });
+
+  it("is accepted by composeSystemPrompt as an alternative preamble", () => {
+    const { prompt } = composeSystemPrompt(
+      REVIEW_PLATFORM_PREAMBLE,
+      "",
+      priorSeg(""),
+      teamSeg(""),
+      repoSeg(""),
+      retrievedSeg(""),
+      "You are a reviewer.",
+    );
+    expect(prompt.startsWith(REVIEW_PLATFORM_PREAMBLE)).toBe(true);
+    expect(prompt).not.toContain(PLATFORM_PREAMBLE);
+  });
+});
+
+describe("formatReviewEnvironmentForPrompt", () => {
+  it("states the PR number, range, and structured-output instruction", () => {
+    const text = formatReviewEnvironmentForPrompt({
+      workspacePath: "/workspace",
+      prNumber: 42,
+      focusBaseSha: "abc123",
+      focusHeadSha: "def456",
+      rewritten: false,
+      truncatedDiff: false,
+    });
+    expect(text).toContain("/workspace");
+    expect(text).toContain("#42");
+    expect(text).toContain("abc123");
+    expect(text).toContain("def456");
+  });
+
+  it("warns the agent when the branch was rewritten (force-push)", () => {
+    const text = formatReviewEnvironmentForPrompt({
+      workspacePath: "/workspace",
+      prNumber: 42,
+      focusBaseSha: "base",
+      focusHeadSha: "head",
+      rewritten: true,
+      truncatedDiff: false,
+    });
+    expect(text.toLowerCase()).toMatch(/rewritten|force/);
+  });
+
+  it("tells the agent the diff was truncated and to use git diff itself", () => {
+    const text = formatReviewEnvironmentForPrompt({
+      workspacePath: "/workspace",
+      prNumber: 42,
+      focusBaseSha: "base",
+      focusHeadSha: "head",
+      rewritten: false,
+      truncatedDiff: true,
+    });
+    expect(text.toLowerCase()).toContain("truncated");
+    expect(text).toContain("git diff");
   });
 });
 
