@@ -25,10 +25,13 @@ done with a link to the posted review.
   this for Or to confirm is in scope; building the trigger bus (`triggers` table, webhook
   receiver — ARCHITECTURE.md §2.6/§5, M5) is not.
 - **Detection: a PR link in the task, not an agent role.** No new "reviewer" role on `Agent`, no
-  new task-kind field. The existing agent picker on the task form is unchanged — the user still
-  chooses which agent runs the task. If the description contains more than one GitHub PR URL,
-  the first one found (in description text order) is the one set as `reviewRef` — no UI to pick
-  among several; a task genuinely about two PRs is expected to be rare enough not to warrant one.
+  new task-kind field, no persisted field on `Task` either. The worker parses `task.description`
+  for a GitHub PR URL live, at the start of every run — the same mechanism
+  `parseIssueReference`/`worker.ts:228` already uses for GitHub *issue* links, just a sibling
+  regex for `/pull/` instead of `/issues/`. `RegExp.exec` naturally returns the first match, so
+  "the first PR link in the description wins" falls out of reusing that mechanism rather than
+  needing its own rule. The existing agent picker on the task form is unchanged — the user still
+  chooses which agent runs the task.
 - **What the agent sees:** the full repo checked out at the PR's head, not just the diff — so it
   can follow imports, check callers, read surrounding code.
 - **How comments reach GitHub:** the agent never holds a GitHub token. It ends its turn with a
@@ -52,20 +55,10 @@ a Reviews dashboard, reviewing PRs on repos without a connected GitHub App.
 
 ## Data model
 
-### `Task.reviewRef` (new field)
-
-```ts
-export interface PrReviewRef {
-  provider: ConnectionProvider; // "github" today
-  repoFullName: string;
-  prNumber: number;
-  url: string;
-}
-```
-
-Set once, at task create/edit time, when the description contains a PR URL — mirrors how
-`externalRef` is set from a Jira link today. The worker reads this field to decide a run is a
-review; it never re-parses the description itself. Stored as `review_ref jsonb` on `tasks`.
+No new field on `Task`. `parsePullRequestReference(description)` (new sibling to
+`parseIssueReference` — see `packages/scm` additions below) is what tells the worker a run is a
+review, computed fresh each run; nothing about "this task is a review" is persisted ahead of
+time. The only new persistence is the record of reviews actually posted:
 
 ### `pr_reviews` (new table)
 
@@ -77,6 +70,8 @@ One row per review pass actually posted to GitHub.
 | `org_id` | fk `orgs.id` | tenant scope |
 | `task_id` | fk `tasks.id` | which task |
 | `run_id` | fk `runs.id` | links to the transcript that produced it |
+| `repo_full_name` | text | which repo — the display source for the task page, since there's no persisted task field to read it from |
+| `pr_number` | integer | which PR |
 | `base_sha` | text | base of the range this pass reviewed |
 | `head_sha` | text | head of the range — the next pass's starting point |
 | `verdict` | `"comment" \| "request_changes"` | what the agent decided |
@@ -95,7 +90,6 @@ kept off the hot `runs` row the task page polls every 1.5s (same reasoning as `r
 ### `packages/core` additions
 
 - `ArtifactEvent.artifactType` and `Artifact.type` gain `"review"`.
-- `PrReviewRef` type (above), used by `Task.reviewRef`.
 
 ### `packages/scm` (`ScmProvider` port) additions
 
@@ -119,15 +113,22 @@ postReview(connection: Connection, repoFullName: string, prNumber: number, revie
   verdict: "comment" | "request_changes";
   comments: Array<{ path: string; line: number; body: string }>;
 }): Promise<{ id: string; url: string; postedAs: "comment" | "request_changes" }>;
+
+// Sibling to parseIssueReference — same shape, matches a /pull/ URL instead of /issues/.
+parsePullRequestReference(text: string): { repoFullName: string; prNumber: number } | undefined;
 ```
 
-`postReview` is the one that implements the own-PR fallback (see below) — callers don't detect
-it themselves.
+`parsePullRequestReference` is exposed the same way `parseIssueReference` is today: a
+per-provider method on `ScmProvider`, dispatched across all registered providers by a new
+`parsePullRequestReferenceAcrossProviders` in `packages/scm/src/registry.ts` (mirrors
+`parseIssueReferenceAcrossProviders`). `postReview` is the one that implements the own-PR
+fallback (see below) — callers don't detect it themselves.
 
 ## The review run, step by step
 
-Applies when `task.reviewRef` is set. Branches off the existing worker pipeline at the point
-where it resolves the workspace, and rejoins at prompt composition.
+Applies when `parsePullRequestReference(task.description)` returns a match. Branches off the
+existing worker pipeline at the point where it resolves the workspace, and rejoins at prompt
+composition.
 
 1. **Resolve the PR.** `fetchPullRequest`. If `state !== "open"`, fail the run immediately with
    "PR #N is already merged/closed" — never review dead code. If the org's GitHub connection
@@ -135,7 +136,7 @@ where it resolves the workspace, and rejoins at prompt composition.
    `resolveCloneTarget`.
 
 2. **Workspace.** Same sandbox as today (`ensureSandbox`). `resolveCloneTarget` resolves repo
-   access via the org's GitHub connection (`reviewRef.repoFullName`, not `task.codebase` — that
+   access via the org's GitHub connection (the parsed `repoFullName`, not `task.codebase` — that
    field is ignored for review runs), and the repo is cloned in if not already present, exactly
    as `cloneIntoSandbox` does today — except it does *not* create or check out an
    `agent/session-*` branch, since a review run never commits or pushes. On top of that,
@@ -228,6 +229,6 @@ A new "Review" block, populated from the latest `pr_reviews` row for the task:
 ## What this does not change
 
 - No `triggers` table, no webhook receiver, no policy engine, no `ToolPolicy` enforcement.
-- No new agent field, no new task-kind/type column.
-- `Session`/`Run` shapes are unchanged; a review run is an ordinary run whose task happens to
-  carry a `reviewRef`.
+- No new agent field, no new task-kind/type column, no new field on `Task` at all.
+- `Session`/`Run` shapes are unchanged; a review run is an ordinary run whose task's description
+  happens to parse as a PR link.
