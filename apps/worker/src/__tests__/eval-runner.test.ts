@@ -195,19 +195,24 @@ describe("processEvalJob", () => {
   // eval, and must never become a failure code of its own.
   it("completes normally when the triggering message lookup throws", async () => {
     const deps = makeDeps({ getTriggeringMessage: vi.fn().mockRejectedValue(new Error("connection refused")) });
-    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    // eval-runner logs through @agentfactory/logger (pino), which writes JSON lines to stdout —
+    // spy there rather than on console.error, which the logger never calls.
+    const logged = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     await expect(processEvalJob(1, deps)).resolves.toBeUndefined();
 
     expect(deps.judge).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined, undefined);
     expect(deps.completeEval).toHaveBeenCalledWith(1, RESULT, "claude-sonnet-5");
     expect(deps.failEval).not.toHaveBeenCalled();
 
-    // Every other log in this file is keyed "Eval <id>: …"; a degraded eval that does not
-    // carry its own row id cannot be tied back to the row it degraded.
-    expect(logged).toHaveBeenCalledWith(
-      "Eval 1: triggering message 55 lookup failed:",
-      expect.any(Error),
-    );
+    // Every other log in this file carries its own evalId; a degraded eval that does not carry
+    // its own row id cannot be tied back to the row it degraded.
+    const entry = JSON.parse(String(logged.mock.calls.at(-1)?.[0]));
+    expect(entry).toMatchObject({
+      msg: "Eval: triggering message lookup failed",
+      evalId: 1,
+      messageId: 55,
+      err: { message: "connection refused" },
+    });
     logged.mockRestore();
   });
 

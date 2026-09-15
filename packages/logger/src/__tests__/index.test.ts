@@ -2,10 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createLogger, logger } from "../index";
 
 // process.stdout.isTTY is false under vitest, so the logger always takes its JSON branch here —
-// exactly the shape a log aggregator in production would see.
-function captured(stream: NodeJS.WriteStream) {
-  const spy = vi.spyOn(stream, "write").mockImplementation(() => true);
-  return spy;
+// exactly the shape a log aggregator in production would see. Everything goes to stdout: pino's
+// default single-stream behavior, with `level` field distinguishing severity for the aggregator
+// rather than the process splitting streams itself.
+function captured() {
+  return vi.spyOn(process.stdout, "write").mockImplementation(() => true);
 }
 
 function lastLine(spy: ReturnType<typeof captured>) {
@@ -14,39 +15,42 @@ function lastLine(spy: ReturnType<typeof captured>) {
   return JSON.parse(String(call[0]));
 }
 
+// pino's numeric level values: debug=20, info=30, warn=40, error=50.
+const LEVEL = { debug: 20, info: 30, warn: 40, error: 50 };
+
 describe("logger", () => {
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("writes info/debug/warn to stdout and error/warn to the right level field", () => {
-    const stdout = captured(process.stdout);
+  it("writes info to stdout with the right level and message", () => {
+    const stdout = captured();
     logger.info("hello", { runId: 42 });
     const entry = lastLine(stdout);
-    expect(entry).toMatchObject({ level: "info", msg: "hello", runId: 42 });
+    expect(entry).toMatchObject({ level: LEVEL.info, msg: "hello", runId: 42 });
     expect(typeof entry.time).toBe("string");
   });
 
-  it("routes warn and error to stderr", () => {
-    const stderr = captured(process.stderr);
+  it("writes warn and error with their own level", () => {
+    const stdout = captured();
     logger.error("boom");
-    expect(lastLine(stderr)).toMatchObject({ level: "error", msg: "boom" });
+    expect(lastLine(stdout)).toMatchObject({ level: LEVEL.error, msg: "boom" });
 
     logger.warn("careful");
-    expect(lastLine(stderr)).toMatchObject({ level: "warn", msg: "careful" });
+    expect(lastLine(stdout)).toMatchObject({ level: LEVEL.warn, msg: "careful" });
   });
 
-  it("serializes Error context into name/message/stack instead of dropping it", () => {
-    const stderr = captured(process.stderr);
+  it("serializes Error context into message/stack instead of dropping it", () => {
+    const stdout = captured();
     const err = new Error("db timeout");
     logger.error("query failed", { err });
-    const entry = lastLine(stderr);
-    expect(entry.err).toMatchObject({ name: "Error", message: "db timeout" });
+    const entry = lastLine(stdout);
+    expect(entry.err).toMatchObject({ message: "db timeout" });
     expect(typeof entry.err.stack).toBe("string");
   });
 
   it("child() merges bindings into every subsequent entry", () => {
-    const stdout = captured(process.stdout);
+    const stdout = captured();
     const scoped = createLogger("worker", { runId: 7 });
     scoped.info("started");
     expect(lastLine(stdout)).toMatchObject({ module: "worker", runId: 7, msg: "started" });
@@ -57,7 +61,7 @@ describe("logger", () => {
   });
 
   it("call-site context overrides bound context with the same key", () => {
-    const stdout = captured(process.stdout);
+    const stdout = captured();
     const scoped = createLogger("worker", { runId: 7 });
     scoped.info("overridden", { runId: 99 });
     expect(lastLine(stdout)).toMatchObject({ runId: 99 });
