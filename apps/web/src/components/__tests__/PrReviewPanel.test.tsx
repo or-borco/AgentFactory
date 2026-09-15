@@ -70,4 +70,13 @@ describe("PrReviewPanel", () => {
     renderPanel();
     expect(await screen.findByText(/very large/i)).toBeInTheDocument();
   });
+
+  it("surfaces a load failure instead of silently rendering as if there's no review", async () => {
+    apiFetchMock.mockRejectedValueOnce(new Error("boom"));
+    const { container } = renderPanel();
+
+    await waitFor(() => expect(screen.getByText(/Couldn't load the review/i)).toBeInTheDocument());
+    // Distinct from the "no reviews" case, which renders nothing at all.
+    expect(container.textContent).not.toBe("");
+  });
 });

@@ -431,6 +431,7 @@ const en = {
     reviewCommentCount: "{count} inline comments",
     reviewViewOnGithub: "View on GitHub",
     reviewTruncatedNotice: "This PR is very large — review coverage may be partial.",
+    reviewLoadError: "Couldn't load the review for this task.",
   },
   teamsV2: {
     title: "Teams",
