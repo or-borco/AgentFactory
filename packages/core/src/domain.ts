@@ -275,6 +275,12 @@ export interface Session {
   // active session, kept warm"), reused across runs rather than recreated per turn — the SDK's
   // own multi-turn `resume` state lives on the container's filesystem, not server-side.
   sandboxId?: string;
+  // Random suffix folded into this session's git branch name (see sessionBranchName in
+  // apps/worker/src/scm-provider.ts) so the branch stays unique on the target repo even when
+  // `id` — unique only within this database — collides with an unrelated session's id from a
+  // different database pointed at the same repo. Absent on sessions created before this field
+  // existed.
+  branchToken?: string;
   createdAt: ISODateTime;
   lastActivityAt: ISODateTime;
 }

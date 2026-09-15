@@ -12,6 +12,38 @@ export type GitHubIssue = ScmIssue;
 // added here also needs .git/info/exclude taught about it in cloneIntoSandbox below.
 const GIT_EXCLUDE_PATTERNS = [TASK_DOCUMENT_EXCLUDE_PATTERN, SKILL_EXCLUDE_PATTERN];
 
+// Same slugify shape as the org-name idiom in apps/web/src/app/api/auth/register/route.ts,
+// trimmed so a long task title can't run the branch name away. Collapses to "" for a title with
+// no ASCII alphanumerics (rare, but not impossible — an emoji-only title, say), which
+// sessionBranchName below handles by just leaving the slug out rather than pushing a trailing "-".
+function slugifyForBranch(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "")
+    .slice(0, 40)
+    .replace(/-$/, "");
+}
+
+// The one place this branch-naming scheme is spelled out — worker.ts (pushing) and
+// eval-artefact.ts (diffing the pushed range) both need the exact same name for the same
+// session, so neither should build it inline.
+//
+// `task.ref`-and-title-slug is what makes the name meaningful to a human skimming the branch
+// list on GitHub; `session.branchToken` is what actually keeps it unique. Neither `session.id`
+// nor `task.ref` (itself just "T-" + the task's own id) is safe to rely on alone for uniqueness:
+// both are unique only within this database, and more than one database can point sandboxes at
+// the same GitHub repo (a second local dev DB, or a reseed that reassigns an id — see T-051,
+// where a stale `agent/session-9` from an unrelated session already sat on the remote and every
+// retry conflicted with it). branchToken is missing only for sessions created before that field
+// existed, so this falls back to the old bare id-only name for those rather than pushing a name
+// that no longer matches what that old session actually pushed under previously.
+export function sessionBranchName(session: { id: number; branchToken?: string }, task: { ref: string; title: string }): string {
+  if (!session.branchToken) return `agent/session-${session.id}`;
+  const slug = slugifyForBranch(task.title);
+  return `agent/${task.ref.toLowerCase()}${slug ? `-${slug}` : ""}-${session.branchToken}`;
+}
+
 // Resolves which of the org's connected SCM providers/connections has access to repoFullName,
 // then delegates to that provider's own clone-target resolution. Kept as a same-named,
 // same-signature export — rather than inlining resolveScmConnection at each call site — so

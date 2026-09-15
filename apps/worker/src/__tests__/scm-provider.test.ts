@@ -22,6 +22,7 @@ const {
   pushChangesIfDirty,
   resolveCloneTarget,
   resolveDefaultBranchSha,
+  sessionBranchName,
   syncWithDefaultBranch,
 } = await import("../scm-provider");
 
@@ -364,6 +365,35 @@ describe("syncWithDefaultBranch", () => {
     expect(capturedEnv).toEqual({ CLONE_URL: target.cloneUrl, REMOTE_URL: target.remoteUrl });
     expect(capturedScript).toContain('git remote set-url origin "$REMOTE_URL"');
     expect(capturedScript).not.toContain("github.com/$REPO_FULL_NAME");
+  });
+});
+
+describe("sessionBranchName", () => {
+  const task = { ref: "T-051", title: "Missalignment in the Activity section" };
+
+  it("builds a human-readable name from the task ref and title, suffixed with the branchToken", () => {
+    expect(sessionBranchName({ id: 9, branchToken: "a1b2c3d4" }, task)).toBe(
+      "agent/t-051-missalignment-in-the-activity-section-a1b2c3d4",
+    );
+  });
+
+  it("falls back to the bare id-only name for a session with no branchToken", () => {
+    // Sessions created before the branchToken column existed have none — the branch they
+    // already pushed under is the id-only name, so that's what a later run on the same session
+    // has to keep using, regardless of what the task looks like now.
+    expect(sessionBranchName({ id: 9 }, task)).toBe("agent/session-9");
+  });
+
+  it("drops the slug rather than leaving a trailing dash when the title has no alphanumerics", () => {
+    expect(sessionBranchName({ id: 9, branchToken: "a1b2c3d4" }, { ref: "T-051", title: "🎉🎉🎉" })).toBe(
+      "agent/t-051-a1b2c3d4",
+    );
+  });
+
+  it("truncates a long title instead of letting the branch name run away", () => {
+    const longTitle = "a".repeat(200);
+    const name = sessionBranchName({ id: 9, branchToken: "a1b2c3d4" }, { ref: "T-051", title: longTitle });
+    expect(name).toBe(`agent/t-051-${"a".repeat(40)}-a1b2c3d4`);
   });
 });
 

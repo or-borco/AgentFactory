@@ -205,6 +205,15 @@ export const sessions = pgTable(
     // The warm sandbox container id for this session's runs — see Session.sandboxId in
     // packages/core/src/domain.ts for why this is session-scoped, not run-scoped.
     sandboxId: text("sandbox_id"),
+    // Folded into this session's git branch name (agent/session-<id>-<branchToken> — see
+    // sessionBranchName in apps/worker/src/scm-provider.ts) so the branch stays unique even if
+    // `id` collides with an unrelated session's id, which does happen: `id` is only unique
+    // within this one database, but the branch name has to stay unique on whatever GitHub repo
+    // the session's tasks target, and more than one database can point sandboxes at the same
+    // repo (a second local dev DB, a reseed that reassigns an id — see T-051). Nullable because
+    // sessions created before this column existed have no token; sessionBranchName falls back to
+    // the bare id-only name for those.
+    branchToken: text("branch_token"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
   },

@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { and, eq, inArray, isNotNull, lt, notExists } from "drizzle-orm";
 import type { Session } from "@agentfactory/core";
 import { db } from "../client";
@@ -12,6 +13,7 @@ function toSession(row: typeof sessions.$inferSelect): Session {
     origin: row.origin,
     externalThreadRef: row.externalThreadRef ?? undefined,
     sandboxId: row.sandboxId ?? undefined,
+    branchToken: row.branchToken ?? undefined,
     createdAt: row.createdAt.toISOString(),
     lastActivityAt: row.lastActivityAt.toISOString(),
   };
@@ -38,6 +40,9 @@ export async function createSession(orgId: number, agentId: number, title: strin
       agentId,
       title,
       origin: "web",
+      // See Session.branchToken in @agentfactory/core for why this needs to be unique beyond
+      // just this row's own id.
+      branchToken: randomBytes(4).toString("hex"),
     })
     .returning();
   return toSession(row);
