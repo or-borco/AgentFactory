@@ -424,6 +424,13 @@ const en = {
       updateAndRun: "Update and run",
       runAnyway: "Run anyway",
     },
+    reviewSectionTitle: "Review",
+    reviewVerdictComment: "Comment",
+    reviewVerdictRequestChanges: "Changes requested",
+    reviewPostedAsCommentFallback: "posted as a comment — PR opened by this app",
+    reviewCommentCount: "{count} inline comments",
+    reviewViewOnGithub: "View on GitHub",
+    reviewTruncatedNotice: "This PR is very large — review coverage may be partial.",
   },
   teamsV2: {
     title: "Teams",
