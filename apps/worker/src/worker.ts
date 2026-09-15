@@ -21,7 +21,9 @@ import {
   clearSessionSandboxId,
   createEvent,
   createMessage,
+  createPrReview,
   getAgent,
+  getLatestPrReview,
   getLatestResumeCandidate,
   getMessage,
   getRun,
@@ -38,11 +40,13 @@ import {
   updateRunWorkspace,
   updateTask,
 } from "@agentfactory/db";
+import { parsePullRequestReferenceAcrossProviders, resolveScmConnection } from "@agentfactory/scm";
 import { SANDBOX_REAP_INTERVAL_MS, scanForIdleSandboxes } from "./sandbox-reap";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { type AgentTurnResult, InsufficientCreditError, PromptTooLongError, runAgentTurn } from "./agent-runtime";
 import {
   PLATFORM_PREAMBLE,
+  REVIEW_PLATFORM_PREAMBLE,
   buildPriorConversationSegment,
   buildRepoMapSegment,
   buildRetrievedContextSegment,
@@ -50,9 +54,20 @@ import {
   composeSystemPrompt,
   formatEnvironmentForPrompt,
   formatPriorConversationForPrompt,
+  formatReviewEnvironmentForPrompt,
   hashPrompt,
   type SandboxEnvironment,
 } from "./prompt-composition";
+import {
+  REVIEW_OUTPUT_SCHEMA,
+  checkoutPullRequest,
+  isAncestor,
+  parseStructuredReview,
+  renderReviewAsMarkdown,
+  resolveReviewRange,
+  truncateDiff,
+  validateReviewComments,
+} from "./pr-review";
 import {
   buildPullRequestBody,
   cloneIntoSandbox,
@@ -169,7 +184,96 @@ const runWorker = new Worker<RunJobData>(
       let taskDocuments: MaterialisedTaskDocuments = { written: [], omitted: [] };
       let skillNames: string[] = [];
       let repoSync: SandboxEnvironment["repoSync"];
-      if (task?.codebase) {
+
+      // Set only on the review path — carries everything the post-turn block needs to validate
+      // and post the review, and everything the prompt-composition branch needs to build the
+      // review environment segment. `undefined` on every dev-task and chat-only run, which is
+      // what every `!review` / `if (review)` guard below keys off.
+      let review:
+        | {
+            taskId: number;
+            prNumber: number;
+            repoFullName: string;
+            focusBaseSha: string;
+            focusHeadSha: string;
+            fullDiffText: string;
+            focusDiffText: string;
+            diffTruncated: boolean;
+            rewritten: boolean;
+            existingComments: string;
+          }
+        | undefined;
+
+      // Detection is live parsing of the task description on every run — never a persisted flag
+      // on Task (see the design spec): retargeting a task at a different PR, or removing the
+      // link entirely, takes effect on the next run with nothing to migrate.
+      const prRef = task ? parsePullRequestReferenceAcrossProviders(task.description) : undefined;
+      if (prRef && task) {
+        const resolved = await resolveScmConnection(agent.orgId, prRef.repoFullName);
+        if (!resolved) {
+          throw new Error(
+            `PR ${prRef.repoFullName}#${prRef.prNumber} isn't accessible via any connected GitHub installation`,
+          );
+        }
+        const { connection, provider } = resolved;
+        const pr = await provider.fetchPullRequest(connection, prRef.repoFullName, prRef.prNumber);
+        if (pr.state !== "open") {
+          throw new Error(`PR ${prRef.repoFullName}#${prRef.prNumber} is already ${pr.state} — nothing to review`);
+        }
+
+        workspace = await provider.resolveCloneTarget(connection, prRef.repoFullName, "pull-request-review");
+        await checkoutPullRequest(sandboxProvider, sandboxId, workspace, prRef.prNumber, pr.baseBranch);
+        mark("PR checkout");
+
+        const lastReview = await getLatestPrReview(task.id, agent.orgId);
+        const lastReviewedHeadSha = lastReview?.headSha;
+        const lastReviewedIsAncestorOfHead = lastReviewedHeadSha
+          ? await isAncestor(sandboxProvider, sandboxId, lastReviewedHeadSha, pr.headSha)
+          : false;
+        const range = resolveReviewRange({
+          prBaseBranch: pr.baseBranch,
+          prHeadSha: pr.headSha,
+          lastReviewedHeadSha,
+          lastReviewedIsAncestorOfHead,
+        });
+
+        const fullDiffText = await provider.fetchCommitRangeDiff(workspace, {
+          baseSha: pr.baseBranch,
+          headSha: pr.headSha,
+        });
+        const focusDiffTextRaw =
+          range.focusBaseSha === pr.baseBranch
+            ? fullDiffText
+            : await provider.fetchCommitRangeDiff(workspace, {
+                baseSha: range.focusBaseSha,
+                headSha: range.focusHeadSha,
+              });
+        const { text: focusDiffText, truncated: diffTruncated } = truncateDiff(focusDiffTextRaw);
+
+        const existingThreads = lastReviewedHeadSha
+          ? await provider.fetchReviewThreads(connection, prRef.repoFullName, prRef.prNumber)
+          : [];
+        const existingComments =
+          existingThreads.length > 0
+            ? `## Existing Review Comments\n\n${existingThreads
+                .map((c) => `- ${c.path}:${c.line ?? "?"} (${c.author}): ${c.body}`)
+                .join("\n")}\n\n---\n\n`
+            : "";
+
+        review = {
+          taskId: task.id,
+          prNumber: prRef.prNumber,
+          repoFullName: prRef.repoFullName,
+          focusBaseSha: range.focusBaseSha,
+          focusHeadSha: range.focusHeadSha,
+          fullDiffText,
+          focusDiffText,
+          diffTruncated,
+          rewritten: range.rewritten,
+          existingComments,
+        };
+        mark("PR diff fetched");
+      } else if (task?.codebase) {
         workspace = await resolveCloneTarget(agent.orgId, task.codebase, sessionBranchName(session, task));
         if (!workspace) {
           throw new Error(
@@ -304,15 +408,41 @@ const runWorker = new Worker<RunJobData>(
               retrieved.omittedReason !== "no_indexed_documents",
               retrieved.text,
             );
-      const composed = composeSystemPrompt(
-        PLATFORM_PREAMBLE,
-        environment,
-        buildPriorConversationSegment(resumeIsValid, priorConversationText),
-        buildTeamContextSegment(Boolean(team), teamContextPrefix),
-        buildRepoMapSegment(Boolean(task?.codebase), repoMap),
-        retrievedContextSegment,
-        agent.systemPrompt,
-      );
+      // A review run composes a different prompt entirely: the review preamble instead of the
+      // dev-task one, a PR range instead of a branch to work on, and the diff (plus any existing
+      // review comments) appended to the agent's own system prompt. `team`/`teamContextPrefix`/
+      // `retrievedContextSegment`/`environment`/`repoMap` are still computed above exactly as
+      // before — a review run simply doesn't use them (no team context, no repo map, by design).
+      let composed: ReturnType<typeof composeSystemPrompt>;
+      if (review) {
+        const reviewEnvironment = formatReviewEnvironmentForPrompt({
+          workspacePath: "/workspace",
+          prNumber: review.prNumber,
+          focusBaseSha: review.focusBaseSha,
+          focusHeadSha: review.focusHeadSha,
+          rewritten: review.rewritten,
+          truncatedDiff: review.diffTruncated,
+        });
+        composed = composeSystemPrompt(
+          REVIEW_PLATFORM_PREAMBLE,
+          reviewEnvironment,
+          buildPriorConversationSegment(resumeIsValid, priorConversationText),
+          buildTeamContextSegment(false, ""),
+          buildRepoMapSegment(false, ""),
+          { id: "retrieved_context", text: "", omittedReason: "no_context_sources" },
+          `${agent.systemPrompt}\n\n${review.existingComments}## PR Diff (${review.focusBaseSha}..${review.focusHeadSha})\n\n${review.focusDiffText}`,
+        );
+      } else {
+        composed = composeSystemPrompt(
+          PLATFORM_PREAMBLE,
+          environment,
+          buildPriorConversationSegment(resumeIsValid, priorConversationText),
+          buildTeamContextSegment(Boolean(team), teamContextPrefix),
+          buildRepoMapSegment(Boolean(task?.codebase), repoMap),
+          retrievedContextSegment,
+          agent.systemPrompt,
+        );
+      }
       const systemPrompt = composed.prompt;
       // Provenance for what was injected. Deliberately NOT a run event: the task page keys
       // context_included by runId with last-write-wins (tasks/[taskId]/page.tsx:222-235, whose
@@ -353,6 +483,7 @@ const runWorker = new Worker<RunJobData>(
             userText: (triggeringMessage?.content ?? "") + issueContext,
             resumeSessionRef,
             skillNames,
+            outputSchema: review ? REVIEW_OUTPUT_SCHEMA : undefined,
             onEvent: async (type, data) => {
               await createEvent(runId, seq++, type, data);
             },
@@ -374,14 +505,63 @@ const runWorker = new Worker<RunJobData>(
       const { text, providerSessionRef } = turnResult;
       mark("agent turn");
 
-      await createMessage(run.sessionId, "assistant", text, runId);
-      await createEvent(runId, seq++, "text_delta", { text });
+      // What a review run stores in the transcript is the rendered review, not the agent's raw
+      // closing text — the structured output is the real artefact of the turn. Posting happens
+      // here, host-side: the sandbox never holds a GitHub token.
+      let transcriptText = text;
+      if (review) {
+        const structured = parseStructuredReview(turnResult.structuredOutput);
+        const validated = validateReviewComments(structured, review.fullDiffText);
+        transcriptText = renderReviewAsMarkdown(validated);
+
+        // Skip posting only when there is truly nothing new: no validated comments AND this pass
+        // covered zero new commits (the focus range was empty because head hadn't moved since
+        // the last review). This is what stops a content-free re-run from posting a duplicate
+        // summary to GitHub.
+        const rangeWasEmpty = review.focusBaseSha === review.focusHeadSha;
+        if (!(validated.comments.length === 0 && rangeWasEmpty)) {
+          const resolvedForPost = await resolveScmConnection(agent.orgId, review.repoFullName);
+          if (!resolvedForPost) {
+            throw new Error(`No connected GitHub provider can post the review for ${review.repoFullName}`);
+          }
+          const posted = await resolvedForPost.provider.postReview(
+            resolvedForPost.connection,
+            review.repoFullName,
+            review.prNumber,
+            { summary: validated.summary, verdict: validated.verdict, comments: validated.comments },
+          );
+          await createPrReview(agent.orgId, review.taskId, runId, {
+            repoFullName: review.repoFullName,
+            prNumber: review.prNumber,
+            baseSha: review.focusBaseSha,
+            headSha: review.focusHeadSha,
+            verdict: validated.verdict,
+            postedAs: posted.postedAs,
+            githubReviewId: posted.id,
+            url: posted.url,
+            commentCount: validated.comments.length,
+            truncated: review.diffTruncated,
+          });
+          await createEvent(runId, seq++, "artifact", {
+            artifactType: "review",
+            label: "PR review",
+            url: posted.url,
+          });
+        }
+        mark("review posted");
+      }
+
+      await createMessage(run.sessionId, "assistant", transcriptText, runId);
+      await createEvent(runId, seq++, "text_delta", { text: transcriptText });
       await createEvent(runId, seq++, "done", { reason: "completed" });
 
       await updateRunStatus(runId, "finalizing");
 
       let changedFiles: string[] = [];
-      if (workspace && task) {
+      // `!review` is load-bearing: a review run also has a `workspace` (the PR checkout), but it
+      // must never reach this block — the checkout is read-only by design, carries no push token,
+      // and is on a `review/pr-N` branch that nothing should ever be pushed from.
+      if (workspace && task && !review) {
         const result = await pushChangesIfDirty(
           sandboxProvider,
           sandboxId,
@@ -437,6 +617,12 @@ const runWorker = new Worker<RunJobData>(
             sinceRunAgentClickedMs: Date.now() - new Date(session.createdAt).getTime(),
           });
         }
+      }
+
+      // A review run's whole deliverable is the review that was just posted — there is no PR to
+      // open and no follow-up work, so the task is finished the moment the review lands.
+      if (review) {
+        await updateTask(review.taskId, { status: "done" });
       }
 
       // Once a real repo is cloned, the sandbox's whole checkout lives under /workspace — showing
