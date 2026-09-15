@@ -446,6 +446,38 @@ describe("pushChangesIfDirty", () => {
     expect(script()).toContain("git merge --abort");
   });
 
+  it("never attempts the push once merging in the remote tip has conflicted", async () => {
+    mockProvider();
+    const { sandbox, script } = capturingSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
+    await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    const s = script();
+    // The push (and the abort) both appear in the script text unconditionally; what matters is
+    // that the push sits behind the same $MERGE_CONFLICT guard the abort sets, so a real
+    // conflict short-circuits before ever reaching `git push`.
+    expect(s.indexOf('MERGE_CONFLICT=1')).toBeLessThan(s.indexOf('if [ "$MERGE_CONFLICT" -eq 1 ]'));
+    expect(s.indexOf('if [ "$MERGE_CONFLICT" -eq 1 ]')).toBeLessThan(s.indexOf("git push --no-verify"));
+  });
+
+  it("throws a distinct, actionable error when the remote branch has unrelated conflicting commits", async () => {
+    mockProvider();
+    const sandbox = fakeSandbox([
+      { stream: "stdout", data: "CONFLICT_FILE:apps/web/src/app/(app)/activity/page.tsx\n" },
+      { stream: "stdout", data: "PUSH_CONFLICT\n" },
+    ]);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).rejects.toThrow(
+      /remote branch "agent\/session-1" already has unrelated commits.*activity\/page\.tsx.*branch name was reused/s,
+    );
+  });
+
+  it("still throws the conflict error when no conflicting file names came through", async () => {
+    mockProvider();
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_CONFLICT\n" }]);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).rejects.toThrow(
+      'Cannot push: remote branch "agent/session-1" already has unrelated commits',
+    );
+  });
+
   it("throws when the push fails", async () => {
     mockProvider();
     const sandbox = fakeSandbox([
