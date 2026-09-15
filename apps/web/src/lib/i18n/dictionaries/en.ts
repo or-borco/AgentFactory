@@ -16,6 +16,8 @@ const en = {
     settings: "Settings",
     workspaceFooter: "Team workspace",
     logout: "Log out",
+    theme: "Theme",
+    themeToggle: "Toggle theme",
   },
   auth: {
     nameLabel: "Full name",

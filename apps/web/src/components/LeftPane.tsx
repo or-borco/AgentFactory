@@ -3,15 +3,27 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "@/lib/i18n/context";
-import { ActivityIcon, BotIcon, LogOutIcon, SettingsIcon, SparklesIcon, TasksIcon, UsersIcon } from "@/lib/icons";
+import {
+  ActivityIcon,
+  BotIcon,
+  LogOutIcon,
+  MoonIcon,
+  SettingsIcon,
+  SparklesIcon,
+  SunIcon,
+  TasksIcon,
+  UsersIcon,
+} from "@/lib/icons";
 import { useMockBackend } from "@/lib/mock/context";
 import { useAuth } from "@/lib/auth/context";
+import { useTheme } from "@/lib/theme/context";
 
 export function LeftPane({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { toast } = useMockBackend();
   const { t } = useTranslation();
   const { user, logout } = useAuth();
+  const { theme, toggleTheme } = useTheme();
 
   const newNavItems = [
     { href: "/tasks", label: t("nav.tasks"), icon: TasksIcon },
@@ -100,6 +112,37 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
             </div>
           </div>
           <LogOutIcon size={14} style={{ color: "var(--color-neutral-600)", flexShrink: 0 }} />
+        </div>
+
+        {/* Theme toggle */}
+        <div
+          className="flex items-center justify-between border-t border-[var(--color-divider)]"
+          style={{ padding: "10px 14px" }}
+        >
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--color-neutral-400)" }}>
+            {t("nav.theme")}
+          </span>
+          <button
+            type="button"
+            onClick={toggleTheme}
+            title={t("nav.themeToggle")}
+            aria-label={t("nav.themeToggle")}
+            className="flex shrink-0 items-center justify-center transition-colors"
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: "var(--radius-sm)",
+              color: "var(--color-neutral-400)",
+            }}
+            onMouseEnter={(e) => {
+              (e.currentTarget as HTMLElement).style.background = "rgba(145,132,217,0.1)";
+            }}
+            onMouseLeave={(e) => {
+              (e.currentTarget as HTMLElement).style.background = "transparent";
+            }}
+          >
+            {theme === "dark" ? <MoonIcon size={14} /> : <SunIcon size={14} />}
+          </button>
         </div>
       </aside>
 
