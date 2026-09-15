@@ -1,3 +1,4 @@
+import { TASK_CONTEXT_MIME_CONFIG } from "@agentfactory/core";
 import type { TaskContextItem } from "@agentfactory/core";
 import { listTaskContextItemsForOrg } from "@agentfactory/db";
 import { createBlobStore, type BlobStore } from "@agentfactory/storage";
@@ -6,11 +7,12 @@ import { TASK_DOCUMENT_DIR } from "./task-document-paths";
 
 export { TASK_DOCUMENT_DIR, TASK_DOCUMENT_EXCLUDE_PATTERN } from "./task-document-paths";
 
-// Total across every document on the task, not per document — the upload route already caps a
-// single file at 2 MB (apps/web's tasks/[taskId]/context-items/route.ts:18). This bounds what a
-// task with many attachments can push through a tar into the container: 1 MB is ~150x the 6.7 KB
-// document that motivated this work, and still an order of magnitude under one maximal upload.
-export const TASK_DOCUMENTS_BUDGET_BYTES = 1024 * 1024;
+// Total across every document (and now image) on the task, not per file — the upload route
+// already caps a single file at 2 MB (apps/web's tasks/[taskId]/context-items/route.ts:18). Raised
+// from the original 1 MB (sized for a 6.7 KB motivating text document, before images existed) to
+// 8 MB so a task carrying a couple of 2 MB images alongside its text documents doesn't get them
+// silently omitted here even though they uploaded successfully.
+export const TASK_DOCUMENTS_BUDGET_BYTES = 8 * 1024 * 1024;
 
 export interface MaterialisedTaskDocuments {
   // Paths relative to /workspace, in the order they were written.
@@ -88,7 +90,7 @@ export async function materialiseTaskDocuments(
     // (see the omitted-titles pass below, which still names it rather than letting it vanish).
     const indexed = items.filter((item) => item.status === "indexed");
 
-    const files: Record<string, string> = {};
+    const files: Record<string, string | Buffer> = {};
     const written: string[] = [];
     const omitted: string[] = [];
     const taken = new Set<string>();
@@ -120,9 +122,12 @@ export async function materialiseTaskDocuments(
       }
       const name = deduplicate(sanitiseDocumentName(item.title, item.id), taken);
       taken.add(name);
-      // Uploads are constrained to text/markdown and text/plain by the upload route, so decoding
-      // as UTF-8 is safe here and writeFiles takes strings.
-      files[`${TASK_DOCUMENT_DIR}/${name}`] = new TextDecoder().decode(bytes);
+      // TASK_CONTEXT_MIME_CONFIG says which mimes are safely UTF-8-decodable; anything else
+      // (images today) is written as raw bytes so binary content isn't corrupted. An unconfigured
+      // mime defaults to the text path, matching this function's behavior before images existed.
+      const mimeConfig = TASK_CONTEXT_MIME_CONFIG[item.mime];
+      files[`${TASK_DOCUMENT_DIR}/${name}`] =
+        mimeConfig?.decodeAsText === false ? Buffer.from(bytes) : new TextDecoder().decode(bytes);
       written.push(`${TASK_DOCUMENT_DIR}/${name}`);
       usedBytes += item.sizeBytes;
     }

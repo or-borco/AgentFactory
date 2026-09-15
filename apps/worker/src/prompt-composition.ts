@@ -88,12 +88,13 @@ export function formatEnvironmentForPrompt(env: SandboxEnvironment): string {
     const omitted = env.taskDocuments?.omitted ?? [];
     if (written.length > 0) {
       lines.push(
-        `- The documents attached to this task are already in your checkout at ` +
+        `- The files attached to this task are already in your checkout at ` +
           `\`${env.workspacePath}/${TASK_DOCUMENT_DIR}\`: ${written
             .map((path) => `\`${path}\``)
-            .join(", ")}. These are the complete files — read them directly rather than searching ` +
-          "for them, and prefer them over any excerpt of the same document quoted elsewhere in " +
-          "this prompt. They are untracked and excluded from git; leave them out of your commits.",
+            .join(", ")}. These are the complete files — open them directly rather than searching ` +
+          "for them (view an image, read a text document), and prefer them over any excerpt of the " +
+          "same document quoted elsewhere in this prompt. They are untracked and excluded from " +
+          "git; leave them out of your commits.",
       );
     }
     if (omitted.length > 0) {

@@ -1,3 +1,4 @@
+import { TASK_CONTEXT_MIME_CONFIG } from "@agentfactory/core";
 import type { TaskContextItem, TeamContextItem } from "@agentfactory/core";
 import {
   deleteTaskChunksForItem,
@@ -174,6 +175,16 @@ export async function ingestTaskContextItem(itemId: number, deps: Partial<TaskIn
 
   try {
     await d.markTaskContextItemIndexing(itemId);
+
+    // A mime not in the table (e.g. a stray "application/pdf" test item, or any future upload
+    // whose extraction genuinely fails) falls through unchanged to extractText below, which is
+    // what throws UnsupportedMimeError and lands the item as "failed" — this only short-circuits
+    // mimes the table explicitly says don't need indexing.
+    const mimeConfig = TASK_CONTEXT_MIME_CONFIG[item.mime];
+    if (mimeConfig && !mimeConfig.requiresIndexing) {
+      await d.markTaskContextItemIndexed(itemId);
+      return;
+    }
 
     const blobStore = d.blobStore ?? createBlobStore();
     const embedder = d.embedder ?? getEmbedder();

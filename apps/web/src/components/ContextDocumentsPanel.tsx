@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { TASK_CONTEXT_MIME_CONFIG, isTaskContextMimeAllowed, taskContextExtensionMime } from "@agentfactory/core";
 import type { OrgMember, TaskContextItem, TeamContextItem } from "@agentfactory/core";
 import { Badge, EmptyState } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
@@ -33,17 +34,27 @@ function basePathForScope(scope: ContextDocumentsScope): string {
 // button labels, size/upload-failed-generic copy) reads fine for either scope unchanged.
 const SCOPE_COPY_KEYS: Record<
   ContextDocumentsScope["kind"],
-  { emptySub: TranslationKey; uploadFailed: TranslationKey; loadError: TranslationKey }
+  {
+    help: TranslationKey;
+    emptySub: TranslationKey;
+    uploadFailed: TranslationKey;
+    loadError: TranslationKey;
+    unsupportedType: TranslationKey;
+  }
 > = {
   team: {
+    help: "teamsV2.documentsHelp",
     emptySub: "teamsV2.documentsEmptySub",
     uploadFailed: "teamsV2.documentsUploadFailed",
     loadError: "teamsV2.documentsLoadError",
+    unsupportedType: "teamsV2.documentsUnsupportedType",
   },
   task: {
+    help: "taskDetail.documentsHelp",
     emptySub: "taskDetail.documentsEmptySub",
     uploadFailed: "taskDetail.documentsUploadFailed",
     loadError: "taskDetail.documentsLoadError",
+    unsupportedType: "taskDetail.documentsUnsupportedType",
   },
 };
 
@@ -52,17 +63,34 @@ const SCOPE_COPY_KEYS: Record<
 // point — a client skipping these still gets a 413/415. These exist only so the two mistakes a
 // user actually makes get named copy instead of a generic failure line.
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
-const ALLOWED_MIMES = ["text/markdown", "text/plain"];
+const TEAM_ALLOWED_MIMES = ["text/markdown", "text/plain"];
 
 // Some OS/browser combinations never populate `file.type` for a .md file — it comes through as
 // "" locally, or as "application/octet-stream" once a File round-trips through FormData. That
 // would reject this feature's own headline scenario, so a file whose declared mime isn't in
-// ALLOWED_MIMES gets a second chance based on its extension before being turned away.
-function extensionMime(filename: string): "text/markdown" | "text/plain" | null {
+// TEAM_ALLOWED_MIMES gets a second chance based on its extension before being turned away.
+function teamExtensionMime(filename: string): "text/markdown" | "text/plain" | null {
   const lower = filename.toLowerCase();
   if (lower.endsWith(".md") || lower.endsWith(".markdown")) return "text/markdown";
   if (lower.endsWith(".txt")) return "text/plain";
   return null;
+}
+
+// Team scope keeps its own literal mime set unchanged; task scope reads from the shared table.
+// Deliberately not unified — see the design doc's "the teams route does not adopt this table".
+function isAllowedMime(scope: ContextDocumentsScope, mime: string): boolean {
+  return scope.kind === "task" ? isTaskContextMimeAllowed(mime) : TEAM_ALLOWED_MIMES.includes(mime);
+}
+
+function extensionMimeFor(scope: ContextDocumentsScope, filename: string): string | null {
+  return scope.kind === "task" ? taskContextExtensionMime(filename) : teamExtensionMime(filename);
+}
+
+function acceptFor(scope: ContextDocumentsScope): string {
+  if (scope.kind !== "task") return ".md,.markdown,.txt,text/markdown,text/plain";
+  const extensions = Object.values(TASK_CONTEXT_MIME_CONFIG).flatMap((config) => config.extensions);
+  const mimes = Object.keys(TASK_CONTEXT_MIME_CONFIG);
+  return [...extensions, ...mimes].join(",");
 }
 
 // Matches RunEvalPanel's cadence — the same "a worker is doing something we can't be told
@@ -120,10 +148,10 @@ export function ContextDocumentsPanel({
       return;
     }
     let mime = file.type;
-    if (!ALLOWED_MIMES.includes(mime)) {
-      const fallback = extensionMime(file.name);
+    if (!isAllowedMime(scope, mime)) {
+      const fallback = extensionMimeFor(scope, file.name);
       if (!fallback) {
-        setErrorKey("teamsV2.documentsUnsupportedType");
+        setErrorKey(copy.unsupportedType);
         return;
       }
       mime = fallback;
@@ -172,7 +200,7 @@ export function ContextDocumentsPanel({
         <input
           ref={inputRef}
           type="file"
-          accept=".md,.markdown,.txt,text/markdown,text/plain"
+          accept={acceptFor(scope)}
           aria-label={t("teamsV2.documentsUpload")}
           className="sr-only"
           onChange={(e) => {
@@ -182,7 +210,7 @@ export function ContextDocumentsPanel({
         />
       </label>
 
-      <p className="text-xs text-[var(--color-neutral-600)]">{t("teamsV2.documentsHelp")}</p>
+      <p className="text-xs text-[var(--color-neutral-600)]">{t(copy.help)}</p>
       {errorKey && <p className="text-xs text-red-400">{t(errorKey)}</p>}
       {loadError && <p className="text-xs text-red-400">{t(copy.loadError)}</p>}
 
@@ -202,6 +230,13 @@ export function ContextDocumentsPanel({
                   className={i < items.length - 1 ? "border-b border-[var(--color-divider)]" : ""}
                 >
                   <div className="flex items-center gap-3 px-4 py-3">
+                    {item.mime.startsWith("image/") && (
+                      <img
+                        src={`${basePath}/${item.id}/content`}
+                        alt={item.title}
+                        className="h-10 w-10 shrink-0 rounded-[var(--radius-sm)] object-cover"
+                      />
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm text-[var(--color-neutral-200)]">{item.title}</div>
                       <div className="text-xs text-[var(--color-neutral-500)]">

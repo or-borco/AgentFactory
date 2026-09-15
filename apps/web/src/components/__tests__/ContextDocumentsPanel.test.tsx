@@ -235,6 +235,34 @@ describe("ContextDocumentsPanel", () => {
       vi.useRealTimers();
     }
   });
+
+  it("shows the team-scope help copy", async () => {
+    apiFetchMock.mockResolvedValue([]);
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+    expect(
+      screen.getByText(
+        "Markdown or plain text, up to 2 MB. Agents receive the excerpts relevant to their task, not the whole file.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("still refuses images at team scope", async () => {
+    apiFetchMock.mockResolvedValue([]);
+    renderPanel();
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+
+    const file = new File(["\x89PNG"], "screenshot.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Upload document"), { target: { files: [file] } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Only Markdown (.md) and plain text (.txt) files can be uploaded."),
+      ).toBeInTheDocument(),
+    );
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 // Same component, task scope: only the route base and the copy naming the scope explicitly
@@ -248,7 +276,9 @@ describe("ContextDocumentsPanel with task scope", () => {
     await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
     expect(apiFetchMock).toHaveBeenCalledWith("/api/tasks/9/context-items");
     expect(
-      screen.getByText("Upload a Markdown or text file to give this task's agent something to draw on."),
+      screen.getByText(
+        "Upload a Markdown or text file, or an image, to give this task's agent something to draw on.",
+      ),
     ).toBeInTheDocument();
   });
 
@@ -307,5 +337,69 @@ describe("ContextDocumentsPanel with task scope", () => {
     renderPanel(TASK_SCOPE);
 
     await waitFor(() => expect(screen.getByText("Couldn't load this task's documents.")).toBeInTheDocument());
+  });
+
+  it("accepts a PNG file and uploads it to the task-scoped route", async () => {
+    apiFetchMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ ...TASK_ITEM, id: 3, title: "screenshot.png", mime: "image/png", sizeBytes: 9 });
+    renderPanel(TASK_SCOPE);
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+
+    const file = new File(["\x89PNG"], "screenshot.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("Upload document"), { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByText("screenshot.png")).toBeInTheDocument());
+    const [path, init] = apiFetchMock.mock.calls[1] as [string, RequestInit];
+    expect(path).toBe("/api/tasks/9/context-items");
+    expect((init.body as FormData).get("file")).toBeInstanceOf(File);
+  });
+
+  it("refuses a file type the task uploader still doesn't accept", async () => {
+    apiFetchMock.mockResolvedValue([]);
+    renderPanel(TASK_SCOPE);
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+
+    const file = new File(["GIF89a"], "anim.gif", { type: "image/gif" });
+    fireEvent.change(screen.getByLabelText("Upload document"), { target: { files: [file] } });
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Only Markdown (.md), plain text (.txt), JPEG, and PNG files can be uploaded."),
+      ).toBeInTheDocument(),
+    );
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a thumbnail for an image item pointed at the content route", async () => {
+    apiFetchMock.mockResolvedValue([{ ...TASK_ITEM, mime: "image/png", title: "screenshot.png" }]);
+    renderPanel(TASK_SCOPE);
+
+    await waitFor(() => expect(screen.getByText("screenshot.png")).toBeInTheDocument());
+    const thumb = screen.getByAltText("screenshot.png") as HTMLImageElement;
+    expect(thumb.src).toContain("/api/tasks/9/context-items/1/content");
+  });
+
+  it("renders no thumbnail for a non-image item", async () => {
+    apiFetchMock.mockResolvedValue([TASK_ITEM]);
+    renderPanel(TASK_SCOPE);
+
+    await waitFor(() => expect(screen.getByText("Migration runbook")).toBeInTheDocument());
+    expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+
+  it("shows task-scope help copy that mentions images and full-file delivery, distinct from team scope", async () => {
+    apiFetchMock.mockResolvedValue([]);
+    renderPanel(TASK_SCOPE);
+
+    await waitFor(() => expect(screen.getByText("No documents yet")).toBeInTheDocument());
+    const help = screen.getByText(
+      "Markdown, plain text, JPEG, or PNG, up to 2 MB. Attached files are placed in the agent's checkout in full.",
+    );
+    expect(help).toBeInTheDocument();
+    expect(help.textContent).toMatch(/JPEG|PNG/);
+    expect(help.textContent).not.toBe(
+      "Markdown or plain text, up to 2 MB. Agents receive the excerpts relevant to their task, not the whole file.",
+    );
   });
 });

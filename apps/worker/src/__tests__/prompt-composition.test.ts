@@ -347,6 +347,19 @@ describe("formatEnvironmentForPrompt", () => {
     expect(result).toContain("rather than searching");
   });
 
+  it("frames attached files as things to open, so an image reads correctly alongside a document", () => {
+    const result = formatEnvironmentForPrompt({
+      workspacePath: "/workspace",
+      taskDocuments: { written: [".agentfactory/context/screenshot.png"], omitted: [] },
+    });
+
+    expect(result).toContain("open them directly");
+    expect(result).toContain("view an image, read a text document");
+    // The two claims the existing test suite already locks in must still hold with the new wording.
+    expect(result).toContain("complete files");
+    expect(result).toContain("rather than searching");
+  });
+
   it("tells the agent the files are untracked so they stay out of its commits", () => {
     const result = formatEnvironmentForPrompt({
       workspacePath: "/workspace",
