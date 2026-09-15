@@ -71,6 +71,7 @@ async function listInstallationRepositories(installationId: number): Promise<{ i
 }
 
 const ISSUE_URL_RE = /github\.com\/([^/\s]+\/[^/\s.]+)\/issues\/(\d+)/;
+const PR_URL_RE = /github\.com\/([^/\s]+\/[^/\s.]+)\/pull\/(\d+)/;
 
 function installationIdOf(connection: Connection): number {
   const id = connection.config.installationId;
@@ -245,5 +246,108 @@ export const githubScmProvider: ScmProvider = {
     const match = ISSUE_URL_RE.exec(text);
     if (!match) return undefined;
     return { repoFullName: match[1], issueNumber: Number(match[2]) };
+  },
+
+  async fetchPullRequest(connection, repoFullName, prNumber) {
+    const token = await getInstallationToken(installationIdOf(connection));
+    const res = await fetch(`${GITHUB_API}/repos/${repoFullName}/pulls/${prNumber}`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+    });
+    if (!res.ok) {
+      throw new Error(`GitHub API PR fetch failed: ${res.status} ${await res.text().catch(() => "")}`);
+    }
+    const pr = (await res.json()) as {
+      state: "open" | "closed";
+      merged: boolean;
+      base: { ref: string };
+      head: { sha: string };
+      title: string;
+      body: string | null;
+    };
+    return {
+      state: pr.merged ? "merged" : pr.state,
+      baseBranch: pr.base.ref,
+      headSha: pr.head.sha,
+      title: pr.title,
+      body: pr.body ?? "",
+    };
+  },
+
+  // Flat list of inline review comments — GitHub's REST endpoint doesn't group into threads;
+  // v1 doesn't need it to (see ReviewComment's own comment).
+  async fetchReviewThreads(connection, repoFullName, prNumber) {
+    const token = await getInstallationToken(installationIdOf(connection));
+    const res = await fetch(`${GITHUB_API}/repos/${repoFullName}/pulls/${prNumber}/comments?per_page=100`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+    });
+    if (!res.ok) {
+      throw new Error(`GitHub API PR comments fetch failed: ${res.status} ${await res.text().catch(() => "")}`);
+    }
+    const comments = (await res.json()) as Array<{
+      path: string;
+      line: number | null;
+      original_line: number | null;
+      body: string;
+      user: { login: string } | null;
+      created_at: string;
+    }>;
+    return comments.map((c) => ({
+      path: c.path,
+      line: c.line ?? c.original_line ?? null,
+      body: c.body,
+      author: c.user?.login ?? "unknown",
+      createdAt: c.created_at,
+    }));
+  },
+
+  // Posts a review. Comment-only verdicts always go through as COMMENT. A request_changes
+  // verdict is attempted as REQUEST_CHANGES first; GitHub rejects that with a 422 when the
+  // reviewing identity also opened the PR ("can not request changes on your own pull
+  // request") — rather than detecting that case ahead of time, this just tries and falls back
+  // to a COMMENT with an explicit warning header, so postedAs always reflects what actually
+  // landed on GitHub.
+  async postReview(connection, repoFullName, prNumber, review) {
+    const token = await getInstallationToken(installationIdOf(connection));
+    const commentsPayload = review.comments.map((c) => ({ path: c.path, line: c.line, body: c.body }));
+
+    const post = (event: "COMMENT" | "REQUEST_CHANGES", body: string) =>
+      fetch(`${GITHUB_API}/repos/${repoFullName}/pulls/${prNumber}/reviews`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ body, event, comments: commentsPayload }),
+      });
+
+    const asPosted = async (res: Response, postedAs: "comment" | "request_changes") => {
+      if (!res.ok) {
+        throw new Error(`GitHub API review post failed: ${res.status} ${await res.text().catch(() => "")}`);
+      }
+      const posted = (await res.json()) as { id: number; html_url: string };
+      return { id: String(posted.id), url: posted.html_url, postedAs };
+    };
+
+    if (review.verdict === "comment") {
+      return asPosted(await post("COMMENT", review.summary), "comment");
+    }
+
+    const res = await post("REQUEST_CHANGES", review.summary);
+    if (res.status === 422) {
+      const bodyText = await res.text().catch(() => "");
+      if (/own pull request/i.test(bodyText)) {
+        return asPosted(await post("COMMENT", `⛔ Changes requested\n\n${review.summary}`), "comment");
+      }
+      throw new Error(`GitHub API review post failed: 422 ${bodyText}`);
+    }
+    return asPosted(res, "request_changes");
+  },
+
+  // Sibling to parseIssueReference — same shape, /pull/ instead of /issues/.
+  parsePullRequestReference(text) {
+    const match = PR_URL_RE.exec(text);
+    if (!match) return undefined;
+    return { repoFullName: match[1], prNumber: Number(match[2]) };
   },
 };

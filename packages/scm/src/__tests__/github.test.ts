@@ -440,3 +440,192 @@ describe("parseIssueReference", () => {
     expect(githubScmProvider.parseIssueReference("https://github.com/acme-org/platform/pull/37")).toBeUndefined();
   });
 });
+
+describe("fetchPullRequest", () => {
+  it("fetches PR state/base/head/title/body and classifies merged separately from closed", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_pr" }), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              state: "closed",
+              merged: true,
+              base: { ref: "main" },
+              head: { sha: "headsha123" },
+              title: "Add widgets",
+              body: "Adds the widgets feature.",
+            }),
+            { status: 200 },
+          ),
+        ),
+    );
+
+    const result = await githubScmProvider.fetchPullRequest(githubConnection(1, 999), "acme-org/platform", 42);
+
+    expect(result).toEqual({
+      state: "merged",
+      baseBranch: "main",
+      headSha: "headsha123",
+      title: "Add widgets",
+      body: "Adds the widgets feature.",
+    });
+  });
+
+  it("treats a null body as an empty string", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_pr" }), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              state: "open",
+              merged: false,
+              base: { ref: "main" },
+              head: { sha: "headsha123" },
+              title: "Add widgets",
+              body: null,
+            }),
+            { status: 200 },
+          ),
+        ),
+    );
+
+    const result = await githubScmProvider.fetchPullRequest(githubConnection(1, 999), "acme-org/platform", 42);
+    expect(result.body).toBe("");
+    expect(result.state).toBe("open");
+  });
+});
+
+describe("fetchReviewThreads", () => {
+  it("maps the GitHub review-comments list to ReviewComment[]", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_comments" }), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify([
+              { path: "src/a.ts", line: 10, body: "consider a null check", user: { login: "agentfactory[bot]" }, created_at: "2026-09-14T00:00:00Z" },
+              { path: "src/b.ts", line: null, original_line: 5, body: "fixed", user: { login: "alice" }, created_at: "2026-09-14T01:00:00Z" },
+            ]),
+            { status: 200 },
+          ),
+        ),
+    );
+
+    const threads = await githubScmProvider.fetchReviewThreads(githubConnection(1, 999), "acme-org/platform", 42);
+
+    expect(threads).toEqual([
+      { path: "src/a.ts", line: 10, body: "consider a null check", author: "agentfactory[bot]", createdAt: "2026-09-14T00:00:00Z" },
+      { path: "src/b.ts", line: 5, body: "fixed", author: "alice", createdAt: "2026-09-14T01:00:00Z" },
+    ]);
+  });
+});
+
+describe("postReview", () => {
+  const review: import("../types").ReviewToPost = {
+    summary: "Looks solid overall.",
+    verdict: "comment",
+    comments: [{ path: "src/a.ts", line: 12, body: "nit: rename this" }],
+  };
+
+  it("posts a COMMENT review as requested", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_review" }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 555, html_url: "https://github.com/acme-org/platform/pull/42#pullrequestreview-555" }), { status: 200 })),
+    );
+
+    const result = await githubScmProvider.postReview(githubConnection(1, 999), "acme-org/platform", 42, review);
+
+    expect(result).toEqual({
+      id: "555",
+      url: "https://github.com/acme-org/platform/pull/42#pullrequestreview-555",
+      postedAs: "comment",
+    });
+  });
+
+  it("posts REQUEST_CHANGES as requested when it succeeds", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_review" }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 556, html_url: "https://github.com/acme-org/platform/pull/42#pullrequestreview-556" }), { status: 200 })),
+    );
+
+    const result = await githubScmProvider.postReview(githubConnection(1, 999), "acme-org/platform", 42, {
+      ...review,
+      verdict: "request_changes",
+    });
+
+    expect(result.postedAs).toBe("request_changes");
+  });
+
+  it("falls back to a COMMENT with a warning header when GitHub rejects REQUEST_CHANGES on the app's own PR", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_review" }), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ message: "Can not request changes on your own pull request" }), { status: 422 }),
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({ id: 557, html_url: "https://github.com/acme-org/platform/pull/42#pullrequestreview-557" }), { status: 200 })),
+    );
+
+    const result = await githubScmProvider.postReview(githubConnection(1, 999), "acme-org/platform", 42, {
+      ...review,
+      verdict: "request_changes",
+    });
+
+    expect(result.postedAs).toBe("comment");
+    const secondCall = (fetch as ReturnType<typeof vi.fn>).mock.calls[2];
+    const sentBody = JSON.parse(secondCall[1].body as string);
+    expect(sentBody.event).toBe("COMMENT");
+    expect(sentBody.body).toMatch(/^⛔ Changes requested/);
+  });
+
+  it("throws on a non-422 failure without attempting the fallback", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_review" }), { status: 200 }))
+        .mockResolvedValueOnce(new Response("server error", { status: 500 })),
+    );
+
+    await expect(
+      githubScmProvider.postReview(githubConnection(1, 999), "acme-org/platform", 42, { ...review, verdict: "request_changes" }),
+    ).rejects.toThrow(/GitHub API review post failed/);
+  });
+});
+
+describe("parsePullRequestReference", () => {
+  it("parses a github.com PR URL", () => {
+    expect(githubScmProvider.parsePullRequestReference("please review https://github.com/acme/widgets/pull/42 thanks")).toEqual({
+      repoFullName: "acme/widgets",
+      prNumber: 42,
+    });
+  });
+
+  it("returns undefined when there is no PR link", () => {
+    expect(githubScmProvider.parsePullRequestReference("just a normal task description")).toBeUndefined();
+  });
+
+  it("returns the first match when there is more than one PR link", () => {
+    expect(
+      githubScmProvider.parsePullRequestReference(
+        "see also https://github.com/acme/widgets/pull/10 but review https://github.com/acme/widgets/pull/42",
+      ),
+    ).toEqual({ repoFullName: "acme/widgets", prNumber: 10 });
+  });
+});

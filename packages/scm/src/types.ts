@@ -32,6 +32,39 @@ export interface RepoRef {
   fullName: string;
 }
 
+export interface PullRequestInfo {
+  state: "open" | "closed" | "merged";
+  baseBranch: string;
+  headSha: string;
+  title: string;
+  body: string;
+}
+
+// A single inline comment already on the PR — the agent's own prior comments plus any human
+// replies, injected into a re-review's prompt so it doesn't repeat itself. v1 keeps this flat
+// (no thread grouping); GitHub's REST comments list is flat too.
+export interface ReviewComment {
+  path: string;
+  line: number | null;
+  body: string;
+  author: string;
+  createdAt: string;
+}
+
+export interface ReviewToPost {
+  summary: string;
+  verdict: "comment" | "request_changes";
+  comments: Array<{ path: string; line: number; body: string }>;
+}
+
+export interface PostedReview {
+  id: string;
+  url: string;
+  // What GitHub actually accepted — differs from the requested verdict only when the
+  // own-PR "can not request changes on your own pull request" fallback fired.
+  postedAs: "comment" | "request_changes";
+}
+
 // What the repo-picker UI actually renders — a RepoRef tagged with which connection it came
 // from, so a picker with more than one connected provider can group its options.
 export interface RepoOption extends RepoRef {
@@ -72,4 +105,13 @@ export interface ScmProvider {
     body: string,
   ): Promise<OpenedPullRequest>;
   parseIssueReference(text: string): { repoFullName: string; issueNumber: number } | undefined;
+  fetchPullRequest(connection: Connection, repoFullName: string, prNumber: number): Promise<PullRequestInfo>;
+  fetchReviewThreads(connection: Connection, repoFullName: string, prNumber: number): Promise<ReviewComment[]>;
+  postReview(
+    connection: Connection,
+    repoFullName: string,
+    prNumber: number,
+    review: ReviewToPost,
+  ): Promise<PostedReview>;
+  parsePullRequestReference(text: string): { repoFullName: string; prNumber: number } | undefined;
 }

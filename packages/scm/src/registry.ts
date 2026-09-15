@@ -39,3 +39,15 @@ export function parseIssueReferenceAcrossProviders(
   }
   return undefined;
 }
+
+// Same rationale as parseIssueReferenceAcrossProviders: a PR link in free text is parsed
+// before any provider is known, so every registered provider's own parser is tried in turn.
+export function parsePullRequestReferenceAcrossProviders(
+  text: string,
+): { repoFullName: string; prNumber: number; provider: ConnectionProvider } | undefined {
+  for (const provider of providers) {
+    const match = provider.parsePullRequestReference(text);
+    if (match) return { ...match, provider: provider.id };
+  }
+  return undefined;
+}
