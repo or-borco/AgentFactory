@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createConnection } from "@agentfactory/db";
+import { getScmProvider, ScmInstallIncompleteError } from "@agentfactory/scm";
 import { requireAuthContext } from "@/server/auth";
-import { getInstallation } from "@/server/github-app";
 
 const STATE_COOKIE = "gh_connect_state";
 
@@ -24,25 +24,22 @@ export async function GET(request: Request) {
   if (!state || state !== expectedState) {
     return NextResponse.redirect(new URL("/connections?error=state_mismatch", url));
   }
-  if (setupAction === "request") {
-    // Repo selection is pending approval from a GitHub org owner — no installation yet.
-    return NextResponse.redirect(new URL("/connections?error=install_pending", url));
-  }
-  if (!installationId) {
-    return NextResponse.redirect(new URL("/connections?error=missing_installation", url));
-  }
 
-  const installation = await getInstallation(Number(installationId));
-  await createConnection(ctx.orgId, {
-    provider: "github",
-    kind: "scm",
-    label: installation.account?.login ?? `installation-${installationId}`,
-    config: {
-      installationId: Number(installationId),
-      accountLogin: installation.account?.login,
-      accountType: installation.account?.type,
-    },
-  });
+  const provider = getScmProvider("github")!;
+  try {
+    const { label, config } = await provider.completeInstall({
+      installationId: installationId ?? "",
+      setupAction: setupAction ?? "",
+      state,
+    });
+    await createConnection(ctx.orgId, { provider: "github", kind: "scm", label, config });
+  } catch (err) {
+    if (err instanceof ScmInstallIncompleteError) {
+      const error = err.reason === "pending" ? "install_pending" : "missing_installation";
+      return NextResponse.redirect(new URL(`/connections?error=${error}`, url));
+    }
+    throw err;
+  }
 
   return NextResponse.redirect(new URL("/connections?connected=github", url));
 }
