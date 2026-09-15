@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OutputChunk, SandboxProvider } from "../sandbox/types";
+import type { ExecOptions, OutputChunk, SandboxProvider } from "../sandbox/types";
 
 // Mock the database dependency before importing agent-runtime
 vi.mock("@agentfactory/db", () => ({ listConnections: vi.fn() }));
@@ -86,5 +86,57 @@ describe("runAgentTurn", () => {
     const result = runAgentTurn(baseParams(sandbox));
     await expect(result).rejects.not.toBeInstanceOf(PromptTooLongError);
     await expect(result).rejects.toThrow(/produced no result line/);
+  });
+});
+
+describe("runAgentTurn — structured output", () => {
+  it("passes OUTPUT_SCHEMA to the sandbox exec env when outputSchema is given", async () => {
+    const execSpy = vi.fn(async function* (_id: string, _cmd: string[], _opts?: ExecOptions) {
+      yield { stream: "stdout" as const, data: `__RESULT__${JSON.stringify({ text: "Hi", providerSessionRef: "ref-1" })}\n` };
+    });
+    const sandbox = { ...fakeSandbox([]), exec: execSpy };
+    const schema = { type: "object", properties: { summary: { type: "string" } } };
+
+    await runAgentTurn({ ...baseParams(sandbox), outputSchema: schema });
+
+    const [, , opts] = execSpy.mock.calls[0];
+    expect(JSON.parse((opts as { env: Record<string, string> }).env.OUTPUT_SCHEMA)).toEqual(schema);
+  });
+
+  it("does not set OUTPUT_SCHEMA when outputSchema is omitted", async () => {
+    const execSpy = vi.fn(async function* (_id: string, _cmd: string[], _opts?: ExecOptions) {
+      yield { stream: "stdout" as const, data: `__RESULT__${JSON.stringify({ text: "Hi", providerSessionRef: "ref-1" })}\n` };
+    });
+    const sandbox = { ...fakeSandbox([]), exec: execSpy };
+
+    await runAgentTurn(baseParams(sandbox));
+
+    const [, , opts] = execSpy.mock.calls[0];
+    expect((opts as { env: Record<string, string> }).env.OUTPUT_SCHEMA).toBeUndefined();
+  });
+
+  it("returns structuredOutput when the sandbox result includes it", async () => {
+    const sandbox = fakeSandbox([
+      {
+        stream: "stdout",
+        data: `__RESULT__${JSON.stringify({
+          text: "Reviewed.",
+          providerSessionRef: "ref-1",
+          structuredOutput: { summary: "Looks good", verdict: "comment", comments: [] },
+        })}\n`,
+      },
+    ]);
+
+    const result = await runAgentTurn(baseParams(sandbox));
+    expect(result.structuredOutput).toEqual({ summary: "Looks good", verdict: "comment", comments: [] });
+  });
+
+  it("leaves structuredOutput undefined when the sandbox result omits it", async () => {
+    const sandbox = fakeSandbox([
+      { stream: "stdout", data: `__RESULT__${JSON.stringify({ text: "Hi", providerSessionRef: "ref-1" })}\n` },
+    ]);
+
+    const result = await runAgentTurn(baseParams(sandbox));
+    expect(result.structuredOutput).toBeUndefined();
   });
 });

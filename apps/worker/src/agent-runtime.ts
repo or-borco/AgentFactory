@@ -4,6 +4,7 @@ import type { SandboxProvider } from "./sandbox/types";
 export interface AgentTurnResult {
   text: string;
   providerSessionRef: string;
+  structuredOutput?: unknown;
 }
 
 // Must match RESULT_MARKER in apps/worker/sandbox-image/run-turn.ts.
@@ -45,9 +46,11 @@ export async function runAgentTurn(params: {
   userText: string;
   resumeSessionRef?: string;
   skillNames?: string[];
+  outputSchema?: Record<string, unknown>;
   onEvent?: (type: string, data: Record<string, unknown>) => Promise<void>;
 }): Promise<AgentTurnResult> {
-  const { sandboxProvider, sandboxId, systemPrompt, model, userText, resumeSessionRef, skillNames, onEvent } = params;
+  const { sandboxProvider, sandboxId, systemPrompt, model, userText, resumeSessionRef, skillNames, outputSchema, onEvent } =
+    params;
 
   // The caller (worker.ts) already cloned into this sandbox before composing the prompt — this
   // used to re-run cloneIntoSandbox here, which on a warm /workspace does nothing but pay for an
@@ -65,6 +68,7 @@ export async function runAgentTurn(params: {
   if (skillNames && skillNames.length > 0) {
     env.SKILL_NAMES = skillNames.join(",");
   }
+  if (outputSchema) env.OUTPUT_SCHEMA = JSON.stringify(outputSchema);
 
   let lineBuffer = "";
   let stdout = "";
