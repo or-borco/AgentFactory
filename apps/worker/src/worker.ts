@@ -225,7 +225,21 @@ const runWorker = new Worker<RunJobData>(
         await checkoutPullRequest(sandboxProvider, sandboxId, workspace, prRef.prNumber, pr.baseBranch);
         mark("PR checkout");
 
-        const lastReview = await getLatestPrReview(task.id, agent.orgId);
+        // Scoped to THIS repo+PR, not just the task. getLatestPrReview keys on task id alone, so
+        // a task retargeted at a different PR (the description is re-parsed every run — nothing
+        // is persisted) would otherwise inherit the previous PR's head sha as its "last reviewed"
+        // point. That misfires two ways: usually isAncestor is false and the agent is told this
+        // PR was force-pushed when it simply isn't the same PR, and in a stacked/shared-lineage
+        // case the old head really can be an ancestor of the new PR's head, silently narrowing
+        // the range and skipping commits that have never been reviewed. A review of a different
+        // PR is treated as no prior review at all — i.e. a first pass over the whole PR.
+        const latestForTask = await getLatestPrReview(task.id, agent.orgId);
+        const lastReview =
+          latestForTask &&
+          latestForTask.repoFullName === prRef.repoFullName &&
+          latestForTask.prNumber === prRef.prNumber
+            ? latestForTask
+            : undefined;
         const lastReviewedHeadSha = lastReview?.headSha;
         const lastReviewedIsAncestorOfHead = lastReviewedHeadSha
           ? await isAncestor(sandboxProvider, sandboxId, lastReviewedHeadSha, pr.headSha)
@@ -363,7 +377,11 @@ const runWorker = new Worker<RunJobData>(
       const team = agent.teamId ? await getTeamForOrg(agent.teamId, agent.orgId) : undefined;
       const teamContextPrefix = team ? formatSharedContextForPrompt(team.sharedContext) : "";
 
-      if (teamContextPrefix) {
+      // `!review` because this event is the task page's "shared context was used" indicator, and
+      // a review run's prompt does NOT include the team's shared context (the review arm of the
+      // composition branch below passes an empty team-context segment by design). Firing it
+      // anyway would advertise content that is provably not in this run's prompt.
+      if (!review && teamContextPrefix) {
         await createEvent(runId, seq++, "context_included", {
           included: true,
           preview: teamContextPrefix.slice(0, 150).trim(),
@@ -376,8 +394,11 @@ const runWorker = new Worker<RunJobData>(
       // loaded. `team || task`, not `team` alone: a teamless task can still have its own
       // uploaded documents, and without this a teamless task's documents would ingest
       // successfully but never actually be retrieved for any run.
+      // `!review` for the same reason as the context_included event above, plus a real cost one:
+      // a review run's prompt carries an empty retrieved-context segment, so every embedding and
+      // vector search done here would be thrown away unused.
       let retrieved: RetrievedContext = { text: "", retrievals: [] };
-      if (team || task) {
+      if (!review && (team || task)) {
         retrieved = await retrieveContext(
           { teamId: team?.id, taskId: task?.id },
           buildRetrievalQuery(task?.title, task?.description, triggeringMessage?.content),
@@ -452,7 +473,11 @@ const runWorker = new Worker<RunJobData>(
       //
       // Written before the prompt segments below so a segment visible on screen always implies
       // its provenance rows are already there (see RunContextPanel.tsx's ordering assumption).
-      if (retrieved.retrievals.length > 0) {
+      // `!review` keeps this provenance honest the same way the two gates above do: a review run
+      // injects no retrieved chunks, so it must not persist rows claiming it did. (With the
+      // retrieveContext gate above, `retrievals` is already empty on a review run — this is
+      // belt-and-braces so the invariant survives either gate being changed alone.)
+      if (!review && retrieved.retrievals.length > 0) {
         // Provenance only — never lets a write failure (e.g. a source document deleted between
         // search and insert, violating the item_id FK on a fresh row) fail an otherwise-successful
         // run. Retrieval stays fail-soft end to end, matching retrieveContext's own catch in
