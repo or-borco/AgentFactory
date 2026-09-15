@@ -35,6 +35,9 @@ importers:
       '@agentfactory/integrations':
         specifier: workspace:*
         version: link:../../packages/integrations
+      '@agentfactory/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@agentfactory/queue':
         specifier: workspace:*
         version: link:../../packages/queue
@@ -99,6 +102,9 @@ importers:
       '@agentfactory/integrations':
         specifier: workspace:*
         version: link:../../packages/integrations
+      '@agentfactory/logger':
+        specifier: workspace:*
+        version: link:../../packages/logger
       '@agentfactory/queue':
         specifier: workspace:*
         version: link:../../packages/queue
@@ -188,6 +194,15 @@ importers:
       '@agentfactory/core':
         specifier: workspace:*
         version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22
+        version: 22.20.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/logger:
     devDependencies:
       '@types/node':
         specifier: ^22
