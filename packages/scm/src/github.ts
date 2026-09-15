@@ -28,7 +28,7 @@ function signAppJwt(): string {
 
 // Minted fresh on every call, never cached or persisted — installation tokens are valid ~1hr
 // and repo-scoped to whatever the installation covers, per ARCHITECTURE.md §5/§6.
-async function getInstallationToken(installationId: number): Promise<{ token: string; expiresAt: string }> {
+async function getInstallationToken(installationId: number): Promise<string> {
   const res = await fetch(`${GITHUB_API}/app/installations/${installationId}/access_tokens`, {
     method: "POST",
     headers: { Authorization: `Bearer ${signAppJwt()}`, Accept: "application/vnd.github+json" },
@@ -37,7 +37,7 @@ async function getInstallationToken(installationId: number): Promise<{ token: st
     throw new Error(`GitHub API installation token mint failed: ${res.status} ${await res.text().catch(() => "")}`);
   }
   const body = (await res.json()) as { token: string; expires_at: string };
-  return { token: body.token, expiresAt: body.expires_at };
+  return body.token;
 }
 
 interface GithubInstallation {
@@ -59,7 +59,7 @@ function getInstallation(installationId: number): Promise<GithubInstallation> {
 // Shared by findRepoAccess (names only, to check "does this installation see repoFullName")
 // and listRepos (the full RepoRef shape, for the UI picker) — one HTTP call, two shapes.
 async function listInstallationRepositories(installationId: number): Promise<{ id: number; full_name: string }[]> {
-  const { token } = await getInstallationToken(installationId);
+  const token = await getInstallationToken(installationId);
   const res = await fetch(`${GITHUB_API}/installation/repositories?per_page=100`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
   });
@@ -146,7 +146,7 @@ export const githubScmProvider: ScmProvider = {
   // ARCHITECTURE.md §5/§6.
   async resolveCloneTarget(connection, repoFullName, branch) {
     const installationId = installationIdOf(connection);
-    const { token } = await getInstallationToken(installationId);
+    const token = await getInstallationToken(installationId);
     return {
       cloneUrl: `https://x-access-token:${token}@github.com/${repoFullName}.git`,
       remoteUrl: `https://github.com/${repoFullName}.git`,
@@ -158,12 +158,12 @@ export const githubScmProvider: ScmProvider = {
   },
 
   async mintPushToken(target) {
-    const { token } = await getInstallationToken(installationRefOf(target));
+    const token = await getInstallationToken(installationRefOf(target));
     return token;
   },
 
   async fetchIssue(connection, repoFullName, issueNumber) {
-    const { token } = await getInstallationToken(installationIdOf(connection));
+    const token = await getInstallationToken(installationIdOf(connection));
     const res = await fetch(`${GITHUB_API}/repos/${repoFullName}/issues/${issueNumber}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
     });
@@ -175,7 +175,7 @@ export const githubScmProvider: ScmProvider = {
   },
 
   async resolveDefaultBranchSha(connection, repoFullName) {
-    const { token } = await getInstallationToken(installationIdOf(connection));
+    const token = await getInstallationToken(installationIdOf(connection));
     const repoRes = await fetch(`${GITHUB_API}/repos/${repoFullName}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
     });
@@ -198,7 +198,7 @@ export const githubScmProvider: ScmProvider = {
   // pushed, straight from the GitHub compare API in raw diff form. Both ends are commit shas,
   // never the branch name (which may have moved on since), so no ref-encoding question arises.
   async fetchCommitRangeDiff(target, range) {
-    const { token } = await getInstallationToken(installationRefOf(target));
+    const token = await getInstallationToken(installationRefOf(target));
     const compareRes = await fetch(
       `${GITHUB_API}/repos/${target.repoFullName}/compare/${range.baseSha}...${range.headSha}`,
       { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github.v3.diff" } },
@@ -214,7 +214,7 @@ export const githubScmProvider: ScmProvider = {
   // pull_requests:write, no admin) mean this token physically cannot merge or touch a
   // protected branch even if something upstream were wrong.
   async openDraftPullRequest(connection, repoFullName, branch, title, body) {
-    const { token } = await getInstallationToken(installationIdOf(connection));
+    const token = await getInstallationToken(installationIdOf(connection));
     const repoRes = await fetch(`${GITHUB_API}/repos/${repoFullName}`, {
       headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
     });

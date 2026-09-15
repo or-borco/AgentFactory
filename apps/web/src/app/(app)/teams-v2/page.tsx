@@ -6,6 +6,7 @@ import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import type { Agent, OverflowPolicy, Team } from "@agentfactory/core";
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
+import type { RepoOption } from "@agentfactory/scm";
 import { parseSharedContext, serializeSharedContext } from "@/lib/shared-context";
 import { SharedContextPanels } from "@/components/SharedContextPanels";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
@@ -92,14 +93,14 @@ function NewTeamPanel({ onCreated, onCancel }: {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [defaultCodebase, setDefaultCodebase] = useState("");
-  const [repos, setRepos] = useState<{ id: number; fullName: string }[]>([]);
+  const [repos, setRepos] = useState<RepoOption[]>([]);
   const [reposLoading, setReposLoading] = useState(true);
   const [nameError, setNameError] = useState(false);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<{ id: number; fullName: string }[]>("/api/connections/github/repos")
+    apiFetch<RepoOption[]>("/api/connections/repos")
       .then((result) => {
         if (!cancelled) setRepos(result);
       })
@@ -110,6 +111,8 @@ function NewTeamPanel({ onCreated, onCancel }: {
       cancelled = true;
     };
   }, []);
+
+  const repoProviders = [...new Set(repos.map((repo) => repo.provider))];
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -177,11 +180,23 @@ function NewTeamPanel({ onCreated, onCancel }: {
             <option value="">
               {reposLoading ? t("teamsV2.teamDefaultCodebaseLoading") : t("teamsV2.teamDefaultCodebasePlaceholder")}
             </option>
-            {repos.map((repo) => (
-              <option key={repo.id} value={repo.fullName}>
-                {repo.fullName}
-              </option>
-            ))}
+            {repoProviders.length > 1
+              ? repoProviders.map((p) => (
+                  <optgroup key={p} label={t(`connections.provider.${p}`)}>
+                    {repos
+                      .filter((repo) => repo.provider === p)
+                      .map((repo) => (
+                        <option key={repo.id} value={repo.fullName}>
+                          {repo.fullName}
+                        </option>
+                      ))}
+                  </optgroup>
+                ))
+              : repos.map((repo) => (
+                  <option key={repo.id} value={repo.fullName}>
+                    {repo.fullName}
+                  </option>
+                ))}
           </select>
           <p className="mt-1.5 text-xs text-[var(--color-neutral-600)]">
             {t("teamsV2.teamDefaultCodebaseHelp")}
