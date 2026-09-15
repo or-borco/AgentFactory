@@ -174,15 +174,22 @@ export function resolveReviewRange(params: {
 // mirrors cloneIntoSandbox's REPO_MISMATCH guard (apps/worker/src/scm-provider.ts) but never
 // creates an agent/session-* branch, since a review run never commits or pushes. Fetches
 // GitHub's `refs/pull/N/head`, which works identically for same-repo and fork PRs — there is no
-// separate "is this a fork" branch in this logic. target.cloneUrl already carries a token minted
-// this run (by resolveCloneTarget); it's used for the fetch and the remote is reset to
-// target.remoteUrl (credential-free) immediately after, unconditionally, mirroring
-// pushChangesIfDirty's inject-use-strip pattern.
+// separate "is this a fork" branch in this logic. Also fetches `baseBranch` into a local
+// origin-tracking ref so the agent's own optional `git diff`/exploration in the sandbox has a
+// fresh base to compare against — this has no bearing on what actually gets posted to GitHub,
+// since both the prompt diff and validateReviewComments' anchor diff come from
+// ScmProvider.fetchCommitRangeDiff (GitHub's server-side compare API on sha/branch strings), not
+// from this local checkout. target.cloneUrl already carries a token minted this run (by
+// resolveCloneTarget); it's used for the fetch and the remote is reset to target.remoteUrl
+// (credential-free) immediately after, unconditionally — including on a failed clone, mirroring
+// cloneIntoSandbox's CLONE_STATUS/remote-reset/branch-after ordering (apps/worker/src/scm-provider.ts)
+// so a partial clone never leaves the tokenized URL sitting in .git/config.
 export async function checkoutPullRequest(
   sandboxProvider: SandboxProvider,
   sandboxId: string,
   target: CloneTarget,
   prNumber: number,
+  baseBranch: string,
 ): Promise<void> {
   const script = `
 if [ -d /workspace/.git ]; then
@@ -193,12 +200,13 @@ if [ -d /workspace/.git ]; then
   esac
 else
   git clone --no-checkout "$CLONE_URL" /workspace
-  if [ $? -ne 0 ]; then echo CHECKOUT_FAILED; exit 0; fi
-  git -C /workspace remote set-url origin "$REMOTE_URL"
+  CLONE_STATUS=$?
+  cd /workspace 2>/dev/null && git remote set-url origin "$REMOTE_URL"
+  if [ "$CLONE_STATUS" -ne 0 ]; then echo CHECKOUT_FAILED; exit 0; fi
 fi
 cd /workspace || { echo CHECKOUT_FAILED; exit 0; }
 git remote set-url origin "$CLONE_URL"
-git fetch origin "pull/$PR_NUMBER/head:review/pr-$PR_NUMBER" --force --quiet
+git fetch origin "pull/$PR_NUMBER/head:review/pr-$PR_NUMBER" "$BASE_BRANCH:refs/remotes/origin/$BASE_BRANCH" --force --quiet
 FETCH_STATUS=$?
 git remote set-url origin "$REMOTE_URL"
 if [ "$FETCH_STATUS" -ne 0 ]; then echo CHECKOUT_FAILED; exit 0; fi
@@ -213,6 +221,7 @@ echo CHECKOUT_OK`;
       REMOTE_URL: target.remoteUrl,
       REPO_FULL_NAME: target.repoFullName,
       PR_NUMBER: String(prNumber),
+      BASE_BRANCH: baseBranch,
     },
   })) {
     if (chunk.stream === "stdout") stdout += chunk.data;

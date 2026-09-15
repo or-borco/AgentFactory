@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { OutputChunk, SandboxProvider } from "../sandbox/types";
+import type { ExecOptions, OutputChunk, SandboxProvider } from "../sandbox/types";
 import type { CloneTarget } from "@agentfactory/scm";
 import {
   MAX_REVIEW_DIFF_CHARS,
@@ -13,10 +13,20 @@ import {
   validateReviewComments,
 } from "../pr-review";
 
-function fakeSandbox(chunks: OutputChunk[]): SandboxProvider {
+// Captures every exec() call's cmd/opts so tests can assert on the actual shell script and env
+// vars sent to the sandbox, not just the marker-based stdout outcome — this is what would have
+// caught a script-content regression like a credential left in .git/config on a failed clone.
+interface FakeSandbox extends SandboxProvider {
+  calls: Array<{ cmd: string[]; opts?: ExecOptions }>;
+}
+
+function fakeSandbox(chunks: OutputChunk[]): FakeSandbox {
+  const calls: Array<{ cmd: string[]; opts?: ExecOptions }> = [];
   return {
+    calls,
     create: vi.fn(),
-    exec: async function* () {
+    exec: async function* (_id: string, cmd: string[], opts?: ExecOptions) {
+      calls.push({ cmd, opts });
       for (const chunk of chunks) yield chunk;
     },
     writeFiles: vi.fn(),
@@ -39,17 +49,47 @@ const target: CloneTarget = {
 describe("checkoutPullRequest", () => {
   it("succeeds when the sandbox reports CHECKOUT_OK", async () => {
     const sandbox = fakeSandbox([{ stream: "stdout", data: "CHECKOUT_OK\n" }]);
-    await expect(checkoutPullRequest(sandbox, "sandbox-1", target, 42)).resolves.toBeUndefined();
+    await expect(checkoutPullRequest(sandbox, "sandbox-1", target, 42, "main")).resolves.toBeUndefined();
   });
 
   it("throws when the sandbox reports a repo mismatch", async () => {
     const sandbox = fakeSandbox([{ stream: "stdout", data: "REPO_MISMATCH\n" }]);
-    await expect(checkoutPullRequest(sandbox, "sandbox-1", target, 42)).rejects.toThrow(/different repository/);
+    await expect(checkoutPullRequest(sandbox, "sandbox-1", target, 42, "main")).rejects.toThrow(/different repository/);
   });
 
   it("throws when the sandbox reports no success marker", async () => {
     const sandbox = fakeSandbox([{ stream: "stdout", data: "CHECKOUT_FAILED\n" }]);
-    await expect(checkoutPullRequest(sandbox, "sandbox-1", target, 42)).rejects.toThrow(/Failed to check out/);
+    await expect(checkoutPullRequest(sandbox, "sandbox-1", target, 42, "main")).rejects.toThrow(/Failed to check out/);
+  });
+
+  it("resets the remote to REMOTE_URL unconditionally on the clone branch, before branching on clone status, and passes the required env vars", async () => {
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "CHECKOUT_OK\n" }]);
+    await checkoutPullRequest(sandbox, "sandbox-1", target, 42, "main");
+
+    expect(sandbox.calls).toHaveLength(1);
+    const [{ cmd, opts }] = sandbox.calls;
+    expect(cmd[0]).toBe("sh");
+    expect(cmd[1]).toBe("-c");
+    const script = cmd[2];
+
+    // The clone branch's remote reset must run unconditionally (no clone-status guard in front
+    // of it) and appear, in script source order, before the point where the script decides
+    // CHECKOUT_FAILED vs proceeding on a failed clone — otherwise a failed clone leaves the
+    // tokenized CLONE_URL sitting in .git/config instead of being stripped back to REMOTE_URL.
+    const cloneLineIndex = script.indexOf('git clone --no-checkout "$CLONE_URL" /workspace');
+    const cloneResetIndex = script.indexOf('cd /workspace 2>/dev/null && git remote set-url origin "$REMOTE_URL"');
+    const cloneStatusBranchIndex = script.indexOf('if [ "$CLONE_STATUS" -ne 0 ]');
+    expect(cloneLineIndex).toBeGreaterThanOrEqual(0);
+    expect(cloneResetIndex).toBeGreaterThan(cloneLineIndex);
+    expect(cloneStatusBranchIndex).toBeGreaterThan(cloneResetIndex);
+
+    expect(opts?.env).toMatchObject({
+      CLONE_URL: target.cloneUrl,
+      REMOTE_URL: target.remoteUrl,
+      REPO_FULL_NAME: target.repoFullName,
+      PR_NUMBER: "42",
+      BASE_BRANCH: "main",
+    });
   });
 });
 
