@@ -13,6 +13,12 @@ pnpm dev
 # or directly:
 pnpm --filter @agentfactory/web dev
 
+# Run the worker in dev mode (consumes the BullMQ `runs` queue)
+pnpm dev:worker
+
+# Run web + worker together
+pnpm dev:all
+
 # Build all packages
 pnpm build
 
@@ -21,30 +27,45 @@ pnpm typecheck
 
 # Lint all packages
 pnpm lint
-```
 
-There are no tests yet (the test suite is planned per ARCHITECTURE.md milestones).
+# Tests
+pnpm test:unit    # vitest --project unit — no external services needed
+pnpm test:db      # vitest --project db-integration — needs Postgres
+pnpm test:queue   # vitest --project queue-integration — needs Redis
+pnpm test:e2e     # Playwright, apps/web
+pnpm test         # all of the above, in that order
+```
 
 ## Monorepo Structure
 
 This is a pnpm workspace monorepo:
 
-- **`packages/core`** — shared domain types (`domain.ts`) and the `RunEvent` union (`events.ts`). This is the single source of truth for all entity shapes; both the web app and the future worker import from here. Never duplicate these types elsewhere.
+- **`packages/core`** — shared domain types (`domain.ts`) and the `RunEvent` union (`events.ts`). This is the single source of truth for all entity shapes; both `apps/web` and `apps/worker` import from here. Never duplicate these types elsewhere.
+- **`packages/db`** — the real Postgres store (Drizzle): schema (`schema.ts`) and repositories for orgs/users/teams/agents/sessions/runs/events, skills, connections + `connection_secrets` (encrypted vault), tasks, and the context-retrieval tables. See [ARCHITECTURE.md](ARCHITECTURE.md) §2.7 for the full table list and what's deliberately not built yet (`triggers`, `policy_decisions`, `usage_records`, `audit_log`).
+- **`packages/queue`** — BullMQ setup shared between `apps/web` (enqueue) and `apps/worker` (consume).
+- **`packages/storage`** — the `content_blobs` blob store (local filesystem in dev, S3 in prod).
+- **`packages/integrations`** — the `TaskProvider` port and the `JiraTaskProvider` adapter (direct REST, not MCP — see ARCHITECTURE.md §9).
 - **`packages/shared`** — reusable UI primitives (Button, Card, Badge, TextInput, etc.) built with Tailwind. No business logic.
-- **`apps/web`** — Next.js 16 App Router frontend + mock API. The only runnable app right now.
+- **`apps/web`** — Next.js 16 App Router frontend + Route Handlers that call `packages/db` directly. This is the real backend, not a mock.
+- **`apps/worker`** — a BullMQ consumer that provisions a Docker sandbox per session (`DockerSandboxProvider`), clones the repo, runs the Claude Agent SDK inside the container, and streams `RunEvent`s back through Postgres/Redis.
 
-## Current State: UI Mock Phase
+## Current State
 
-The app is in **M0** (foundation scaffolding per ARCHITECTURE.md). There is no real backend, no database, and no agent execution. The architecture document describes the full planned system; the running code is a UI mock.
+Most of the stack is real, not mocked: Postgres/Drizzle, a working `apps/worker` that runs agents inside Docker
+sandboxes, real GitHub App + Jira integrations, real skills, and a real context-retrieval (RAG) pipeline. See
+ARCHITECTURE.md's status header for the full picture.
 
-**How the mock works:**
+**What's still missing matters for anything touching runs or tool access**: there is no policy engine gating tool
+calls — the sandbox currently runs the SDK with `permissionMode: "bypassPermissions"` and full, unrestricted tool
+access — no budget/cost enforcement, and no `resolveCredentials` (the platform Anthropic key is read straight from
+`process.env` in `apps/worker/src/agent-runtime.ts`). Don't assume a `PolicyEngine`, budget caps, or credential
+resolution exist anywhere in the code just because `agents.toolPolicy` is a schema column — see ARCHITECTURE.md §6.
 
-1. `apps/web/src/server/mock-store.ts` — a server-only in-memory store initialized from seed data. Resets on dev server restart. This stands in for the database.
-2. `apps/web/src/app/api/**/route.ts` — Next.js Route Handlers that read/write the mock store. These are the "backend" for now.
-3. `apps/web/src/lib/mock/context.tsx` — `MockBackendProvider` and `useMockBackend()` hook that client components use for all data access. It fetches from the API routes on mount and keeps a React-state cache.
-4. `apps/web/src/lib/api-client.ts` — `apiFetch<T>()` is the single call site for all client→API communication. If the mock API is ever replaced by a real service, this is the only file that changes.
-
-Client components never import from `mock-store.ts` directly (it's server-only). Data flows: mock-store → API route → `apiFetch` → `MockBackendProvider` → `useMockBackend()` hook → component.
+**A naming trap to know about:** `apps/web/src/lib/mock/context.tsx` still exports `MockBackendProvider` and
+`useMockBackend()` — these names are legacy from the original UI-mock phase. They now fetch from the real API
+routes below, not an in-memory store; `apps/web/src/server/mock-store.ts` no longer exists in the codebase. Data
+flow today: `packages/db` → `apps/web/src/app/api/**/route.ts` Route Handler → `apiFetch<T>()`
+(`apps/web/src/lib/api-client.ts`) → `MockBackendProvider` → `useMockBackend()` hook → component.
 
 ## Routing
 
@@ -52,7 +73,7 @@ Uses Next.js App Router route groups:
 
 - `(auth)` — `/login`, `/register`, `/forgot-password`. No shared layout beyond the root.
 - `(app)` — all authenticated routes. Layout wraps children in `<LeftPane>` (the sidebar nav).
-- `app/api/` — Route Handlers for the mock backend.
+- `app/api/` — Route Handlers for the real backend, calling into `packages/db`.
 
 ## i18n
 
@@ -65,18 +86,20 @@ The core entities (from `packages/core/src/domain.ts`) are:
 - **Org** → **Team** → **Agent** — the tenant hierarchy. Every entity carries `orgId`.
 - **Agent** has a `mode` (`manual` | `automatic`), a `toolPolicy` (deny-by-default with per-tool overrides), `skillIds`, and `connectionIds`.
 - **Session** has many **Runs**; a Run has many **RunEvents** (the append-only event log that is the source of truth for transcripts).
-- **Skill** is versioned (`SkillVersion`); `agent_skills` pins a `skillVersionId` not a `skillId` — upgrades are explicit.
-- **Connection** covers three kinds: `scm` (GitHub), `channel` (Slack/Discord/…), `tasks` (Jira/Monday/…).
+- **Skill** is versioned (`SkillVersion`); `agent_skills` pins a `skillVersionId` not a `skillId` — upgrades are explicit. Real and shipped.
+- **Connection** covers three kinds: `scm` (GitHub — real, a GitHub App), `channel` (Slack/Discord/… — not implemented, no `ChannelAdapter` exists yet), `tasks` (Jira — real, via a direct REST `TaskProvider` adapter in `packages/integrations`, not MCP; Monday/Asana/Sheets not implemented).
 
 ## Architecture Principles (from ARCHITECTURE.md)
 
-Read ARCHITECTURE.md before making structural decisions. Key constraints:
+Read ARCHITECTURE.md before making structural decisions. Key constraints — note the first two are the **target
+design, not current behavior** (ARCHITECTURE.md §1, §6 have the gap in detail; don't grep for `PolicyEngine` or a
+literal `AgentRuntime` class expecting to find one):
 
-- **The backend must be agnostic to the agent SDK.** Everything agent-execution-related goes behind the `AgentRuntime` port interface. The first adapter is `ClaudeCodeRuntime`. Never let provider types reach the DB or API layer.
-- **No approval gates.** Runs are never paused waiting for human input. Authorization is decided at config time via `ToolPolicy`; the `PolicyEngine` answers synchronously and emits a `policy_decision` event for audit.
-- **Run state lives in Postgres, never in closures.** The explicit state machine (`queued → provisioning → running → finalizing → done | failed | cancelled`) on `runs.status` is what will make a future Temporal migration mechanical.
-- **`shared_context` is always injected; `context_items` are retrieved on demand.** The 64 KB cap on `teams.sharedContext` is enforced both at the API layer and as a constraint — it exists because this text goes into every prompt.
-- **Content-addressed storage.** S3 holds immutable blobs addressed by SHA-256. Postgres holds what you query, join, or inject into a prompt.
+- **The backend must be agnostic to the agent SDK.** Everything agent-execution-related is meant to go behind an `AgentRuntime` port interface, with `ClaudeCodeRuntime` as the first adapter. **Not built yet** — `apps/worker/src/agent-runtime.ts` calls the Claude Agent SDK directly (inside the sandbox); there is no `AgentRuntime` interface or adapter class. What *is* real is `SandboxProvider` (`DockerSandboxProvider`). Never let provider types reach the DB or API layer regardless.
+- **No approval gates.** Runs are never paused waiting for human input — this part holds. But the intended enforcement mechanism, where authorization is decided at config time via `ToolPolicy` and a `PolicyEngine` answers synchronously and emits a `policy_decision` event for audit, **does not exist**. The sandbox currently runs with `permissionMode: "bypassPermissions"` and unrestricted tool access.
+- **Run state lives in Postgres, never in closures.** The explicit state machine (`queued → provisioning → running → finalizing → done | failed | cancelled`) on `runs.status` is what will make a future Temporal migration mechanical. Real.
+- **`shared_context` is always injected; `context_items` are retrieved on demand.** The 64 KB cap on `teams.sharedContext` is enforced both at the API layer and as a constraint — it exists because this text goes into every prompt. Real, and the retrieval pipeline (`team_context_items`/`context_chunks`, plus a task-scoped equivalent) is fully built with pgvector.
+- **Content-addressed storage.** Blobs are addressed by SHA-256 via `content_blobs` (local filesystem in dev, S3 in prod through `packages/storage`). Postgres holds what you query, join, or inject into a prompt. Real.
 
 ## `packages/shared` Components
 
