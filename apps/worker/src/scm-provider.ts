@@ -1,202 +1,81 @@
-import jwt from "jsonwebtoken";
-import { listConnections } from "@agentfactory/db";
 import type { RunCommitRange } from "@agentfactory/core";
+import { getScmProvider, parseIssueReferenceAcrossProviders, resolveScmConnection } from "@agentfactory/scm";
+import type { CloneTarget, OpenedPullRequest, ScmIssue } from "@agentfactory/scm";
 import type { SandboxProvider } from "./sandbox/types";
 import { TASK_DOCUMENT_EXCLUDE_PATTERN } from "./task-document-paths";
 import { SKILL_EXCLUDE_PATTERN } from "./skill-paths";
+
+export type { CloneTarget, OpenedPullRequest };
+export type GitHubIssue = ScmIssue;
 
 // Every path a sandbox checkout writes into that must never end up in the user's PR. Anything
 // added here also needs .git/info/exclude taught about it in cloneIntoSandbox below.
 const GIT_EXCLUDE_PATTERNS = [TASK_DOCUMENT_EXCLUDE_PATTERN, SKILL_EXCLUDE_PATTERN];
 
-const GITHUB_API = "https://api.github.com";
-
-function privateKey(): string {
-  const key = process.env.GITHUB_APP_PRIVATE_KEY;
-  if (!key) throw new Error("GITHUB_APP_PRIVATE_KEY is not set");
-  // .env files can't hold real newlines in a single-line value, so the key is stored with
-  // literal "\n" escapes and unescaped here before signing.
-  return key.includes("\\n") ? key.replace(/\\n/g, "\n") : key;
-}
-
-function appId(): string {
-  const id = process.env.GITHUB_APP_ID;
-  if (!id) throw new Error("GITHUB_APP_ID is not set");
-  return id;
-}
-
-// Duplicated from apps/web/src/server/github-app.ts rather than imported — apps/worker and
-// apps/web are separate processes/packages with no shared-code path between them today, and
-// this is ~20 lines. Revisit if a third consumer needs it.
-function signAppJwt(): string {
-  const now = Math.floor(Date.now() / 1000);
-  return jwt.sign({ iat: now - 60, exp: now + 9 * 60, iss: appId() }, privateKey(), { algorithm: "RS256" });
-}
-
-async function getInstallationToken(installationId: number): Promise<string> {
-  const res = await fetch(`${GITHUB_API}/app/installations/${installationId}/access_tokens`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${signAppJwt()}`, Accept: "application/vnd.github+json" },
-  });
-  if (!res.ok) {
-    throw new Error(`GitHub API installation token mint failed: ${res.status} ${await res.text().catch(() => "")}`);
-  }
-  const body = (await res.json()) as { token: string };
-  return body.token;
-}
-
-async function listInstallationRepoNames(installationId: number): Promise<string[]> {
-  const token = await getInstallationToken(installationId);
-  const res = await fetch(`${GITHUB_API}/installation/repositories?per_page=100`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
-  });
-  if (!res.ok) {
-    throw new Error(`GitHub API /installation/repositories failed: ${res.status} ${await res.text().catch(() => "")}`);
-  }
-  const body = (await res.json()) as { repositories: Array<{ full_name: string }> };
-  return body.repositories.map((r) => r.full_name);
-}
-
-export interface CloneTarget {
-  cloneUrl: string;
-  branch: string;
-  repoFullName: string;
-  installationId: number;
-}
-
-// Finds which of the org's GitHub connections has access to repoFullName — the same org-scoping
-// check backs both cloning/pushing (resolveCloneTarget) and API reads like fetchIssue below, so a
-// repo outside every one of the org's installations is invisible to that org either way.
-async function findInstallationForRepo(orgId: number, repoFullName: string): Promise<number | undefined> {
-  // Fail fast and loud on a misconfigured app — appId()/privateKey() already throw a clear
-  // "X is not set" error. Checked here, before the loop below, so that error can't get
-  // swallowed by the per-connection catch and misreported as "repo not accessible", which is a
-  // completely different (and much more confusing) problem for whoever's debugging a failed run.
-  appId();
-  privateKey();
-
-  const githubConnections = (await listConnections(orgId)).filter((c) => c.provider === "github");
-
-  for (const connection of githubConnections) {
-    const installationId = connection.config.installationId;
-    if (typeof installationId !== "number") continue;
-
-    const repoNames = await listInstallationRepoNames(installationId).catch((): string[] => []);
-    if (repoNames.includes(repoFullName)) return installationId;
-  }
-  return undefined;
-}
-
-// Finds which of the org's GitHub connections has access to repoFullName, and mints a fresh
-// installation token embedded directly in the clone URL. Nothing here is persisted — the token
-// is used once, for one clone, and expires on its own (~1hr) per ARCHITECTURE.md §5/§6.
+// Resolves which of the org's connected SCM providers/connections has access to repoFullName,
+// then delegates to that provider's own clone-target resolution. Kept as a same-named,
+// same-signature export — rather than inlining resolveScmConnection at each call site — so
+// worker.ts, eval-artefact.ts, and repo-map.ts (all written against this exact signature)
+// never had to change for this migration, and won't need to change again when a second
+// provider ships either.
 export async function resolveCloneTarget(
   orgId: number,
   repoFullName: string,
   branch: string,
 ): Promise<CloneTarget | undefined> {
-  const installationId = await findInstallationForRepo(orgId, repoFullName);
-  if (installationId === undefined) return undefined;
-
-  const token = await getInstallationToken(installationId);
-  return {
-    cloneUrl: `https://x-access-token:${token}@github.com/${repoFullName}.git`,
-    branch,
-    repoFullName,
-    installationId,
-  };
+  const resolved = await resolveScmConnection(orgId, repoFullName);
+  if (!resolved) return undefined;
+  return resolved.provider.resolveCloneTarget(resolved.connection, repoFullName, branch);
 }
 
-export interface GitHubIssue {
-  title: string;
-  body: string;
-}
-
-const ISSUE_URL_RE = /github\.com\/([^/\s]+\/[^/\s.]+)\/issues\/(\d+)/;
-
-// Task descriptions often are (or contain) a GitHub issue link — e.g. "https://github.com/
-// acme/widgets/issues/37" — pasted in as "what needs to be done". This is the only place that
-// link gets parsed; nothing else in the codebase looks for issue references today.
 export function parseIssueReference(text: string): { repoFullName: string; issueNumber: number } | undefined {
-  const match = ISSUE_URL_RE.exec(text);
-  if (!match) return undefined;
-  return { repoFullName: match[1], issueNumber: Number(match[2]) };
+  return parseIssueReferenceAcrossProviders(text);
 }
 
-// Fetches an issue's title/body via the same per-org installation lookup as resolveCloneTarget,
-// so a task can only ever pull issue content from a repo the org's own GitHub App installation
-// can see — org A can't reach org B's issues this way any more than it can clone org B's repo.
-// Runs on the worker host (which already holds the App's private key), not inside the sandbox —
-// the sandbox has no GitHub credentials or HTTP client, by design (see cloneIntoSandbox's
-// comment on why the agent never gets a usable token).
+// Fetches an issue's title/body via the same per-org connection lookup as resolveCloneTarget,
+// so a task can only ever pull issue content from a repo the org's own connection can see.
 export async function fetchIssue(
   orgId: number,
   repoFullName: string,
   issueNumber: number,
 ): Promise<GitHubIssue | undefined> {
-  const installationId = await findInstallationForRepo(orgId, repoFullName);
-  if (installationId === undefined) return undefined;
-
-  const token = await getInstallationToken(installationId);
-  const res = await fetch(`${GITHUB_API}/repos/${repoFullName}/issues/${issueNumber}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
-  });
-  if (!res.ok) {
-    throw new Error(`GitHub API issue fetch failed: ${res.status} ${await res.text().catch(() => "")}`);
-  }
-  const issue = (await res.json()) as { title: string; body: string | null };
-  return { title: issue.title, body: issue.body ?? "" };
+  const resolved = await resolveScmConnection(orgId, repoFullName);
+  if (!resolved) return undefined;
+  return resolved.provider.fetchIssue(resolved.connection, repoFullName, issueNumber);
 }
 
-// Resolves a repo's default branch HEAD sha via the GitHub API alone, with no sandbox and no
-// clone — used by the repo-map pre-warm job to check whether a commit is already cached before
-// paying for a container. Mirrors openDraftPullRequest's own default-branch lookup.
+// Resolves a repo's default branch HEAD sha via the provider's API alone, with no sandbox and
+// no clone — used by the repo-map pre-warm job to check whether a commit is already cached
+// before paying for a container.
 export async function resolveDefaultBranchSha(orgId: number, repoFullName: string): Promise<string | undefined> {
-  const installationId = await findInstallationForRepo(orgId, repoFullName);
-  if (installationId === undefined) return undefined;
-
-  const token = await getInstallationToken(installationId);
-  const repoRes = await fetch(`${GITHUB_API}/repos/${repoFullName}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
-  });
-  if (!repoRes.ok) {
-    throw new Error(`GitHub API repo lookup failed: ${repoRes.status} ${await repoRes.text().catch(() => "")}`);
-  }
-  const { default_branch: branch } = (await repoRes.json()) as { default_branch: string };
-
-  const commitRes = await fetch(`${GITHUB_API}/repos/${repoFullName}/commits/${branch}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
-  });
-  if (!commitRes.ok) {
-    throw new Error(`GitHub API commit lookup failed: ${commitRes.status} ${await commitRes.text().catch(() => "")}`);
-  }
-  const { sha } = (await commitRes.json()) as { sha: string };
-  return sha;
+  const resolved = await resolveScmConnection(orgId, repoFullName);
+  if (!resolved) return undefined;
+  return resolved.provider.resolveDefaultBranchSha(resolved.connection, repoFullName);
 }
 
-// The eval judge's artefact when a run committed: the diff of exactly the commits THAT run
-// pushed, straight from the GitHub compare API in raw diff form.
-//
-// The range comes from the run itself (Run.commitRange, recorded at push time), never from the
-// branch's current state — a session's branch accumulates every run's work, so comparing the
-// branch against the default branch would grade run 1 against run 3's commits. Both ends are
-// commit shas, so no ref-encoding question arises.
-//
-// There is no "not found" return value here, deliberately. Whether a run committed is answered
-// by whether it recorded a range, not by what GitHub says; a recorded range whose commits cannot
-// be fetched means the artefact is unavailable, and every non-OK response — 404 included —
-// throws so the caller fails the eval rather than silently grading the run's chat reply instead.
+// The eval judge's artefact when a run committed: the diff of exactly the commits that run
+// pushed. `target` was already resolved (at clone time) against a specific provider — its own
+// `provider` tag is what routes this call back to the right adapter, since there is no
+// orgId/Connection available here to re-resolve one.
 export async function fetchCommitRangeDiff(target: CloneTarget, range: RunCommitRange): Promise<string> {
-  const token = await getInstallationToken(target.installationId);
+  const provider = getScmProvider(target.provider);
+  if (!provider) throw new Error(`No registered SCM provider for "${target.provider}"`);
+  return provider.fetchCommitRangeDiff(target, range);
+}
 
-  const compareRes = await fetch(
-    `${GITHUB_API}/repos/${target.repoFullName}/compare/${range.baseSha}...${range.headSha}`,
-    { headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github.v3.diff" } },
-  );
-  if (!compareRes.ok) {
-    throw new Error(`GitHub API compare failed: ${compareRes.status} ${await compareRes.text().catch(() => "")}`);
-  }
-  return compareRes.text();
+// Opens a draft PR. Unlike the other wrappers above, this one needs a live Connection (not
+// just an opaque target) — re-resolves it from orgId + repoFullName, the same way
+// resolveCloneTarget did at clone time.
+export async function openDraftPullRequest(
+  orgId: number,
+  repoFullName: string,
+  branch: string,
+  title: string,
+  body: string,
+): Promise<OpenedPullRequest> {
+  const resolved = await resolveScmConnection(orgId, repoFullName);
+  if (!resolved) throw new Error(`No connected SCM provider can access repo "${repoFullName}"`);
+  return resolved.provider.openDraftPullRequest(resolved.connection, repoFullName, branch, title, body);
 }
 
 // Clones into /workspace on first use only — the same container is reused across a session's
@@ -209,12 +88,13 @@ export async function fetchCommitRangeDiff(target: CloneTarget, range: RunCommit
 // echoed sentinel rather than a real exit code, matching the existing pattern in
 // agent-runtime.ts (SandboxProvider.exec has no exit-code channel). The token lives only in an
 // env var passed to the exec, never in argv — and once the clone succeeds, the remote is
-// immediately rewritten to a plain, credential-free URL. Leaving the token embedded in
-// .git/config would sit there for the agent's entire turn, readable and directly usable by
-// anything with Bash access (the agent has full unrestricted tool access — no canUseTool gate
-// exists) to push anywhere or call GitHub's API on its own initiative — a real gap this closes,
-// not a hypothetical one. The set-url runs unconditionally (even if checkout fails) so a
-// credential is never left behind on a partial failure.
+// immediately rewritten to a plain, credential-free URL (target.remoteUrl — provider-agnostic,
+// unlike the old hardcoded github.com). Leaving the token embedded in .git/config would sit
+// there for the agent's entire turn, readable and directly usable by anything with Bash access
+// (the agent has full unrestricted tool access — no canUseTool gate exists) to push anywhere or
+// call the provider's API on its own initiative — a real gap this closes, not a hypothetical
+// one. The set-url runs unconditionally (even if checkout fails) so a credential is never left
+// behind on a partial failure.
 export async function cloneIntoSandbox(
   sandboxProvider: SandboxProvider,
   sandboxId: string,
@@ -243,7 +123,7 @@ ensure_context_dir_excluded() {
 if [ -d /workspace/.git ]; then
   CURRENT_REMOTE=$(cd /workspace && git remote get-url origin 2>/dev/null)
   case "$CURRENT_REMOTE" in
-    *"github.com/$REPO_FULL_NAME.git") ensure_context_dir_excluded; echo ALREADY_CLONED ;;
+    "$REMOTE_URL") ensure_context_dir_excluded; echo ALREADY_CLONED ;;
     *) echo REPO_MISMATCH ;;
   esac
 else
@@ -251,14 +131,14 @@ else
   CLONE_STATUS=$?
   cd /workspace 2>/dev/null && git checkout -b "$BRANCH_NAME"
   CHECKOUT_STATUS=$?
-  cd /workspace 2>/dev/null && git remote set-url origin "https://github.com/$REPO_FULL_NAME.git"
+  cd /workspace 2>/dev/null && git remote set-url origin "$REMOTE_URL"
   ensure_context_dir_excluded
   if [ "$CLONE_STATUS" -eq 0 ] && [ "$CHECKOUT_STATUS" -eq 0 ]; then echo CLONE_OK; else echo CLONE_FAILED; fi
 fi`;
 
   let stdout = "";
   for await (const chunk of sandboxProvider.exec(sandboxId, ["sh", "-c", script], {
-    env: { CLONE_URL: target.cloneUrl, BRANCH_NAME: target.branch, REPO_FULL_NAME: target.repoFullName },
+    env: { CLONE_URL: target.cloneUrl, REMOTE_URL: target.remoteUrl, BRANCH_NAME: target.branch },
   })) {
     if (chunk.stream === "stdout") stdout += chunk.data;
   }
@@ -310,7 +190,7 @@ cd /workspace || { echo SYNC_SKIPPED_FETCH_FAILED; exit 0; }
 git remote set-url origin "$CLONE_URL"
 git fetch origin --quiet
 FETCH_STATUS=$?
-git remote set-url origin "https://github.com/$REPO_FULL_NAME.git"
+git remote set-url origin "$REMOTE_URL"
 if [ "$FETCH_STATUS" -ne 0 ]; then echo SYNC_SKIPPED_FETCH_FAILED; exit 0; fi
 
 if git merge-base --is-ancestor origin/HEAD HEAD 2>/dev/null; then
@@ -334,7 +214,7 @@ fi`;
 
   let stdout = "";
   for await (const chunk of sandboxProvider.exec(sandboxId, ["sh", "-c", script], {
-    env: { CLONE_URL: target.cloneUrl, REPO_FULL_NAME: target.repoFullName },
+    env: { CLONE_URL: target.cloneUrl, REMOTE_URL: target.remoteUrl },
   })) {
     if (chunk.stream === "stdout") stdout += chunk.data;
   }
@@ -360,11 +240,17 @@ fi`;
 // does this file do?") leaves /workspace clean, and there's nothing to push or open a PR for.
 // Returns whether anything was pushed. This only ever runs *after* the agent's turn has already
 // finished (called from worker.ts, not from anything the agent invokes), so it mints its own
-// fresh token rather than relying on anything left over from cloneIntoSandbox — which no longer
-// leaves a usable credential behind anyway (see that function's comment). The token is attached
-// to the remote only for the duration of the push itself and stripped again immediately
-// afterward, unconditionally (even on push failure), so a later turn in the same session never
-// finds a working credential sitting in .git/config either.
+// fresh token via the resolved provider's mintPushToken rather than relying on anything left
+// over from cloneIntoSandbox — which no longer leaves a usable credential behind anyway (see
+// that function's comment). The token is attached to the remote only for the duration of the
+// push itself and stripped again immediately afterward, unconditionally (even on push failure),
+// so a later turn in the same session never finds a working credential sitting in .git/config
+// either.
+//
+// The credentialed push URL below stays GitHub-shaped (x-access-token:$TOKEN@github.com/...) —
+// unlike cloneIntoSandbox/syncWithDefaultBranch's plain $REMOTE_URL, this one embeds a live
+// credential, and a second provider's credential-URL scheme is explicitly out of scope for this
+// migration (design spec §Out of scope: "Implementing a second provider").
 export interface PushResult {
   pushed: boolean;
   // Paths committed in this turn, per `git diff-tree` on the new commit — not the whole repo
@@ -375,13 +261,14 @@ export interface PushResult {
   // pushed, and also when the sandbox could not name a base (a branch with no remote counterpart
   // and no origin/HEAD) — in which case the range is genuinely unknown and must not be guessed.
   commitRange?: RunCommitRange;
-  // Set whenever the agent ended its turn checked out on a branch other than target.branch (it
-  // has full unrestricted bash access — nothing stops it running `git checkout -b`). When set,
-  // `agentBranch` is whatever branch it was actually on. If that branch was a descendant of
-  // target.branch, the script fast-forwards target.branch onto it before continuing (see the
-  // BRANCH_MISMATCH marker below) and `pushed` reflects the recovered push; otherwise nothing is
-  // touched and `pushed` stays false — the caller (worker.ts) surfaces either outcome as an event
-  // so it's never silently lost like it was for T-047.
+  // Set only when this run actually pushed commits. Set whenever the agent ended its turn
+  // checked out on a branch other than target.branch (it has full unrestricted bash access —
+  // nothing stops it running `git checkout -b`). When set, `agentBranch` is whatever branch it
+  // was actually on. If that branch was a descendant of target.branch, the script fast-forwards
+  // target.branch onto it before continuing (see the BRANCH_MISMATCH marker below) and `pushed`
+  // reflects the recovered push; otherwise nothing is touched and `pushed` stays false — the
+  // caller (worker.ts) surfaces either outcome as an event so it's never silently lost like it
+  // was for T-047.
   branchMismatch?: { agentBranch: string };
 }
 
@@ -392,7 +279,9 @@ export async function pushChangesIfDirty(
   commitMessage: string,
   authorName: string,
 ): Promise<PushResult> {
-  const token = await getInstallationToken(target.installationId);
+  const provider = getScmProvider(target.provider);
+  if (!provider) throw new Error(`No registered SCM provider for "${target.provider}"`);
+  const token = await provider.mintPushToken(target);
 
   const script = `
 cd /workspace || { echo PUSH_FAILED; exit 0; }
@@ -532,47 +421,4 @@ export function buildPullRequestBody(params: {
     sections.push(`## Files changed\n${params.changedFiles.map((f) => `- \`${f}\``).join("\n")}`);
   }
   return sections.join("\n\n");
-}
-
-export interface OpenedPullRequest {
-  number: number;
-  url: string;
-}
-
-// Opens a draft PR against the repo's actual default branch (fetched fresh rather than assumed
-// "main" — plenty of repos default to something else). draft:true and a branch scoped to
-// agent/session-* are the structural half of blast-radius containment: the app's own permissions
-// (contents:write, pull_requests:write, no admin — see the GitHub App manifest) mean this token
-// physically cannot merge or touch a protected branch even if something upstream were wrong.
-export async function openDraftPullRequest(
-  installationId: number,
-  repoFullName: string,
-  branch: string,
-  title: string,
-  body: string,
-): Promise<OpenedPullRequest> {
-  const token = await getInstallationToken(installationId);
-
-  const repoRes = await fetch(`${GITHUB_API}/repos/${repoFullName}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
-  });
-  if (!repoRes.ok) {
-    throw new Error(`GitHub API repo lookup failed: ${repoRes.status} ${await repoRes.text().catch(() => "")}`);
-  }
-  const { default_branch: base } = (await repoRes.json()) as { default_branch: string };
-
-  const prRes = await fetch(`${GITHUB_API}/repos/${repoFullName}/pulls`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ title, head: branch, base, body, draft: true }),
-  });
-  if (!prRes.ok) {
-    throw new Error(`GitHub API PR creation failed: ${prRes.status} ${await prRes.text().catch(() => "")}`);
-  }
-  const pr = (await prRes.json()) as { number: number; html_url: string };
-  return { number: pr.number, url: pr.html_url };
 }

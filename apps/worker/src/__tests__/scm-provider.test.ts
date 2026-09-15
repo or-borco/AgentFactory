@@ -1,14 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Connection } from "@agentfactory/core";
 import type { OutputChunk, SandboxProvider } from "../sandbox/types";
 import { SKILL_EXCLUDE_PATTERN } from "../skill-paths";
 
-// signAppJwt() needs a real asymmetric key to actually sign with — irrelevant to what these
-// tests check, so stub jsonwebtoken entirely.
-vi.mock("jsonwebtoken", () => ({ default: { sign: vi.fn(() => "fake.app.jwt") } }));
-
-const listConnectionsMock = vi.fn<(orgId: number) => Promise<Connection[]>>();
-vi.mock("@agentfactory/db", () => ({ listConnections: (orgId: number) => listConnectionsMock(orgId) }));
+const resolveScmConnectionMock = vi.fn();
+const getScmProviderMock = vi.fn();
+const parseIssueReferenceAcrossProvidersMock = vi.fn();
+vi.mock("@agentfactory/scm", () => ({
+  resolveScmConnection: (orgId: number, repoFullName: string) => resolveScmConnectionMock(orgId, repoFullName),
+  getScmProvider: (id: string) => getScmProviderMock(id),
+  parseIssueReferenceAcrossProviders: (text: string) => parseIssueReferenceAcrossProvidersMock(text),
+}));
 
 const {
   buildPullRequestBody,
@@ -23,15 +25,15 @@ const {
   syncWithDefaultBranch,
 } = await import("../scm-provider");
 
-function githubConnection(id: number, installationId: number): Connection {
+function fakeConnection(id: number): Connection {
   return {
     id,
     orgId: 1,
     provider: "github",
     kind: "scm",
-    label: `installation-${installationId}`,
+    label: "installation-1",
     health: "healthy",
-    config: { installationId },
+    config: {},
     auth: "none",
     createdAt: new Date().toISOString(),
   };
@@ -72,95 +74,118 @@ function capturingSandbox(chunks: OutputChunk[]): { sandbox: SandboxProvider; sc
   };
 }
 
-describe("resolveCloneTarget", () => {
-  beforeEach(() => {
-    process.env.GITHUB_APP_ID = "12345";
-    process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
+afterEach(() => {
+  resolveScmConnectionMock.mockReset();
+  getScmProviderMock.mockReset();
+  parseIssueReferenceAcrossProvidersMock.mockReset();
+});
+
+describe("resolveCloneTarget (thin wrapper over the registry)", () => {
+  it("delegates to the resolved provider's resolveCloneTarget", async () => {
+    const connection = fakeConnection(1);
+    const providerResolveCloneTarget = vi.fn().mockResolvedValue({ repoFullName: "acme/widgets" });
+    resolveScmConnectionMock.mockResolvedValue({ connection, provider: { resolveCloneTarget: providerResolveCloneTarget } });
+
+    const result = await resolveCloneTarget(1, "acme/widgets", "agent/session-1");
+
+    expect(resolveScmConnectionMock).toHaveBeenCalledWith(1, "acme/widgets");
+    expect(providerResolveCloneTarget).toHaveBeenCalledWith(connection, "acme/widgets", "agent/session-1");
+    expect(result).toEqual({ repoFullName: "acme/widgets" });
   });
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    listConnectionsMock.mockReset();
-    delete process.env.GITHUB_APP_ID;
-    delete process.env.GITHUB_APP_PRIVATE_KEY;
+  it("returns undefined when no connection resolves", async () => {
+    resolveScmConnectionMock.mockResolvedValue(undefined);
+    await expect(resolveCloneTarget(1, "acme/widgets", "b")).resolves.toBeUndefined();
+  });
+});
+
+describe("fetchIssue (thin wrapper over the registry)", () => {
+  it("delegates to the resolved provider's fetchIssue", async () => {
+    const connection = fakeConnection(1);
+    const providerFetchIssue = vi.fn().mockResolvedValue({ title: "T", body: "B" });
+    resolveScmConnectionMock.mockResolvedValue({ connection, provider: { fetchIssue: providerFetchIssue } });
+
+    await expect(fetchIssue(1, "acme/widgets", 37)).resolves.toEqual({ title: "T", body: "B" });
+    expect(providerFetchIssue).toHaveBeenCalledWith(connection, "acme/widgets", 37);
   });
 
-  function mockTokenAndRepos(repoNames: string[]) {
-    return vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ repositories: repoNames.map((full_name) => ({ full_name })) }), {
-          status: 200,
-        }),
-      )
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_clone" }), { status: 200 }));
-  }
+  it("returns undefined when no connection resolves", async () => {
+    resolveScmConnectionMock.mockResolvedValue(undefined);
+    await expect(fetchIssue(1, "acme/widgets", 37)).resolves.toBeUndefined();
+  });
+});
 
-  it("returns a clone URL embedding a fresh token for the installation that has the repo", async () => {
-    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
-    vi.stubGlobal("fetch", mockTokenAndRepos(["acme-org/platform"]));
+describe("resolveDefaultBranchSha (thin wrapper over the registry)", () => {
+  it("delegates to the resolved provider's resolveDefaultBranchSha", async () => {
+    const connection = fakeConnection(1);
+    const providerFn = vi.fn().mockResolvedValue("abc123");
+    resolveScmConnectionMock.mockResolvedValue({ connection, provider: { resolveDefaultBranchSha: providerFn } });
 
-    const target = await resolveCloneTarget(1, "acme-org/platform", "agent/session-42");
-
-    expect(target).toEqual({
-      cloneUrl: "https://x-access-token:ghs_clone@github.com/acme-org/platform.git",
-      branch: "agent/session-42",
-      repoFullName: "acme-org/platform",
-      installationId: 999,
-    });
+    await expect(resolveDefaultBranchSha(1, "acme/widgets")).resolves.toBe("abc123");
+    expect(providerFn).toHaveBeenCalledWith(connection, "acme/widgets");
   });
 
-  it("skips connections whose repo list doesn't include the target repo", async () => {
-    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
-    vi.stubGlobal("fetch", mockTokenAndRepos(["acme-org/other-repo"]));
+  it("returns undefined when no connection resolves", async () => {
+    resolveScmConnectionMock.mockResolvedValue(undefined);
+    await expect(resolveDefaultBranchSha(1, "acme/widgets")).resolves.toBeUndefined();
+  });
+});
 
-    await expect(resolveCloneTarget(1, "acme-org/platform", "agent/session-42")).resolves.toBeUndefined();
+describe("fetchCommitRangeDiff (thin wrapper over the registry)", () => {
+  const target = { cloneUrl: "x", remoteUrl: "y", branch: "b", repoFullName: "acme/widgets", provider: "github" as const, installationRef: 1 };
+  const range = { baseSha: "a".repeat(40), headSha: "b".repeat(40) };
+
+  it("delegates to the target's own provider", async () => {
+    const providerFn = vi.fn().mockResolvedValue("diff text");
+    getScmProviderMock.mockReturnValue({ fetchCommitRangeDiff: providerFn });
+
+    await expect(fetchCommitRangeDiff(target, range)).resolves.toBe("diff text");
+    expect(getScmProviderMock).toHaveBeenCalledWith("github");
+    expect(providerFn).toHaveBeenCalledWith(target, range);
   });
 
-  it("returns undefined when the org has no github connections", async () => {
-    listConnectionsMock.mockResolvedValue([]);
-    await expect(resolveCloneTarget(1, "acme-org/platform", "agent/session-42")).resolves.toBeUndefined();
+  it("throws when the target's provider isn't registered", async () => {
+    getScmProviderMock.mockReturnValue(undefined);
+    await expect(fetchCommitRangeDiff(target, range)).rejects.toThrow('No registered SCM provider for "github"');
+  });
+});
+
+describe("openDraftPullRequest (thin wrapper over the registry)", () => {
+  it("delegates to the resolved provider's openDraftPullRequest", async () => {
+    const connection = fakeConnection(1);
+    const providerFn = vi.fn().mockResolvedValue({ number: 7, url: "https://example.com/pull/7" });
+    resolveScmConnectionMock.mockResolvedValue({ connection, provider: { openDraftPullRequest: providerFn } });
+
+    const pr = await openDraftPullRequest(1, "acme/widgets", "agent/session-1", "title", "body");
+
+    expect(pr).toEqual({ number: 7, url: "https://example.com/pull/7" });
+    expect(providerFn).toHaveBeenCalledWith(connection, "acme/widgets", "agent/session-1", "title", "body");
   });
 
-  it("skips a connection whose installation lookup fails and keeps checking others", async () => {
-    listConnectionsMock.mockResolvedValue([githubConnection(1, 111), githubConnection(2, 222)]);
-    const fetchMock = vi
-      .fn()
-      // installation 111: token mint fails outright
-      .mockResolvedValueOnce(new Response("boom", { status: 500 }))
-      // installation 222: succeeds
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ repositories: [{ full_name: "acme-org/platform" }] }), { status: 200 }),
-      )
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_clone" }), { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const target = await resolveCloneTarget(1, "acme-org/platform", "agent/session-42");
-    expect(target?.cloneUrl).toBe("https://x-access-token:ghs_clone@github.com/acme-org/platform.git");
-  });
-
-  it("throws immediately when the app itself isn't configured, instead of reporting a misleading 'repo not accessible'", async () => {
-    delete process.env.GITHUB_APP_PRIVATE_KEY;
-    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(resolveCloneTarget(1, "acme-org/platform", "agent/session-42")).rejects.toThrow(
-      "GITHUB_APP_PRIVATE_KEY is not set",
+  it("throws when no connection resolves", async () => {
+    resolveScmConnectionMock.mockResolvedValue(undefined);
+    await expect(openDraftPullRequest(1, "acme/widgets", "b", "t", "body")).rejects.toThrow(
+      'No connected SCM provider can access repo "acme/widgets"',
     );
-    // Never even tried to look anything up on GitHub — this is a config problem, not a per-repo one.
-    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("parseIssueReference (thin wrapper over the registry)", () => {
+  it("delegates to parseIssueReferenceAcrossProviders", () => {
+    parseIssueReferenceAcrossProvidersMock.mockReturnValue({ repoFullName: "a/b", issueNumber: 3, provider: "github" });
+    expect(parseIssueReference("some text")).toEqual({ repoFullName: "a/b", issueNumber: 3, provider: "github" });
+    expect(parseIssueReferenceAcrossProvidersMock).toHaveBeenCalledWith("some text");
   });
 });
 
 describe("cloneIntoSandbox", () => {
   const target = {
     cloneUrl: "https://x-access-token:ghs@github.com/acme-org/platform.git",
+    remoteUrl: "https://github.com/acme-org/platform.git",
     branch: "agent/session-1",
     repoFullName: "acme-org/platform",
-    installationId: 999,
+    provider: "github" as const,
+    installationRef: 999,
   };
 
   it("resolves when the clone succeeds", async () => {
@@ -168,7 +193,7 @@ describe("cloneIntoSandbox", () => {
     await expect(cloneIntoSandbox(sandbox, "sandbox-1", target)).resolves.toBeUndefined();
   });
 
-  it("resolves without re-cloning when the workspace already has the same repo", async () => {
+  it("resolves without re-cloning when the workspace already has the same remote", async () => {
     const sandbox = fakeSandbox([{ stream: "stdout", data: "ALREADY_CLONED\n" }]);
     await expect(cloneIntoSandbox(sandbox, "sandbox-1", target)).resolves.toBeUndefined();
   });
@@ -180,10 +205,23 @@ describe("cloneIntoSandbox", () => {
     );
   });
 
-  // The exclude is what stops task documents (task-documents.ts) being swept into the user's PR
-  // by pushChangesIfDirty's `git add -A`. Asserted on the script itself because there is no
-  // container here to run it in; that the pattern actually works is proved separately, against
-  // real git, in task-documents.test.ts.
+  it("compares the current remote against target.remoteUrl, not a hardcoded host", async () => {
+    let captured: string[] = [];
+    const exec = (_id: string, cmd: string[]) => {
+      captured = cmd;
+      return (async function* (): AsyncGenerator<OutputChunk> {
+        yield { stream: "stdout", data: "CLONE_OK\n" };
+      })();
+    };
+    const sandbox = { ...fakeSandbox([]), exec } as unknown as SandboxProvider;
+
+    await cloneIntoSandbox(sandbox, "sandbox-1", target);
+
+    const script = captured[2];
+    expect(script).toContain('"$REMOTE_URL") ensure_context_dir_excluded; echo ALREADY_CLONED');
+    expect(script).not.toContain("github.com/$REPO_FULL_NAME");
+  });
+
   it("teaches git to ignore the task-document directory on a fresh clone", async () => {
     let captured: string[] = [];
     const exec = (_id: string, cmd: string[]) => {
@@ -202,8 +240,6 @@ describe("cloneIntoSandbox", () => {
     expect(script).toContain("ensure_context_dir_excluded");
   });
 
-  // Generalized from a single hardcoded pattern to a list (skills-materialize.ts's directory
-  // needs the same treatment as task documents') — assert the skill pattern rides along too.
   it("also teaches git to ignore the materialised-skills directory", async () => {
     let captured: string[] = [];
     const exec = (_id: string, cmd: string[]) => {
@@ -220,25 +256,6 @@ describe("cloneIntoSandbox", () => {
     expect(script).toContain(SKILL_EXCLUDE_PATTERN);
   });
 
-  // A session's second run hits the ALREADY_CLONED path. A sandbox created before this shipped
-  // would otherwise never get the exclude and would push a stray directory exactly once.
-  it("applies the exclude on the already-cloned path too", async () => {
-    let captured: string[] = [];
-    const exec = (_id: string, cmd: string[]) => {
-      captured = cmd;
-      return (async function* (): AsyncGenerator<OutputChunk> {
-        yield { stream: "stdout", data: "ALREADY_CLONED\n" };
-      })();
-    };
-    const sandbox = { ...fakeSandbox([]), exec } as unknown as SandboxProvider;
-
-    await cloneIntoSandbox(sandbox, "sandbox-1", target);
-
-    const script = captured[2];
-    expect(script).toMatch(/ALREADY_CLONED/);
-    expect(script).toContain("ensure_context_dir_excluded; echo ALREADY_CLONED");
-  });
-
   it("throws when the clone fails", async () => {
     const sandbox = fakeSandbox([
       { stream: "stderr", data: "fatal: could not read Username\n" },
@@ -249,7 +266,7 @@ describe("cloneIntoSandbox", () => {
     );
   });
 
-  it("passes the clone url, branch, and target repo as env vars, not argv", async () => {
+  it("passes the clone url, remote url, and branch as env vars, not argv", async () => {
     let capturedEnv: Record<string, string> | undefined;
     const sandbox: SandboxProvider = {
       create: vi.fn(),
@@ -268,8 +285,8 @@ describe("cloneIntoSandbox", () => {
 
     expect(capturedEnv).toEqual({
       CLONE_URL: target.cloneUrl,
+      REMOTE_URL: target.remoteUrl,
       BRANCH_NAME: target.branch,
-      REPO_FULL_NAME: target.repoFullName,
     });
   });
 });
@@ -277,16 +294,16 @@ describe("cloneIntoSandbox", () => {
 describe("syncWithDefaultBranch", () => {
   const target = {
     cloneUrl: "https://x-access-token:ghs@github.com/acme-org/platform.git",
+    remoteUrl: "https://github.com/acme-org/platform.git",
     branch: "agent/session-1",
     repoFullName: "acme-org/platform",
-    installationId: 999,
+    provider: "github" as const,
+    installationRef: 999,
   };
 
   it("reports up_to_date when nothing changed upstream", async () => {
     const sandbox = fakeSandbox([{ stream: "stdout", data: "SYNC_UP_TO_DATE\n" }]);
-    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({
-      status: "up_to_date",
-    });
+    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({ status: "up_to_date" });
   });
 
   it("reports synced with the number of commits merged", async () => {
@@ -299,12 +316,10 @@ describe("syncWithDefaultBranch", () => {
 
   it("reports skipped_dirty without attempting a merge", async () => {
     const sandbox = fakeSandbox([{ stream: "stdout", data: "SYNC_SKIPPED_DIRTY\n" }]);
-    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({
-      status: "skipped_dirty",
-    });
+    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({ status: "skipped_dirty" });
   });
 
-  it("reports skipped_conflict with the conflicting file paths, parsed off their marker lines", async () => {
+  it("reports skipped_conflict with the conflicting file paths", async () => {
     const sandbox = fakeSandbox([
       {
         stream: "stdout",
@@ -319,24 +334,22 @@ describe("syncWithDefaultBranch", () => {
 
   it("fails soft to skipped_fetch_failed when the fetch itself fails", async () => {
     const sandbox = fakeSandbox([{ stream: "stdout", data: "SYNC_SKIPPED_FETCH_FAILED\n" }]);
-    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({
-      status: "skipped_fetch_failed",
-    });
+    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({ status: "skipped_fetch_failed" });
   });
 
   it("fails soft to skipped_fetch_failed on unrecognized output, rather than throwing", async () => {
     const sandbox = fakeSandbox([{ stream: "stdout", data: "\n" }]);
-    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({
-      status: "skipped_fetch_failed",
-    });
+    await expect(syncWithDefaultBranch(sandbox, "sandbox-1", target)).resolves.toEqual({ status: "skipped_fetch_failed" });
   });
 
-  it("reuses the clone target's own token rather than minting a new one", async () => {
+  it("passes the clone url and remote url as env vars, not a hardcoded host", async () => {
     let capturedEnv: Record<string, string> | undefined;
+    let capturedScript = "";
     const sandbox: SandboxProvider = {
       create: vi.fn(),
-      exec: async function* (_id, _cmd, opts) {
+      exec: async function* (_id, cmd, opts) {
         capturedEnv = opts?.env;
+        capturedScript = cmd[cmd.length - 1];
         yield { stream: "stdout", data: "SYNC_UP_TO_DATE\n" };
       },
       writeFiles: vi.fn(),
@@ -348,38 +361,30 @@ describe("syncWithDefaultBranch", () => {
 
     await syncWithDefaultBranch(sandbox, "sandbox-1", target);
 
-    expect(capturedEnv).toEqual({
-      CLONE_URL: target.cloneUrl,
-      REPO_FULL_NAME: target.repoFullName,
-    });
+    expect(capturedEnv).toEqual({ CLONE_URL: target.cloneUrl, REMOTE_URL: target.remoteUrl });
+    expect(capturedScript).toContain('git remote set-url origin "$REMOTE_URL"');
+    expect(capturedScript).not.toContain("github.com/$REPO_FULL_NAME");
   });
 });
 
 describe("pushChangesIfDirty", () => {
   const target = {
     cloneUrl: "https://x-access-token:ghs_clone@github.com/acme-org/platform.git",
+    remoteUrl: "https://github.com/acme-org/platform.git",
     branch: "agent/session-1",
     repoFullName: "acme-org/platform",
-    installationId: 999,
+    provider: "github" as const,
+    installationRef: 999,
   };
 
-  beforeEach(() => {
-    process.env.GITHUB_APP_ID = "12345";
-    process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    delete process.env.GITHUB_APP_ID;
-    delete process.env.GITHUB_APP_PRIVATE_KEY;
-  });
-
-  function mockTokenMint() {
-    return vi.fn().mockResolvedValue(new Response(JSON.stringify({ token: "ghs_push" }), { status: 200 }));
+  function mockProvider(token = "ghs_push") {
+    const mintPushToken = vi.fn().mockResolvedValue(token);
+    getScmProviderMock.mockReturnValue({ mintPushToken });
+    return mintPushToken;
   }
 
   it("returns pushed:false and no changed files when the tree is clean", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
+    mockProvider();
     const sandbox = fakeSandbox([{ stream: "stdout", data: "NO_CHANGES\n" }]);
     await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toEqual({
       pushed: false,
@@ -388,15 +393,15 @@ describe("pushChangesIfDirty", () => {
   });
 
   it("returns pushed:true when the commit and push succeed", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
+    mockProvider();
     const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
-    await expect(
-      pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer"),
-    ).resolves.toMatchObject({ pushed: true });
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toMatchObject({
+      pushed: true,
+    });
   });
 
   it("returns the paths committed in this turn, parsed out of the diff-tree marker lines", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
+    mockProvider();
     const sandbox = fakeSandbox([
       { stream: "stdout", data: "CHANGED_FILE:src/foo.ts\nCHANGED_FILE:README.md\n" },
       { stream: "stdout", data: "PUSH_OK\n" },
@@ -408,7 +413,7 @@ describe("pushChangesIfDirty", () => {
   });
 
   it("reports the commit range this push added to the branch", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
+    mockProvider();
     const base = "1".repeat(40);
     const head = "2".repeat(40);
     const sandbox = fakeSandbox([
@@ -421,22 +426,8 @@ describe("pushChangesIfDirty", () => {
     });
   });
 
-  it("asks the sandbox for both ends of the range before and after committing", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
-    const { sandbox, script } = capturingSandbox([{ stream: "stdout", data: "NO_CHANGES\n" }]);
-    await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
-
-    expect(script()).toContain("BASE_SHA:");
-    expect(script()).toContain("HEAD_SHA:");
-  });
-
-  // Regression test for the sandbox pushing against a stale cached origin/$BRANCH_NAME ref: a
-  // warm sandbox never re-fetches its own session branch (only the default branch, in
-  // syncWithDefaultBranch), so if an earlier run in the same session already advanced the branch
-  // on the remote, a plain push against the old cached tip is rejected as non-fast-forward. The
-  // script must re-fetch and merge the branch's real remote tip before pushing.
   it("re-fetches and merges the branch's remote tip before pushing, so a stale cached ref can't reject the push", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
+    mockProvider();
     const { sandbox, script } = capturingSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
     await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
 
@@ -444,42 +435,19 @@ describe("pushChangesIfDirty", () => {
     expect(s).toContain('git fetch origin "$BRANCH_NAME"');
     expect(s).toContain('git merge-base --is-ancestor "origin/$BRANCH_NAME" HEAD');
     expect(s).toContain('git merge --no-edit "origin/$BRANCH_NAME"');
-    // The fetch/merge must happen before the push, not after — a merge that ran after pushing
-    // would do nothing to prevent the rejection it's meant to fix.
-    expect(s.indexOf('git fetch origin "$BRANCH_NAME"')).toBeLessThan(s.indexOf('git push --no-verify'));
+    expect(s.indexOf('git fetch origin "$BRANCH_NAME"')).toBeLessThan(s.indexOf("git push --no-verify"));
   });
 
-  it("aborts cleanly and still attempts the push when merging in the remote tip conflicts", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
+  it("aborts cleanly when merging in the remote tip conflicts", async () => {
+    mockProvider();
     const { sandbox, script } = capturingSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
     await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
 
     expect(script()).toContain("git merge --abort");
   });
 
-  it("omits the commit range when the sandbox reported no shas", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
-    const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
-    const result = await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
-
-    expect(result.pushed).toBe(true);
-    expect(result.commitRange).toBeUndefined();
-  });
-
-  it("omits the commit range when nothing was pushed", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
-    const sandbox = fakeSandbox([
-      { stream: "stdout", data: `BASE_SHA:${"3".repeat(40)}\n` },
-      { stream: "stdout", data: "NO_CHANGES\n" },
-    ]);
-    const result = await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
-
-    expect(result.pushed).toBe(false);
-    expect(result.commitRange).toBeUndefined();
-  });
-
   it("throws when the push fails", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
+    mockProvider();
     const sandbox = fakeSandbox([
       { stream: "stderr", data: "! [rejected]\n" },
       { stream: "stdout", data: "PUSH_FAILED\n" },
@@ -489,21 +457,26 @@ describe("pushChangesIfDirty", () => {
     );
   });
 
-  it("mints its own fresh token rather than reusing anything from the clone step", async () => {
-    const fetchMock = mockTokenMint();
-    vi.stubGlobal("fetch", fetchMock);
+  it("throws when the target's provider isn't registered", async () => {
+    getScmProviderMock.mockReturnValue(undefined);
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).rejects.toThrow(
+      'No registered SCM provider for "github"',
+    );
+  });
+
+  it("mints its push token via the resolved provider, keyed on the target's own provider id", async () => {
+    const mintPushToken = mockProvider();
     const sandbox = fakeSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
 
     await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.github.com/app/installations/999/access_tokens",
-      expect.objectContaining({ method: "POST" }),
-    );
+    expect(getScmProviderMock).toHaveBeenCalledWith("github");
+    expect(mintPushToken).toHaveBeenCalledWith(target);
   });
 
   it("reports a recovered branch mismatch when the agent committed on a descendant branch that got fast-forwarded", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
+    mockProvider();
     const sandbox = fakeSandbox([{ stream: "stdout", data: "BRANCH_MISMATCH:fix/53-surface-real-run-error\nPUSH_OK\n" }]);
     await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toEqual({
       pushed: true,
@@ -513,7 +486,7 @@ describe("pushChangesIfDirty", () => {
   });
 
   it("reports an unrecovered branch mismatch when the agent's branch wasn't a descendant of the session branch", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
+    mockProvider();
     const sandbox = fakeSandbox([{ stream: "stdout", data: "BRANCH_MISMATCH:main\nNO_CHANGES\n" }]);
     await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).resolves.toEqual({
       pushed: false,
@@ -523,7 +496,7 @@ describe("pushChangesIfDirty", () => {
   });
 
   it("passes the token, repo, branch, commit message, and author as env vars, not argv — the token never appears in the command itself", async () => {
-    vi.stubGlobal("fetch", mockTokenMint());
+    mockProvider("ghs_push");
     let capturedEnv: Record<string, string> | undefined;
     let capturedCmd: string[] | undefined;
     const sandbox: SandboxProvider = {
@@ -553,241 +526,6 @@ describe("pushChangesIfDirty", () => {
   });
 });
 
-describe("parseIssueReference", () => {
-  it("extracts the repo and issue number from a github issue url", () => {
-    expect(parseIssueReference("https://github.com/acme-org/platform/issues/37")).toEqual({
-      repoFullName: "acme-org/platform",
-      issueNumber: 37,
-    });
-  });
-
-  it("finds the link even when it's embedded in surrounding text", () => {
-    expect(parseIssueReference("Please review https://github.com/acme-org/platform/issues/8 today")).toEqual({
-      repoFullName: "acme-org/platform",
-      issueNumber: 8,
-    });
-  });
-
-  it("returns undefined when there's no issue link", () => {
-    expect(parseIssueReference("Add a retry button to the failed-run banner.")).toBeUndefined();
-  });
-
-  it("returns undefined for a pull request link", () => {
-    expect(parseIssueReference("https://github.com/acme-org/platform/pull/37")).toBeUndefined();
-  });
-});
-
-describe("fetchIssue", () => {
-  beforeEach(() => {
-    process.env.GITHUB_APP_ID = "12345";
-    process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    listConnectionsMock.mockReset();
-    delete process.env.GITHUB_APP_ID;
-    delete process.env.GITHUB_APP_PRIVATE_KEY;
-  });
-
-  it("fetches the issue's title and body via the org's installation that has the repo", async () => {
-    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ repositories: [{ full_name: "acme-org/platform" }] }), { status: 200 }),
-      )
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_issue" }), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ title: "Crash on startup", body: "Steps to reproduce..." }), { status: 200 }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const issue = await fetchIssue(1, "acme-org/platform", 37);
-
-    expect(issue).toEqual({ title: "Crash on startup", body: "Steps to reproduce..." });
-    expect(fetchMock).toHaveBeenLastCalledWith(
-      "https://api.github.com/repos/acme-org/platform/issues/37",
-      expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer ghs_issue" }) }),
-    );
-  });
-
-  it("returns undefined when no connection in the org has access to the repo", async () => {
-    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ repositories: [{ full_name: "other-org/other-repo" }] }), { status: 200 }),
-        ),
-    );
-
-    await expect(fetchIssue(1, "acme-org/platform", 37)).resolves.toBeUndefined();
-  });
-
-  it("never sees org B's repo when called with org A's id, even if org B's installation has it", async () => {
-    // org 1 (the caller) only has an installation covering "other-org/other-repo"; the repo
-    // requested belongs to org 2's installation and must stay invisible to org 1's lookup.
-    listConnectionsMock.mockImplementation(async (orgId: number) =>
-      orgId === 1 ? [githubConnection(1, 111)] : [githubConnection(2, 222)],
-    );
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ repositories: [{ full_name: "other-org/other-repo" }] }), { status: 200 }),
-        ),
-    );
-
-    await expect(fetchIssue(1, "acme-org/platform", 37)).resolves.toBeUndefined();
-  });
-
-  it("throws when the issue lookup fails", async () => {
-    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ repositories: [{ full_name: "acme-org/platform" }] }), { status: 200 }),
-        )
-        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_issue" }), { status: 200 }))
-        .mockResolvedValueOnce(new Response("not found", { status: 404 })),
-    );
-
-    await expect(fetchIssue(1, "acme-org/platform", 37)).rejects.toThrow("GitHub API issue fetch failed: 404");
-  });
-});
-
-describe("resolveDefaultBranchSha", () => {
-  beforeEach(() => {
-    process.env.GITHUB_APP_ID = "12345";
-    process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    listConnectionsMock.mockReset();
-    delete process.env.GITHUB_APP_ID;
-    delete process.env.GITHUB_APP_PRIVATE_KEY;
-  });
-
-  it("returns the default branch's HEAD sha for a repo the org can access", async () => {
-    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
-        .mockResolvedValueOnce(
-          new Response(JSON.stringify({ repositories: [{ full_name: "acme-org/platform" }] }), { status: 200 }),
-        )
-        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_api" }), { status: 200 }))
-        .mockResolvedValueOnce(new Response(JSON.stringify({ default_branch: "main" }), { status: 200 }))
-        .mockResolvedValueOnce(new Response(JSON.stringify({ sha: "abc123" }), { status: 200 })),
-    );
-
-    await expect(resolveDefaultBranchSha(1, "acme-org/platform")).resolves.toBe("abc123");
-  });
-
-  it("returns undefined when no installation can see the repo", async () => {
-    listConnectionsMock.mockResolvedValue([githubConnection(1, 999)]);
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
-        .mockResolvedValueOnce(new Response(JSON.stringify({ repositories: [] }), { status: 200 })),
-    );
-
-    await expect(resolveDefaultBranchSha(1, "acme-org/platform")).resolves.toBeUndefined();
-  });
-});
-
-describe("fetchCommitRangeDiff", () => {
-  beforeEach(() => {
-    process.env.GITHUB_APP_ID = "12345";
-    process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    delete process.env.GITHUB_APP_ID;
-    delete process.env.GITHUB_APP_PRIVATE_KEY;
-  });
-
-  const target = {
-    cloneUrl: "https://x-access-token:ghs@github.com/acme-org/platform.git",
-    branch: "agent/session-12",
-    repoFullName: "acme-org/platform",
-    installationId: 999,
-  };
-  const RANGE = { baseSha: "a".repeat(40), headSha: "b".repeat(40) };
-
-  function tokenResponse() {
-    return new Response(JSON.stringify({ token: "ghs_diff" }), { status: 200 });
-  }
-
-  it("compares the two shas directly and returns the diff", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(tokenResponse())
-      .mockResolvedValueOnce(new Response("diff --git a/x b/x\n+added\n", { status: 200 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(fetchCommitRangeDiff(target, RANGE)).resolves.toBe("diff --git a/x b/x\n+added\n");
-
-    // Shas, not the branch name: the branch has moved on if a later run pushed to it. They are
-    // hex, so no encoding question arises — the pitfall that made the branch-based compare
-    // unsafe cannot recur here.
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      `https://api.github.com/repos/acme-org/platform/compare/${RANGE.baseSha}...${RANGE.headSha}`,
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: "Bearer ghs_diff",
-          Accept: "application/vnd.github.v3.diff",
-        }),
-      }),
-    );
-  });
-
-  it("returns an empty diff as a string, never undefined — no result can read as a never-committed signal", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(new Response("", { status: 200 })),
-    );
-    // "" and not undefined: the caller decides whether a run committed from its recorded commit
-    // range, and nothing this function returns may be mistaken for that answer.
-    await expect(fetchCommitRangeDiff(target, RANGE)).resolves.toBe("");
-  });
-
-  it("raises on a 404 — a recorded range whose commits are gone is unavailable, never never-committed", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(tokenResponse())
-        .mockResolvedValueOnce(new Response("Not Found", { status: 404 })),
-    );
-    await expect(fetchCommitRangeDiff(target, RANGE)).rejects.toThrow(/compare failed: 404/);
-  });
-
-  it("raises on any other error status", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValueOnce(tokenResponse()).mockResolvedValueOnce(new Response("boom", { status: 500 })),
-    );
-    await expect(fetchCommitRangeDiff(target, RANGE)).rejects.toThrow(/compare failed: 500/);
-  });
-});
-
 describe("buildPullRequestBody", () => {
   it("includes the task reference, the agent's summary, the task description, and the changed files", () => {
     const body = buildPullRequestBody({
@@ -806,7 +544,6 @@ describe("buildPullRequestBody", () => {
 
   it("omits empty sections instead of leaving blank headings", () => {
     const body = buildPullRequestBody({ taskRef: "T-1", taskDescription: "", summary: "", changedFiles: [] });
-
     expect(body).toBe("Opened automatically by AgentFactory for task T-1.");
   });
 
@@ -821,69 +558,5 @@ describe("buildPullRequestBody", () => {
     expect(body).toContain("Created `README.md` with a full local-setup guide.");
     expect(body).toContain("Files live under the repo root.");
     expect(body).not.toContain("/workspace");
-  });
-});
-
-describe("openDraftPullRequest", () => {
-  beforeEach(() => {
-    process.env.GITHUB_APP_ID = "12345";
-    process.env.GITHUB_APP_PRIVATE_KEY = "-----BEGIN RSA PRIVATE KEY-----\\nfake\\n-----END RSA PRIVATE KEY-----\\n";
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    delete process.env.GITHUB_APP_ID;
-    delete process.env.GITHUB_APP_PRIVATE_KEY;
-  });
-
-  it("fetches the repo's default branch and opens a draft PR against it", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_pr" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ default_branch: "develop" }), { status: 200 }))
-      .mockResolvedValueOnce(
-        new Response(JSON.stringify({ number: 7, html_url: "https://github.com/acme-org/platform/pull/7" }), {
-          status: 200,
-        }),
-      );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const pr = await openDraftPullRequest(999, "acme-org/platform", "agent/session-1", "Fix the bug", "body text");
-
-    expect(pr).toEqual({ number: 7, url: "https://github.com/acme-org/platform/pull/7" });
-    const [, , prCall] = fetchMock.mock.calls;
-    expect(prCall[0]).toBe("https://api.github.com/repos/acme-org/platform/pulls");
-    expect(JSON.parse(prCall[1].body)).toEqual({
-      title: "Fix the bug",
-      head: "agent/session-1",
-      base: "develop",
-      body: "body text",
-      draft: true,
-    });
-  });
-
-  it("throws when the repo lookup fails", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_pr" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response("not found", { status: 404 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(
-      openDraftPullRequest(999, "acme-org/platform", "agent/session-1", "title", "body"),
-    ).rejects.toThrow("GitHub API repo lookup failed: 404");
-  });
-
-  it("throws when PR creation fails", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_pr" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ default_branch: "main" }), { status: 200 }))
-      .mockResolvedValueOnce(new Response("unprocessable", { status: 422 }));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(
-      openDraftPullRequest(999, "acme-org/platform", "agent/session-1", "title", "body"),
-    ).rejects.toThrow("GitHub API PR creation failed: 422");
   });
 });

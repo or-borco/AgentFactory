@@ -20,9 +20,11 @@ const RUN_THAT_PUSHED = { id: 7, sessionId: 12, commitRange: RANGE } as unknown 
 const RUN_THAT_PUSHED_NOTHING = { id: 7, sessionId: 12 } as unknown as Run;
 const TARGET: CloneTarget = {
   cloneUrl: "https://x-access-token:t@github.com/acme/backend.git",
+  remoteUrl: "https://github.com/acme/backend.git",
   branch: "agent/session-12",
   repoFullName: "acme/backend",
-  installationId: 99,
+  provider: "github",
+  installationRef: 99,
 };
 
 function makeDeps(overrides: Partial<Parameters<typeof resolveEvalArtefact>[4]> = {}) {
