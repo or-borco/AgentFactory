@@ -411,14 +411,17 @@ fi
 
 # "Anything to push" means uncommitted edits, or commits already made that the remote doesn't
 # have yet (the agent may have committed its own work, on this branch or the one folded in
-# above) — not just a dirty working tree, which is all the old check looked at.
-UPSTREAM_BASE=$(git rev-parse --verify "origin/$BRANCH_NAME" 2>/dev/null || git rev-parse --verify origin/HEAD 2>/dev/null)
-AHEAD=""
-if [ -n "$UPSTREAM_BASE" ]; then
-  AHEAD=$(git rev-list "$UPSTREAM_BASE..HEAD" 2>/dev/null)
+# above) — not just a dirty working tree, which is all the old check looked at. This first look
+# uses whatever remote-tracking ref the sandbox already has cached, purely as a cheap no-op
+# guard — it's refined below, once we know there's actually something to send, since a warm
+# sandbox's cached ref for $BRANCH_NAME can be stale (see below).
+STALE_BASE=$(git rev-parse --verify "origin/$BRANCH_NAME" 2>/dev/null || git rev-parse --verify origin/HEAD 2>/dev/null)
+STALE_AHEAD=""
+if [ -n "$STALE_BASE" ]; then
+  STALE_AHEAD=$(git rev-list "$STALE_BASE..HEAD" 2>/dev/null)
 fi
 
-if [ -z "$(git status --porcelain)" ] && [ -z "$AHEAD" ]; then
+if [ -z "$(git status --porcelain)" ] && [ -z "$STALE_AHEAD" ]; then
   echo NO_CHANGES
 else
   if [ -n "$(git status --porcelain)" ]; then
@@ -429,13 +432,34 @@ else
     COMMIT_STATUS=0
   fi
   git diff-tree --no-commit-id --name-only -r HEAD | sed 's/^/CHANGED_FILE:/'
+
+  git remote set-url origin "https://x-access-token:$PUSH_TOKEN@github.com/$REPO_FULL_NAME.git"
+
+  # Refresh our knowledge of $BRANCH_NAME's remote tip before pushing. Unlike the default branch
+  # (kept warm by syncWithDefaultBranch on every run), nothing re-fetches $BRANCH_NAME itself once
+  # the sandbox is cloned — so if an earlier run in this same warm session already pushed to it,
+  # the cached origin/$BRANCH_NAME ref above is stale, and a plain push against a stale base is
+  # exactly what git correctly rejects as non-fast-forward. Merge, never rebase, so the push below
+  # stays a fast-forward instead of rewriting history the remote already has.
+  git fetch origin "$BRANCH_NAME" --quiet
+  if git rev-parse --verify "origin/$BRANCH_NAME" >/dev/null 2>&1 && ! git merge-base --is-ancestor "origin/$BRANCH_NAME" HEAD 2>/dev/null; then
+    if git merge --no-edit "origin/$BRANCH_NAME" >/dev/null 2>&1; then
+      echo MERGE_OK
+    else
+      git merge --abort
+      echo MERGE_CONFLICT
+    fi
+  fi
+
   # Both ends of what this run is adding. BASE_SHA is the branch as the remote knew it before
-  # this push (or the default branch, for the session's first run); HEAD_SHA is where it lands
-  # after committing. Emitted here rather than derived later because the branch keeps moving:
-  # once the next run pushes, nothing on the branch can say which commits were this run's.
+  # this push (or the default branch, for the session's first run) — re-read fresh above rather
+  # than reused from STALE_BASE, since that fetch may have moved it. HEAD_SHA is where it lands
+  # after committing (and merging in any remote-only commits just fetched). Emitted here rather
+  # than derived later because the branch keeps moving: once the next run pushes, nothing on the
+  # branch can say which commits were this run's.
+  UPSTREAM_BASE=$(git rev-parse --verify "origin/$BRANCH_NAME" 2>/dev/null || git rev-parse --verify origin/HEAD 2>/dev/null)
   if [ -n "$UPSTREAM_BASE" ]; then echo "BASE_SHA:$UPSTREAM_BASE"; fi
   echo "HEAD_SHA:$(git rev-parse HEAD)"
-  git remote set-url origin "https://x-access-token:$PUSH_TOKEN@github.com/$REPO_FULL_NAME.git"
   # --no-verify: the repo's local pre-push hook (.husky/pre-push) assumes a developer's own
   # machine (it hardcodes a Homebrew PATH and shells out to pnpm) and the sandbox has neither
   # pnpm nor installed dependencies to run it — it always dies with "pnpm: not found" before the
