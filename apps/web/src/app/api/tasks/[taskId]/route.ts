@@ -4,6 +4,9 @@ import { deleteTask, getTask, updateTask } from "@agentfactory/db";
 import { enqueueRepoMapWarmJob, enqueueSandboxTeardownJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
 import type { TaskStatus } from "@agentfactory/core";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("api:tasks:[taskId]");
 
 const TERMINAL_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set(["done", "failed", "cancelled"]);
 
@@ -33,7 +36,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ taskId
   // the next task against this codebase doesn't pay the generation cost against a stale commit.
   if (body.status === "done" && task.codebase) {
     enqueueRepoMapWarmJob(task.orgId, task.codebase).catch((err) => {
-      console.error(`Failed to enqueue repo map warm job for task ${task.id}:`, err);
+      log.error("Failed to enqueue repo map warm job", { taskId: task.id, err });
     });
   }
 

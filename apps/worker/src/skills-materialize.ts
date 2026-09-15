@@ -1,8 +1,11 @@
 import { listAgentSkills } from "@agentfactory/db";
 import { getSkillVersion, getSkillVersionMarkdown } from "@agentfactory/db";
 import { createBlobStore, type BlobStore } from "@agentfactory/storage";
+import { createLogger } from "@agentfactory/logger";
 import type { SandboxProvider } from "./sandbox/types";
 import { SKILL_DIR } from "./skill-paths";
+
+const log = createLogger("skills-materialize");
 
 export { SKILL_DIR, SKILL_EXCLUDE_PATTERN } from "./skill-paths";
 
@@ -45,12 +48,12 @@ export async function materialiseSkills(
     for (const pin of pins) {
       const version = await resolved.getSkillVersion(pin.skillVersionId);
       if (!version) {
-        console.error(`Agent ${agentId} skill pin references missing version ${pin.skillVersionId}`);
+        log.error("Skill pin references missing version", { agentId, skillVersionId: pin.skillVersionId });
         continue;
       }
       const markdown = await resolved.getSkillVersionMarkdown(orgId, version);
       if (!markdown) {
-        console.error(`Skill version ${version.id} (${pin.skillSlug}) has no blob under ${version.bodySha256}`);
+        log.error("Skill version has no blob", { skillVersionId: version.id, skillSlug: pin.skillSlug, bodySha256: version.bodySha256 });
         continue;
       }
       files[`${SKILL_DIR}/${pin.skillSlug}/SKILL.md`] = markdown;
@@ -65,7 +68,7 @@ export async function materialiseSkills(
     await sandboxProvider.writeFiles(sandboxId, files);
     return written;
   } catch (err) {
-    console.error(`Failed to materialise skills for agent ${agentId}:`, err);
+    log.error("Failed to materialise skills", { agentId, err });
     return [];
   }
 }

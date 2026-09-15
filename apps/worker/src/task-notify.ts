@@ -1,6 +1,9 @@
 import type { Task } from "@agentfactory/core";
 import { getConnectionCredentialRef, listConnections, readConnectionSecret, setConnectionHealth, updateTask } from "@agentfactory/db";
 import { createTaskProvider, ProviderError } from "@agentfactory/integrations";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("task-notify");
 
 // Resolves the org's connection/secret/provider the same way apps/web/src/server/task-provider.ts's
 // resolveTaskProvider does. Duplicated rather than imported — apps/worker and apps/web are separate
@@ -20,7 +23,7 @@ async function resolveTaskProvider(orgId: number) {
 
     return { connection, provider: createTaskProvider(connection, secret) };
   } catch (err) {
-    console.error(`Failed to resolve task provider for connection ${connection.id}:`, err);
+    log.error("Failed to resolve task provider", { connectionId: connection.id, err });
     return undefined;
   }
 }
@@ -60,7 +63,7 @@ export async function notifyIssueOfPullRequest(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    // Recorded as a run event (not just console.error) so this is visible in the transcript -
+    // Recorded as a run event (not just logged) so this is visible in the transcript -
     // this failure previously vanished silently, leaving no trace that the Jira issue was never
     // notified about the PR.
     await emitEvent("error", {

@@ -1,6 +1,9 @@
 import type { Task } from "@agentfactory/core";
 import type { ExternalIssue } from "@agentfactory/integrations";
+import { createLogger } from "@agentfactory/logger";
 import { resolveTaskProvider } from "./task-provider";
+
+const log = createLogger("task-sync");
 
 export type TaskSyncResult = { stale: false } | { stale: true; latest: ExternalIssue };
 
@@ -24,7 +27,7 @@ export async function checkTaskSync(orgId: number, task: Task): Promise<TaskSync
     if (latest.updated === task.externalRef.lastKnownUpdated) return { stale: false };
     return { stale: true, latest };
   } catch (err) {
-    console.error(`checkTaskSync failed for task ${task.id}, failing open:`, err);
+    log.error("checkTaskSync failed, failing open", { taskId: task.id, err });
     return { stale: false };
   }
 }

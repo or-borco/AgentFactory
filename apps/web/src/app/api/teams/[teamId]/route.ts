@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { updateTeam } from "@agentfactory/db";
 import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("api:teams:[teamId]");
 
 // Requires a logged-in user but doesn't yet verify teamId belongs to their org — same
 // documented tenant-isolation gap as messages/RLS in packages/db/src/schema.ts, not new here.
@@ -15,7 +18,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ te
     // Fire-and-forget: the team row is already committed, so a transient queue/Redis failure
     // here must not turn a successful update into an apparent 500 for the client.
     enqueueRepoMapWarmJob(team.orgId, body.defaultCodebase).catch((err) => {
-      console.error("Failed to enqueue repo map warm job:", err);
+      log.error("Failed to enqueue repo map warm job", { teamId: team.id, err });
     });
   }
   return NextResponse.json(team);

@@ -2,8 +2,11 @@ import { TASK_CONTEXT_MIME_CONFIG } from "@agentfactory/core";
 import type { TaskContextItem } from "@agentfactory/core";
 import { listTaskContextItemsForOrg } from "@agentfactory/db";
 import { createBlobStore, type BlobStore } from "@agentfactory/storage";
+import { createLogger } from "@agentfactory/logger";
 import type { SandboxProvider } from "./sandbox/types";
 import { TASK_DOCUMENT_DIR } from "./task-document-paths";
+
+const log = createLogger("task-documents");
 
 export { TASK_DOCUMENT_DIR, TASK_DOCUMENT_EXCLUDE_PATTERN } from "./task-document-paths";
 
@@ -116,7 +119,7 @@ export async function materialiseTaskDocuments(
       }
       const bytes = await resolved.blobStore.get(orgId, item.sha256);
       if (!bytes) {
-        console.error(`Task document ${item.id} (${item.title}) has no blob under ${item.sha256}`);
+        log.error("Task document has no blob", { itemId: item.id, title: item.title, sha256: item.sha256 });
         omitted.push(item.title);
         continue;
       }
@@ -141,7 +144,7 @@ export async function materialiseTaskDocuments(
     await sandboxProvider.writeFiles(sandboxId, files);
     return { written, omitted };
   } catch (err) {
-    console.error(`Failed to materialise task documents for task ${taskId}:`, err);
+    log.error("Failed to materialise task documents", { taskId, err });
     return EMPTY;
   }
 }

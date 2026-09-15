@@ -6,8 +6,11 @@ import {
   searchTeamContextChunks,
 } from "@agentfactory/db";
 import type { ContextChunkMatch, NewRunContextRetrieval, TaskContextChunkMatch } from "@agentfactory/db";
+import { createLogger } from "@agentfactory/logger";
 import { getEmbedder } from "./embedder";
 import type { Embedder } from "./embedder";
+
+const log = createLogger("context-retrieval");
 
 // Top-k asked of the index. RETRIEVAL_K itself is still a default, not a finding — only
 // SIMILARITY_FLOOR below has been measured.
@@ -241,7 +244,7 @@ export async function retrieveContext(
       })),
     };
   } catch (err) {
-    console.error(`Context retrieval failed for team ${teamId ?? "-"} / task ${taskId ?? "-"}:`, err);
+    log.error("Context retrieval failed", { teamId, taskId, err });
     return OMITTED("retrieval_failed");
   }
 }

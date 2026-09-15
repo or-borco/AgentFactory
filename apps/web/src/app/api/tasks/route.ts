@@ -10,6 +10,9 @@ import { createBlobStore } from "@agentfactory/storage";
 import { requireAuthContext } from "@/server/auth";
 import { resolveTaskProvider } from "@/server/task-provider";
 import { MAX_UPLOAD_BYTES } from "@/app/api/tasks/[taskId]/context-items/route";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("api:tasks");
 
 export async function GET() {
   const ctx = await requireAuthContext();
@@ -46,7 +49,7 @@ export async function POST(request: Request) {
   // generation cost, exactly as it does today.
   if (task.codebase) {
     enqueueRepoMapWarmJob(task.orgId, task.codebase).catch((err) => {
-      console.error(`Failed to enqueue repo map warm job for task ${task.id}:`, err);
+      log.error("Failed to enqueue repo map warm job", { taskId: task.id, err });
     });
   }
 
@@ -84,7 +87,7 @@ export async function POST(request: Request) {
         }
       }
     } catch (err) {
-      console.error(`Failed to ingest issue attachments for task ${task.id}:`, err);
+      log.error("Failed to ingest issue attachments for task", { taskId: task.id, err });
     }
   }
 

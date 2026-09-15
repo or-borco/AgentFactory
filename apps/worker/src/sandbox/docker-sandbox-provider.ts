@@ -2,7 +2,10 @@ import type { Readable } from "node:stream";
 import { PassThrough } from "node:stream";
 import Docker from "dockerode";
 import { extract, pack } from "tar-stream";
+import { createLogger } from "@agentfactory/logger";
 import type { ExecOptions, OutputChunk, Sandbox, SandboxProvider, SandboxSpec } from "./types.js";
+
+const log = createLogger("docker-sandbox-provider");
 
 const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "dist", "build", "__pycache__"]);
 const MAX_FILE_BYTES = 512 * 1024; // 512 KB per file — skip larger blobs
@@ -58,13 +61,13 @@ function watchMemory(container: Docker.Container, id: string): () => void {
         if (effectiveUsage / mem.limit < MEMORY_GROWTH_THRESHOLD) return;
         const nextMb = Math.min(currentMb * MEMORY_GROWTH_FACTOR, MEMORY_MAX_MB);
         container.update(memoryHostConfig(nextMb)).catch((err: unknown) => {
-          console.error(`Failed to grow sandbox ${id} memory to ${nextMb}MB:`, err);
+          log.error("Failed to grow sandbox memory", { sandboxId: id, targetMb: nextMb, err });
         });
       });
       activeStream.on("error", () => undefined);
     })
     .catch((err: unknown) => {
-      console.error(`Failed to open stats stream for sandbox ${id}:`, err);
+      log.error("Failed to open stats stream", { sandboxId: id, err });
     });
 
   return () => {
@@ -205,7 +208,7 @@ export class DockerSandboxProvider implements SandboxProvider {
         await container.update(memoryHostConfig(MEMORY_BASE_MB));
       }
     } catch (err) {
-      console.error(`Failed to reset sandbox ${id} memory to base:`, err);
+      log.error("Failed to reset sandbox memory to base", { sandboxId: id, err });
     }
   }
 

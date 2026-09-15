@@ -3,6 +3,9 @@ import { createAgent, listAgents } from "@agentfactory/db";
 import { isValidModelId, isValidOverflowPolicy } from "@agentfactory/core";
 import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("api:agents");
 
 export async function GET() {
   const ctx = await requireAuthContext();
@@ -25,7 +28,7 @@ export async function POST(request: Request) {
     // Fire-and-forget: the agent row is already committed, so a transient queue/Redis failure
     // here must not turn a successful creation into an apparent 500 for the client.
     enqueueRepoMapWarmJob(ctx.orgId, agent.defaultCodebase).catch((err) => {
-      console.error("Failed to enqueue repo map warm job:", err);
+      log.error("Failed to enqueue repo map warm job", { agentId: agent.id, err });
     });
   }
   return NextResponse.json(agent, { status: 201 });

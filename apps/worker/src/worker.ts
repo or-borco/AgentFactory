@@ -71,6 +71,9 @@ import { materialiseSkills } from "./skills-materialize";
 import { processEvalJob } from "./eval-runner";
 import { ingestTaskContextItem, ingestTeamContextItem } from "./context-ingest";
 import { notifyIssueOfPullRequest } from "./task-notify";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("worker");
 
 const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
@@ -101,7 +104,7 @@ function phaseTimer(runId: number): (phase: string) => void {
   let last = start;
   return (phase: string) => {
     const now = Date.now();
-    console.log(`[run ${runId}] ${phase}: ${now - last}ms (total ${now - start}ms)`);
+    log.info(phase, { runId, phaseMs: now - last, totalMs: now - start });
     last = now;
   };
 }
@@ -234,8 +237,8 @@ const runWorker = new Worker<RunJobData>(
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          console.error(`Failed to fetch GitHub issue for task ${task?.ref}:`, err);
-          // Recorded as a run event (not just console.error) so this is visible in the
+          log.error("Failed to fetch GitHub issue", { runId, taskRef: task?.ref, err });
+          // Recorded as a run event (not just logged) so this is visible in the
           // transcript — this failure previously vanished silently, leaving the agent to
           // fall back to an unauthenticated, always-doomed fetch attempt from inside its own
           // sandbox with no way for anyone to tell why it didn't have the issue content.
@@ -324,7 +327,7 @@ const runWorker = new Worker<RunJobData>(
         try {
           await insertRunContextRetrievals(retrieved.retrievals.map((r) => ({ ...r, runId })));
         } catch (err) {
-          console.error(`Failed to record context retrievals for run ${runId}:`, err);
+          log.error("Failed to record context retrievals", { runId, err });
         }
       }
       // Segments and hash describe the same string and are computed at the same moment;
@@ -425,9 +428,11 @@ const runWorker = new Worker<RunJobData>(
           // is stamped once, at the moment "Run agent" is clicked (createSession's only call site),
           // so this is the true end-to-end time even when the push happens on a later run in the
           // same session (e.g. a follow-up reply), not necessarily this one.
-          console.log(
-            `[run ${runId}] PR opened for task ${task.ref}: ${Date.now() - new Date(session.createdAt).getTime()}ms since Run Agent was clicked`,
-          );
+          log.info("PR opened", {
+            runId,
+            taskRef: task.ref,
+            sinceRunAgentClickedMs: Date.now() - new Date(session.createdAt).getTime(),
+          });
         }
       }
 
@@ -457,7 +462,7 @@ const runWorker = new Worker<RunJobData>(
       });
       await touchSessionActivity(session.id);
     } catch (err) {
-      console.error(`Run ${runId} failed:`, err);
+      log.error("Run failed", { runId, err });
       // Persist the failure to the event log (the source of truth for what happened during a
       // run, per this repo's domain model) — without this, the only record of why a run died
       // was this stdout line, gone the moment the worker's logs rotate or the process restarts.
@@ -495,7 +500,7 @@ const runWorker = new Worker<RunJobData>(
 // catches cases where the job handler's own catch block never got to run at all (e.g. it crashed
 // before reaching its try, or BullMQ itself judged the job failed).
 runWorker.on("failed", (job, err) => {
-  console.error(`Run job ${job?.id} failed:`, err);
+  log.error("Run job failed", { jobId: job?.id, err });
 });
 
 // Triggered by three separate paths — task marked done, task deleted (both apps/web's task
@@ -519,7 +524,7 @@ const sandboxTeardownWorker = new Worker<SandboxTeardownJobData>(
 );
 
 sandboxTeardownWorker.on("failed", (job, err) => {
-  console.error(`Sandbox teardown job ${job?.id} failed:`, err);
+  log.error("Sandbox teardown job failed", { jobId: job?.id, err });
 });
 
 // Idle-reap: the other two teardown triggers (task done, task deleted) are event-driven and
@@ -537,7 +542,7 @@ const sandboxReapWorker = new Worker(
 );
 
 sandboxReapWorker.on("failed", (job, err) => {
-  console.error(`Sandbox reap scan ${job?.id} failed:`, err);
+  log.error("Sandbox reap scan failed", { jobId: job?.id, err });
 });
 
 // Fixed jobId so re-registering this repeatable job on every worker start — including a
@@ -547,7 +552,7 @@ sandboxReapWorker.on("failed", (job, err) => {
 sandboxReapQueue
   .add("scan-idle-sandboxes", {}, { repeat: { every: SANDBOX_REAP_INTERVAL_MS }, jobId: "sandbox-reap-scan" })
   .catch((err) => {
-    console.error("Failed to register sandbox reap scan:", err);
+    log.error("Failed to register sandbox reap scan", { err });
   });
 
 // Triggered when an agent's or team's defaultCodebase is set (apps/web's agent/team routes) —
@@ -563,7 +568,7 @@ const repoMapWarmWorker = new Worker<RepoMapWarmJobData>(
 );
 
 repoMapWarmWorker.on("failed", (job, err) => {
-  console.error(`Repo map warm job ${job?.id} failed:`, err);
+  log.error("Repo map warm job failed", { jobId: job?.id, err });
 });
 
 // Triggered by the task page's Evaluate button (apps/web's /api/runs/[runId]/evals route) —
@@ -578,7 +583,7 @@ const evalWorker = new Worker<EvalJobData>(
 );
 
 evalWorker.on("failed", (job, err) => {
-  console.error(`Eval job ${job?.id} failed:`, err);
+  log.error("Eval job failed", { jobId: job?.id, err });
 });
 
 // Triggered by a document upload (apps/web's /api/teams/[teamId]/context-items route) —
@@ -596,7 +601,7 @@ const contextIngestWorker = new Worker<ContextIngestJobData>(
 );
 
 contextIngestWorker.on("failed", (job, err) => {
-  console.error(`Context ingest job ${job?.id} failed:`, err);
+  log.error("Context ingest job failed", { jobId: job?.id, err });
 });
 
 // Triggered by a document upload on the task-scoped route (apps/web's
@@ -613,11 +618,17 @@ const taskContextIngestWorker = new Worker<TaskContextIngestJobData>(
 );
 
 taskContextIngestWorker.on("failed", (job, err) => {
-  console.error(`Task context ingest job ${job?.id} failed:`, err);
+  log.error("Task context ingest job failed", { jobId: job?.id, err });
 });
 
-console.log(
-  `apps/worker listening on queues "${RUN_QUEUE_NAME}", "${SANDBOX_TEARDOWN_QUEUE_NAME}", ` +
-    `"${SANDBOX_REAP_QUEUE_NAME}", "${REPO_MAP_WARM_QUEUE_NAME}", "${EVAL_QUEUE_NAME}", ` +
-    `"${TEAM_CONTEXT_INGEST_QUEUE_NAME}", "${TASK_CONTEXT_INGEST_QUEUE_NAME}"`,
-);
+log.info("apps/worker listening", {
+  queues: [
+    RUN_QUEUE_NAME,
+    SANDBOX_TEARDOWN_QUEUE_NAME,
+    SANDBOX_REAP_QUEUE_NAME,
+    REPO_MAP_WARM_QUEUE_NAME,
+    EVAL_QUEUE_NAME,
+    TEAM_CONTEXT_INGEST_QUEUE_NAME,
+    TASK_CONTEXT_INGEST_QUEUE_NAME,
+  ],
+});

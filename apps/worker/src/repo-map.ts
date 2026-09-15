@@ -1,7 +1,10 @@
 import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
 import { getRepoMap, insertRepoMap } from "@agentfactory/db";
+import { createLogger } from "@agentfactory/logger";
 import type { SandboxProvider } from "./sandbox/types";
 import { cloneIntoSandbox, resolveCloneTarget, resolveDefaultBranchSha } from "./scm-provider";
+
+const log = createLogger("repo-map");
 
 const RESULT_MARKER = "__RESULT__";
 const MAX_CONTENT_LENGTH = 16384;
@@ -61,7 +64,7 @@ async function generateRepoMap(sandboxProvider: SandboxProvider, sandboxId: stri
     if (!resultLine) return undefined;
     return JSON.parse(resultLine.slice(RESULT_MARKER.length)) as GeneratedMap;
   } catch (err) {
-    console.error("Repo map generation failed:", err);
+    log.error("Repo map generation failed", { err });
     return undefined;
   }
 }
@@ -103,7 +106,7 @@ export async function ensureRepoMap(
     // creation, a task marked done, an agent or team pointed at this codebase), which is exactly
     // the case the poll exists to catch.
     await enqueueRepoMapWarmJob(orgId, repoFullName).catch((err: unknown) => {
-      console.error(`Failed to schedule repo map generation for ${repoFullName}:`, err);
+      log.error("Failed to schedule repo map generation", { repoFullName, err });
     });
 
     // Counted attempts rather than a wall-clock deadline: the loop is then deterministic, and a
@@ -114,14 +117,14 @@ export async function ensureRepoMap(
       await sleep(CACHE_POLL_INTERVAL_MS);
       const warmed = await getRepoMap(orgId, repoFullName, sha);
       if (warmed) {
-        console.log(`Repo map for ${repoFullName}@${sha} landed after ${attempt * CACHE_POLL_INTERVAL_MS}ms of polling`);
+        log.info("Repo map landed while polling", { repoFullName, sha, pollMs: attempt * CACHE_POLL_INTERVAL_MS });
         return warmed.content;
       }
     }
-    console.log(`Repo map for ${repoFullName}@${sha} did not land within ${CACHE_POLL_TIMEOUT_MS}ms; running without it`);
+    log.info("Repo map did not land within poll timeout; running without it", { repoFullName, sha, timeoutMs: CACHE_POLL_TIMEOUT_MS });
     return "";
   } catch (err) {
-    console.error("Repo map operation failed:", err);
+    log.error("Repo map operation failed", { err });
     return "";
   }
 }
@@ -158,7 +161,7 @@ async function generateAndCacheRepoMap(
     });
     return content;
   } catch (err) {
-    console.error("Repo map generation failed:", err);
+    log.error("Repo map generation failed", { err });
     return "";
   }
 }
@@ -197,10 +200,10 @@ export async function warmRepoMap(
       await generateAndCacheRepoMap(sandboxProvider, sandbox.id, orgId, repoFullName);
     } finally {
       await sandboxProvider.destroy(sandbox.id).catch((err) => {
-        console.error(`Failed to tear down warm sandbox ${sandbox.id} for ${repoFullName}:`, err);
+        log.error("Failed to tear down warm sandbox", { sandboxId: sandbox.id, repoFullName, err });
       });
     }
   } catch (err) {
-    console.error(`Repo map pre-warm failed for ${repoFullName}:`, err);
+    log.error("Repo map pre-warm failed", { repoFullName, err });
   }
 }

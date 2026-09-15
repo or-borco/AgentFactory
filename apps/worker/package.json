@@ -14,6 +14,7 @@
     "@agentfactory/core": "workspace:*",
     "@agentfactory/db": "workspace:*",
     "@agentfactory/integrations": "workspace:*",
+    "@agentfactory/logger": "workspace:*",
     "@agentfactory/queue": "workspace:*",
     "@agentfactory/scm": "workspace:*",
     "@agentfactory/storage": "workspace:*",
