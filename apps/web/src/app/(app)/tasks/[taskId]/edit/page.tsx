@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Button, Breadcrumb, PageHeader, TextInput, Textarea } from "@agentfactory/shared";
+import { Button, Breadcrumb, GroupedSelect, PageHeader, TextInput, Textarea } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
@@ -27,7 +27,6 @@ export default function EditTaskPage() {
   const [submitting, setSubmitting] = useState(false);
   const [repos, setRepos] = useState<RepoOption[]>([]);
   const [reposLoading, setReposLoading] = useState(true);
-  const repoProviders = [...new Set(repos.map((repo) => repo.provider))];
 
   // Pre-fill the form once the task loads, without a `useEffect` (which would call setState
   // synchronously in an effect body, a pattern this project's lint config flags). Adjusting
@@ -139,28 +138,19 @@ export default function EditTaskPage() {
             />
           </Field>
           <Field label={t("tasks.create.codebaseLabel")}>
-            <select value={codebase} onChange={(e) => setCodebase(e.target.value)} style={selectStyle(!!codebase)}>
-              <option value="">
-                {reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
-              </option>
-              {repoProviders.length > 1
-                ? repoProviders.map((p) => (
-                    <optgroup key={p} label={t(`connections.provider.${p}`)}>
-                      {repos
-                        .filter((repo) => repo.provider === p)
-                        .map((repo) => (
-                          <option key={repo.id} value={repo.fullName}>
-                            {repo.fullName}
-                          </option>
-                        ))}
-                    </optgroup>
-                  ))
-                : repos.map((repo) => (
-                    <option key={repo.id} value={repo.fullName}>
-                      {repo.fullName}
-                    </option>
-                  ))}
-            </select>
+            <GroupedSelect
+              value={codebase}
+              onChange={setCodebase}
+              style={selectStyle(!!codebase)}
+              placeholder={reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
+              options={repos.map((repo) => ({
+                key: repo.id,
+                value: repo.fullName,
+                label: repo.fullName,
+                group: repo.provider,
+              }))}
+              groupLabel={(provider) => t(`connections.provider.${provider}`)}
+            />
             {!reposLoading && repos.length === 0 && (
               <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>
                 {t("tasks.create.codebaseEmpty")}{" "}

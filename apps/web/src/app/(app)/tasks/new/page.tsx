@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Button, Breadcrumb, PageHeader, TextInput, Textarea, TooltipBubble } from "@agentfactory/shared";
+import { Button, Breadcrumb, GroupedSelect, PageHeader, TextInput, Textarea, TooltipBubble } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
@@ -105,7 +105,6 @@ export default function NewTaskPage() {
   // Pre-select the assignee's default codebase once the connected-repo list is known, but only
   // if the assigner hasn't already picked a repo themselves. If the agent's default isn't among
   // the connected repos, fall back to no selection rather than showing an unusable value.
-  const repoProviders = [...new Set(repos.map((repo) => repo.provider))];
   const defaultCodebase = selectedAgent?.defaultCodebase;
   const preselectedCodebase =
     defaultCodebase && repos.some((repo) => repo.fullName === defaultCodebase) ? defaultCodebase : "";
@@ -358,32 +357,19 @@ export default function NewTaskPage() {
             />
           </Field>
           <Field label={t("tasks.create.codebaseLabel")}>
-            <select
+            <GroupedSelect
               value={codebase}
-              onChange={(e) => handleCodebaseChange(e.target.value)}
+              onChange={handleCodebaseChange}
               style={selectStyle(!!codebase)}
-            >
-              <option value="">
-                {reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
-              </option>
-              {repoProviders.length > 1
-                ? repoProviders.map((p) => (
-                    <optgroup key={p} label={t(`connections.provider.${p}`)}>
-                      {repos
-                        .filter((repo) => repo.provider === p)
-                        .map((repo) => (
-                          <option key={repo.id} value={repo.fullName}>
-                            {repo.fullName}
-                          </option>
-                        ))}
-                    </optgroup>
-                  ))
-                : repos.map((repo) => (
-                    <option key={repo.id} value={repo.fullName}>
-                      {repo.fullName}
-                    </option>
-                  ))}
-            </select>
+              placeholder={reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
+              options={repos.map((repo) => ({
+                key: repo.id,
+                value: repo.fullName,
+                label: repo.fullName,
+                group: repo.provider,
+              }))}
+              groupLabel={(provider) => t(`connections.provider.${provider}`)}
+            />
             {!reposLoading && repos.length === 0 && (
               <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>
                 {t("tasks.create.codebaseEmpty")}{" "}

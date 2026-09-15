@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Badge, Button, EmptyState, PageHeader, Tabs, TextInput, Textarea } from "@agentfactory/shared";
+import { Badge, Button, EmptyState, GroupedSelect, PageHeader, Tabs, TextInput, Textarea } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
 import type { Agent, OverflowPolicy, Team } from "@agentfactory/core";
@@ -112,8 +112,6 @@ function NewTeamPanel({ onCreated, onCancel }: {
     };
   }, []);
 
-  const repoProviders = [...new Set(repos.map((repo) => repo.provider))];
-
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) { setNameError(true); return; }
@@ -172,32 +170,21 @@ function NewTeamPanel({ onCreated, onCancel }: {
           <label className="mb-1 block text-xs font-medium text-[var(--color-neutral-400)]">
             {t("teamsV2.teamDefaultCodebaseLabel")}
           </label>
-          <select
+          <GroupedSelect
             value={defaultCodebase}
-            onChange={(e) => setDefaultCodebase(e.target.value)}
+            onChange={setDefaultCodebase}
             className={selectClassName}
-          >
-            <option value="">
-              {reposLoading ? t("teamsV2.teamDefaultCodebaseLoading") : t("teamsV2.teamDefaultCodebasePlaceholder")}
-            </option>
-            {repoProviders.length > 1
-              ? repoProviders.map((p) => (
-                  <optgroup key={p} label={t(`connections.provider.${p}`)}>
-                    {repos
-                      .filter((repo) => repo.provider === p)
-                      .map((repo) => (
-                        <option key={repo.id} value={repo.fullName}>
-                          {repo.fullName}
-                        </option>
-                      ))}
-                  </optgroup>
-                ))
-              : repos.map((repo) => (
-                  <option key={repo.id} value={repo.fullName}>
-                    {repo.fullName}
-                  </option>
-                ))}
-          </select>
+            placeholder={
+              reposLoading ? t("teamsV2.teamDefaultCodebaseLoading") : t("teamsV2.teamDefaultCodebasePlaceholder")
+            }
+            options={repos.map((repo) => ({
+              key: repo.id,
+              value: repo.fullName,
+              label: repo.fullName,
+              group: repo.provider,
+            }))}
+            groupLabel={(provider) => t(`connections.provider.${provider}`)}
+          />
           <p className="mt-1.5 text-xs text-[var(--color-neutral-600)]">
             {t("teamsV2.teamDefaultCodebaseHelp")}
           </p>
