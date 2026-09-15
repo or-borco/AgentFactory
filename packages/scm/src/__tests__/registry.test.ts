@@ -87,6 +87,14 @@ describe("resolveScmConnection", () => {
   });
 
   it("only ever hands a provider its own connections, never another provider's", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_list" }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ repositories: [] }), { status: 200 })),
+    );
+
     const bitbucket = stubBitbucketProvider();
     providers.push(bitbucket);
     listConnectionsMock.mockResolvedValue([
