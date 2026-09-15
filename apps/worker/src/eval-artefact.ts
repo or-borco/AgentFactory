@@ -1,6 +1,6 @@
 import type { EvalArtefactKind, Run, RunCommitRange, Session, Task } from "@agentfactory/core";
 import { getFinalAssistantMessageForRun } from "@agentfactory/db";
-import { type CloneTarget, fetchCommitRangeDiff, resolveCloneTarget } from "./scm-provider";
+import { type CloneTarget, fetchCommitRangeDiff, resolveCloneTarget, sessionBranchName } from "./scm-provider";
 
 export interface EvalArtefact {
   kind: EvalArtefactKind;
@@ -52,7 +52,7 @@ export async function resolveEvalArtefact(
         // can no longer say where. Unfetchable, not never-committed.
         throw new Error("run recorded a commit range but its task has no codebase");
       }
-      const target = await deps.resolveTarget(orgId, task.codebase, `agent/session-${session.id}`);
+      const target = await deps.resolveTarget(orgId, task.codebase, sessionBranchName(session));
       // undefined here means no GitHub installation for this org can see the repo at all.
       if (!target) {
         throw new Error(`no GitHub installation found for repo "${task.codebase}"`);

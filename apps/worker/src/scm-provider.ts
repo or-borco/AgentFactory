@@ -12,6 +12,19 @@ export type GitHubIssue = ScmIssue;
 // added here also needs .git/info/exclude taught about it in cloneIntoSandbox below.
 const GIT_EXCLUDE_PATTERNS = [TASK_DOCUMENT_EXCLUDE_PATTERN, SKILL_EXCLUDE_PATTERN];
 
+// The one place this branch-naming scheme is spelled out — worker.ts (pushing) and
+// eval-artefact.ts (diffing the pushed range) both need the exact same name for the same
+// session, so neither should build it inline. `session.id` alone isn't safe to use: it's unique
+// only within this database, and more than one database can point sandboxes at the same GitHub
+// repo (a second local dev DB, or a reseed that reassigns an id — see T-051, where a stale
+// `agent/session-9` from an unrelated session already sat on the remote and every retry
+// conflicted with it). branchToken is missing only for sessions created before that field
+// existed, so this falls back to the bare id-only name for those rather than pushing a name that
+// no longer matches what that old session actually pushed under previously.
+export function sessionBranchName(session: { id: number; branchToken?: string }): string {
+  return session.branchToken ? `agent/session-${session.id}-${session.branchToken}` : `agent/session-${session.id}`;
+}
+
 // Resolves which of the org's connected SCM providers/connections has access to repoFullName,
 // then delegates to that provider's own clone-target resolution. Kept as a same-named,
 // same-signature export — rather than inlining resolveScmConnection at each call site — so

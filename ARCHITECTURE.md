@@ -14,7 +14,7 @@
 > `resolveCredentials` (the platform Anthropic key is read straight from env) — those are M1's
 > unfinished half, tracked in §6. `skills` and `connections` are real and DB-backed, not mock:
 > skills are materialized into the sandbox and loaded via the SDK's `skills` option; GitHub is a
-> real GitHub App (`ScmProvider`, clone → `agent/session-<id>` branch → draft PR); Jira is a real
+> real GitHub App (`ScmProvider`, clone → `agent/session-<id>[-<token>]` branch → draft PR); Jira is a real
 > `TaskProvider` REST adapter (`packages/integrations`) — not MCP as originally planned, see §9 —
 > with task-context ingestion, staleness checks, and PR-open write-back. There is no `triggers`
 > table, trigger bus, Slack/`ChannelAdapter`, `policy_decisions`, `usage_records`, or `audit_log`
@@ -417,7 +417,7 @@ per-trusted-org host is honest and sufficient.
 - **One sandbox per active session**, kept warm with an idle timeout (2h, `SANDBOX_IDLE_THRESHOLD_MS`), then torn
   down. A repeatable scan (`sandboxReapWorker`, every 15 min) finds sessions past that threshold; task-done and
   task-deleted trigger teardown immediately instead of waiting on the scan.
-- Workspace = clone at `baseRef` → work on `agent/session-<id>` branch → push → PR. Resume re-clones the branch;
+- Workspace = clone at `baseRef` → work on `agent/session-<id>[-<token>]` branch → push → PR. Resume re-clones the branch;
   disk is disposable.
 - GitHub secrets are injected as **short-lived, run-scoped tokens** (App installation tokens), never long-lived
   PATs — real today. The Anthropic API key is **not** yet resolved this way: `agent-runtime.ts` reads the
@@ -469,7 +469,9 @@ Lumping these together is the classic mistake; they behave differently.
 1. **Source control (GitHub)** = *workspace provider + review surface*. GitHub App (not PAT): per-org install,
    repo-scoped, per-run installation tokens. Port: `ScmProvider` (clone, branch, openPR, comment) so Bitbucket/GitLab
    slot in later. **Real and shipped** — `apps/worker/src/scm-provider.ts`: install flow, clone into the sandbox,
-   `agent/session-<id>` branch, `draft: true` PR against the repo's actual default branch.
+   `agent/session-<id>[-<token>]` branch (`token` is a random suffix stored on the session, folded in so the
+   branch stays unique even if `id` — unique only within this database — collides with an unrelated session's id
+   from a different database pointed at the same repo), `draft: true` PR against the repo's actual default branch.
 2. **Communication channels (Slack, Telegram, Discord, WhatsApp)** = *bidirectional transport for sessions*.
    Port: `ChannelAdapter { receive(raw) → InboundMessage, send(outbound) }`. **A channel thread maps 1:1 to a
    Session** — the same session the web UI shows. Slack first; the rest are adapter implementations, not new

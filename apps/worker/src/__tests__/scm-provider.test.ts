@@ -22,6 +22,7 @@ const {
   pushChangesIfDirty,
   resolveCloneTarget,
   resolveDefaultBranchSha,
+  sessionBranchName,
   syncWithDefaultBranch,
 } = await import("../scm-provider");
 
@@ -364,6 +365,19 @@ describe("syncWithDefaultBranch", () => {
     expect(capturedEnv).toEqual({ CLONE_URL: target.cloneUrl, REMOTE_URL: target.remoteUrl });
     expect(capturedScript).toContain('git remote set-url origin "$REMOTE_URL"');
     expect(capturedScript).not.toContain("github.com/$REPO_FULL_NAME");
+  });
+});
+
+describe("sessionBranchName", () => {
+  it("folds the session's branchToken into the branch name when present", () => {
+    expect(sessionBranchName({ id: 9, branchToken: "a1b2c3d4" })).toBe("agent/session-9-a1b2c3d4");
+  });
+
+  it("falls back to the bare id-only name for a session with no branchToken", () => {
+    // Sessions created before the branchToken column existed have none — the branch they
+    // already pushed under is the id-only name, so that's what a later run on the same session
+    // has to keep using.
+    expect(sessionBranchName({ id: 9 })).toBe("agent/session-9");
   });
 });
 

@@ -20,6 +20,17 @@ describe("sessions repository", () => {
     await expect(getSession(session.id)).resolves.toEqual(session);
   });
 
+  it("gives each session its own random branchToken", async () => {
+    const org = await insertOrg();
+    const agent = await insertAgent(org.id);
+    const session1 = await createSession(org.id, agent.id, "Session 1");
+    const session2 = await createSession(org.id, agent.id, "Session 2");
+
+    expect(session1.branchToken).toBeTruthy();
+    expect(session2.branchToken).toBeTruthy();
+    expect(session1.branchToken).not.toBe(session2.branchToken);
+  });
+
   it("lists sessions scoped to an org, optionally filtered by agent", async () => {
     const org = await insertOrg();
     const agent1 = await insertAgent(org.id, { name: "Agent 1" });

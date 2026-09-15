@@ -49,6 +49,14 @@ describe("resolveEvalArtefact", () => {
     expect(deps.getFinalMessage).not.toHaveBeenCalled();
   });
 
+  it("resolves against the session's token-suffixed branch when it has one", async () => {
+    const deps = makeDeps();
+    const sessionWithToken = { ...SESSION, branchToken: "deadbeef" } as Session;
+    await resolveEvalArtefact(RUN_THAT_PUSHED, sessionWithToken, TASK_WITH_REPO, 1, deps);
+
+    expect(deps.resolveTarget).toHaveBeenCalledWith(1, "acme/backend", "agent/session-12-deadbeef");
+  });
+
   it("grades the final message when the run recorded no commits", async () => {
     const deps = makeDeps();
     const artefact = await resolveEvalArtefact(RUN_THAT_PUSHED_NOTHING, SESSION, TASK_WITH_REPO, 1, deps);
