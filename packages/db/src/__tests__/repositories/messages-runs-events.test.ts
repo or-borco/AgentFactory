@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { db } from "../../client.js";
@@ -246,5 +246,56 @@ describe("events repository", () => {
     await createEvent(runA.id, 0, "text_delta", { text: "Session A event" });
 
     await expect(listEventsForSession(sessionB.id)).resolves.toEqual([]);
+  });
+
+  // Guards the fix for the "no DB indexes" issue: the events -> runs join behind
+  // listEventsForSession is on the task page's ~1.5s poll, and events is append-only and only
+  // ever grows. This must stay an index scan, not a sequential scan of the whole table.
+  //
+  // Gotcha: on a near-empty table Postgres correctly *prefers* a seq scan regardless of what
+  // indexes exist, because it's genuinely cheaper at that size — so a naive EXPLAIN here would
+  // fail even with the index in place. Rather than seed thousands of rows to out-run the
+  // planner's own heuristic (slow, and still not guaranteed across environments), this disables
+  // the seq scan method for the assertion, the same technique used in
+  // context-chunks-search.test.ts for the same reason. That's a meaningful check, not a
+  // tautology: with `enable_seqscan = off`, Postgres still has to fall back to a seq scan if no
+  // usable index exists at all — it isn't forbidden, just deprioritized. So this test fails
+  // before events_run_id_seq_idx / runs_session_id_idx exist and passes once they do.
+  it("uses an index scan, not a seq scan, for the session-events join", async () => {
+    const target = await setupSession();
+    const targetRun = await createRun(target.id);
+    await createEvent(targetRun.id, 0, "text_delta", { text: "target 1" });
+    await createEvent(targetRun.id, 1, "text_delta", { text: "target 2" });
+
+    // Decoy data in other sessions/runs, so a correctness regression (e.g. a bad join) would
+    // actually be caught by the assertion below, not just this table being otherwise empty.
+    const decoySession = await setupSession();
+    const decoyRun = await createRun(decoySession.id);
+    await createEvent(decoyRun.id, 0, "text_delta", { text: "decoy" });
+
+    await db.execute(sql`set enable_seqscan = off`);
+    try {
+      const plan = await db.execute<{ "QUERY PLAN": string }>(
+        sql`explain select e.id, e.run_id, e.seq, e.type, e.data
+            from events e
+            inner join runs r on e.run_id = r.id
+            where r.session_id = ${target.id}
+            order by e.run_id, e.seq`,
+      );
+      const planText = Array.from(plan)
+        .map((row) => row["QUERY PLAN"])
+        .join("\n");
+
+      expect(planText).toMatch(/Index Scan/);
+      expect(planText).not.toMatch(/Seq Scan/);
+    } finally {
+      await db.execute(sql`set enable_seqscan = on`);
+    }
+
+    // Correctness alongside the plan assertion, so an index change can't silently alter which
+    // rows come back.
+    const rows = await listEventsForSession(target.id);
+    expect(rows).toHaveLength(2);
+    expect(rows.map((r) => r.data)).toEqual([{ text: "target 1" }, { text: "target 2" }]);
   });
 });
