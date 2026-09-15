@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { getRepoMap } from "@agentfactory/db";
 import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
+import { resolveScmConnection } from "@agentfactory/scm";
 import { requireAuthContext } from "@/server/auth";
-import { resolveDefaultBranchSha } from "@/server/github-app";
 
 // Answers "is this repo mapped for its current commit?" for the task-creation and task-edit
 // forms' wait-choice banner (see docs/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md).
-// checkable:false means "couldn't determine" (no GitHub connection, API error) — every caller
-// treats that identically to "not mapped, but skip the prompt", never as an error to surface.
+// checkable:false means "couldn't determine" (no connected SCM provider can see the repo, API
+// error) — every caller treats that identically to "not mapped, but skip the prompt", never as
+// an error to surface.
 export async function GET(request: Request) {
   const ctx = await requireAuthContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -15,7 +16,10 @@ export async function GET(request: Request) {
   const repoFullName = new URL(request.url).searchParams.get("codebase");
   if (!repoFullName) return NextResponse.json({ error: "codebase is required" }, { status: 400 });
 
-  const sha = await resolveDefaultBranchSha(ctx.orgId, repoFullName).catch(() => undefined);
+  const resolved = await resolveScmConnection(ctx.orgId, repoFullName).catch(() => undefined);
+  const sha = resolved
+    ? await resolved.provider.resolveDefaultBranchSha(resolved.connection, repoFullName).catch(() => undefined)
+    : undefined;
   if (!sha) return NextResponse.json({ mapped: false, checkable: false });
 
   const cached = await getRepoMap(ctx.orgId, repoFullName, sha);

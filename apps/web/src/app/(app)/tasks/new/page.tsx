@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Button, Breadcrumb, PageHeader, TextInput, Textarea, TooltipBubble } from "@agentfactory/shared";
+import { Button, Breadcrumb, GroupedSelect, PageHeader, TextInput, Textarea, TooltipBubble } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
@@ -11,11 +11,7 @@ import { DEFAULT_MODEL_ID, MODEL_CATALOG, type TaskExternalRef } from "@agentfac
 import type { ExternalAttachment, ExternalIssue } from "@agentfactory/integrations";
 import { useRepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
 import { RepoMapWaitBanner } from "@/components/RepoMapWaitBanner";
-
-interface RepoOption {
-  id: number;
-  fullName: string;
-}
+import type { RepoOption } from "@agentfactory/scm";
 
 interface StagedFile {
   id: number;
@@ -61,7 +57,7 @@ export default function NewTaskPage() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<RepoOption[]>("/api/connections/github/repos")
+    apiFetch<RepoOption[]>("/api/connections/repos")
       .then((result) => {
         if (!cancelled) setRepos(result);
       })
@@ -361,20 +357,19 @@ export default function NewTaskPage() {
             />
           </Field>
           <Field label={t("tasks.create.codebaseLabel")}>
-            <select
+            <GroupedSelect
               value={codebase}
-              onChange={(e) => handleCodebaseChange(e.target.value)}
+              onChange={handleCodebaseChange}
               style={selectStyle(!!codebase)}
-            >
-              <option value="">
-                {reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
-              </option>
-              {repos.map((repo) => (
-                <option key={repo.id} value={repo.fullName}>
-                  {repo.fullName}
-                </option>
-              ))}
-            </select>
+              placeholder={reposLoading ? t("tasks.create.codebaseLoading") : t("tasks.create.codebasePlaceholder")}
+              options={repos.map((repo) => ({
+                key: repo.id,
+                value: repo.fullName,
+                label: repo.fullName,
+                group: repo.provider,
+              }))}
+              groupLabel={(provider) => t(`connections.provider.${provider}`)}
+            />
             {!reposLoading && repos.length === 0 && (
               <p style={{ marginTop: 4, fontSize: 12, color: "var(--color-neutral-500)" }}>
                 {t("tasks.create.codebaseEmpty")}{" "}

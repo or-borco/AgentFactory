@@ -259,9 +259,11 @@ describe("warmRepoMap", () => {
     insertRepoMapMock.mockReset().mockResolvedValue(undefined);
     resolveCloneTargetMock.mockReset().mockResolvedValue({
       cloneUrl: "https://x-access-token:tok@github.com/acme/widgets.git",
+      remoteUrl: "https://github.com/acme/widgets.git",
       branch: "main",
       repoFullName: "acme/widgets",
-      installationId: 1,
+      provider: "github",
+      installationRef: 1,
     });
     cloneIntoSandboxMock.mockReset().mockResolvedValue(undefined);
     const destroy = vi.fn();
@@ -298,9 +300,11 @@ describe("warmRepoMap", () => {
     getRepoMapMock.mockReset().mockResolvedValue(undefined);
     resolveCloneTargetMock.mockReset().mockResolvedValue({
       cloneUrl: "https://x-access-token:tok@github.com/acme/widgets.git",
+      remoteUrl: "https://github.com/acme/widgets.git",
       branch: "main",
       repoFullName: "acme/widgets",
-      installationId: 1,
+      provider: "github",
+      installationRef: 1,
     });
     cloneIntoSandboxMock.mockReset().mockRejectedValue(new Error("clone failed"));
     const destroy = vi.fn();
@@ -324,9 +328,11 @@ describe("warmRepoMap", () => {
     getRepoMapMock.mockReset().mockResolvedValue(undefined);
     resolveCloneTargetMock.mockReset().mockResolvedValue({
       cloneUrl: "https://x-access-token:tok@github.com/acme/widgets.git",
+      remoteUrl: "https://github.com/acme/widgets.git",
       branch: "main",
       repoFullName: "acme/widgets",
-      installationId: 1,
+      provider: "github",
+      installationRef: 1,
     });
     cloneIntoSandboxMock.mockReset().mockResolvedValue(undefined);
     const destroy = vi.fn().mockRejectedValue(new Error("docker teardown failed"));
@@ -352,9 +358,11 @@ describe("warmRepoMap", () => {
     getRepoMapMock.mockReset().mockResolvedValue(undefined);
     resolveCloneTargetMock.mockReset().mockResolvedValue({
       cloneUrl: "https://x-access-token:tok@github.com/acme/widgets.git",
+      remoteUrl: "https://github.com/acme/widgets.git",
       branch: "main",
       repoFullName: "acme/widgets",
-      installationId: 1,
+      provider: "github",
+      installationRef: 1,
     });
     const destroy = vi.fn();
     const create = vi.fn().mockRejectedValue(new Error("docker unavailable"));

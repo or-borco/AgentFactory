@@ -405,7 +405,7 @@ const runWorker = new Worker<RunJobData>(
         // ever open once per task; task.prNumber is the record of whether that's already happened.
         if (result.pushed && !task.prNumber) {
           const pr = await openDraftPullRequest(
-            workspace.installationId,
+            agent.orgId,
             workspace.repoFullName,
             workspace.branch,
             task.title,

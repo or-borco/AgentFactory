@@ -177,7 +177,7 @@ export const connections = pgTable("connections", {
   health: connectionHealthEnum("health").notNull().default("healthy"),
   // For github: { installationId, accountLogin, accountType }. No token/secret lives here —
   // installation tokens are minted on demand from the platform's GitHub App private key
-  // (apps/web/src/server/github-app.ts), never persisted.
+  // (packages/scm/src/github.ts), never persisted.
   config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}),
   auth: connectionAuthKindEnum("auth").notNull().default("none"),
   // Nullable, and "none" is the default, so every existing GitHub row is already correct with no

@@ -3,15 +3,11 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Modal } from "@/components/Modal";
-import { Button, Textarea, TextInput } from "@agentfactory/shared";
+import { Button, GroupedSelect, Textarea, TextInput } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import type { AgentMode } from "@agentfactory/core";
-
-interface RepoOption {
-  id: number;
-  fullName: string;
-}
+import type { RepoOption } from "@agentfactory/scm";
 
 export interface AgentFormValues {
   name: string;
@@ -45,7 +41,7 @@ export function AgentFormModal({
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch<RepoOption[]>("/api/connections/github/repos")
+    apiFetch<RepoOption[]>("/api/connections/repos")
       .then((result) => {
         if (!cancelled) setRepos(result);
       })
@@ -115,21 +111,20 @@ export function AgentFormModal({
           <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
             {t("agentForm.defaultCodebaseLabel")}
           </label>
-          <select
+          <GroupedSelect
             value={defaultCodebase}
-            onChange={(e) => setDefaultCodebase(e.target.value)}
+            onChange={setDefaultCodebase}
             className="w-full rounded-[var(--radius-md)] border border-[var(--color-divider)] bg-[var(--color-surface)] px-3 py-2.5 text-sm text-[var(--color-text)] focus:border-[var(--color-accent)] focus:outline-none"
-          >
-            <option value="">
-              {reposLoading ? t("agentForm.defaultCodebaseLoading") : t("agentForm.defaultCodebasePlaceholder")}
-            </option>
-            {!hasCurrentRepo && <option value={defaultCodebase}>{defaultCodebase}</option>}
-            {repos.map((repo) => (
-              <option key={repo.id} value={repo.fullName}>
-                {repo.fullName}
-              </option>
-            ))}
-          </select>
+            placeholder={reposLoading ? t("agentForm.defaultCodebaseLoading") : t("agentForm.defaultCodebasePlaceholder")}
+            extraOptions={hasCurrentRepo ? [] : [{ key: defaultCodebase, value: defaultCodebase, label: defaultCodebase }]}
+            options={repos.map((repo) => ({
+              key: repo.id,
+              value: repo.fullName,
+              label: repo.fullName,
+              group: repo.provider,
+            }))}
+            groupLabel={(provider) => t(`connections.provider.${provider}`)}
+          />
           <p className="mt-1.5 text-xs text-[var(--color-neutral-600)]">{t("agentForm.defaultCodebaseHelp")}</p>
           {!reposLoading && repos.length === 0 && (
             <p className="mt-1.5 text-xs text-[var(--color-neutral-600)]">

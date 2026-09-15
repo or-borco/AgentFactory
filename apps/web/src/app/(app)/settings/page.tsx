@@ -4,7 +4,7 @@ import { requireAuthContext } from "@/server/auth";
 import { SettingsView } from "./SettingsView";
 
 // GITHUB_APP_ID / GITHUB_APP_SLUG / GITHUB_APP_PRIVATE_KEY are only ever read server-side (see
-// apps/web/src/server/github-app.ts) — this page only exposes whether they're set, never their
+// packages/scm/src/github.ts) — this page only exposes whether they're set, never their
 // values, so it's safe to check them directly in a server component.
 function githubAppStatus(): { configured: boolean; slug?: string } {
   const configured = Boolean(

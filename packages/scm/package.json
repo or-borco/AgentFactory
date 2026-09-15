@@ -1,0 +1,21 @@
+{
+  "name": "@agentfactory/scm",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agentfactory/core": "workspace:*",
+    "@agentfactory/db": "workspace:*",
+    "jsonwebtoken": "^9.0.2"
+  },
+  "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22",
+    "typescript": "^5.9.3"
+  }
+}

@@ -12,3 +12,5 @@ export * from "./EmptyState";
 export * from "./Tabs";
 export * from "./UsageMeter";
 export * from "./MultiSelectCheckboxList";
+export * from "./Select";
+export * from "./GroupedSelect";

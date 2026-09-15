@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { randomBytes } from "node:crypto";
+import { getScmProvider } from "@agentfactory/scm";
 import { requireAuthContext } from "@/server/auth";
 
 const STATE_COOKIE = "gh_connect_state";
@@ -23,5 +24,6 @@ export async function GET() {
 
   // GitHub's own install UI handles the repo picker; we only need to route the user there
   // and verify `state` on the way back.
-  return NextResponse.redirect(`https://github.com/apps/${slug}/installations/new?state=${state}`);
+  const provider = getScmProvider("github")!;
+  return NextResponse.redirect(provider.authorizeUrl(state));
 }
