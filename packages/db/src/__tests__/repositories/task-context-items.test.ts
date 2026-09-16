@@ -2,17 +2,19 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { db } from "../../client.js";
-import { tasks } from "../../schema.js";
+import { tasks, taskContextItems } from "../../schema.js";
 import { insertContentBlob } from "../../repositories/content-blobs.js";
 import { insertTaskContextChunks } from "../../repositories/task-context-chunks.js";
 import {
   countIndexedTaskContextItems,
+  countPendingTaskContextItems,
   createTaskContextItem,
   deleteTaskContextItemForOrg,
   getTaskContextItem,
   getTaskContextItemForOrg,
   listTaskContextItemsForOrg,
   markTaskContextItemIndexed,
+  markTaskContextItemIndexing,
 } from "../../repositories/task-context-items.js";
 import { insertOrg, insertTask, insertUser } from "../fixtures.js";
 
@@ -286,5 +288,95 @@ describe("task-context-items repository", () => {
     await markTaskContextItemIndexed(item!.id);
 
     await expect(countIndexedTaskContextItems(task.id)).resolves.toBe(0);
+  });
+});
+
+describe("countPendingTaskContextItems", () => {
+  it("counts a freshly created pending item within the window", async () => {
+    const { org, task } = await setupTaskWithBlob();
+    await createTaskContextItem({
+      taskId: task.id,
+      orgId: org.id,
+      title: "Design doc",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+    });
+
+    const since = new Date(Date.now() - 5 * 60_000);
+    await expect(countPendingTaskContextItems(task.id, since)).resolves.toBe(1);
+  });
+
+  it("counts an indexing item within the window", async () => {
+    const { org, task } = await setupTaskWithBlob();
+    const item = await createTaskContextItem({
+      taskId: task.id,
+      orgId: org.id,
+      title: "Design doc",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+    });
+    if (!item) throw new Error("fixture item was not created");
+    await markTaskContextItemIndexing(item.id);
+
+    const since = new Date(Date.now() - 5 * 60_000);
+    await expect(countPendingTaskContextItems(task.id, since)).resolves.toBe(1);
+  });
+
+  it("excludes an indexed item", async () => {
+    const { org, task } = await setupTaskWithBlob();
+    const item = await createTaskContextItem({
+      taskId: task.id,
+      orgId: org.id,
+      title: "Design doc",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+    });
+    if (!item) throw new Error("fixture item was not created");
+    await markTaskContextItemIndexed(item.id);
+
+    const since = new Date(Date.now() - 5 * 60_000);
+    await expect(countPendingTaskContextItems(task.id, since)).resolves.toBe(0);
+  });
+
+  it("excludes a pending item outside the recency window", async () => {
+    const { org, task } = await setupTaskWithBlob();
+    const item = await createTaskContextItem({
+      taskId: task.id,
+      orgId: org.id,
+      title: "Design doc",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+    });
+    if (!item) throw new Error("fixture item was not created");
+    // Backdate directly — createTaskContextItem always stamps createdAt at insert time.
+    await db
+      .update(taskContextItems)
+      .set({ createdAt: new Date(Date.now() - 10 * 60_000) })
+      .where(eq(taskContextItems.id, item.id));
+
+    const since = new Date(Date.now() - 5 * 60_000);
+    await expect(countPendingTaskContextItems(task.id, since)).resolves.toBe(0);
+  });
+
+  it("does not count another task's pending item", async () => {
+    const { org, task } = await setupTaskWithBlob();
+    const user = await insertUser();
+    const otherTask = await insertTask(org.id, user.id);
+    await insertContentBlob(org.id, SHA_B, 42, "text/markdown");
+    await createTaskContextItem({
+      taskId: otherTask.id,
+      orgId: org.id,
+      title: "Other doc",
+      sizeBytes: 42,
+      sha256: SHA_B,
+      mime: "text/markdown",
+    });
+
+    const since = new Date(Date.now() - 5 * 60_000);
+    await expect(countPendingTaskContextItems(task.id, since)).resolves.toBe(0);
   });
 });

@@ -1,4 +1,4 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, gte, inArray } from "drizzle-orm";
 import type { TeamContextItem } from "@agentfactory/core";
 import { db } from "../client";
 import { contextChunks, runContextRetrievals, teamContextItems } from "../schema";
@@ -124,5 +124,22 @@ export async function countIndexedTeamContextItems(teamId: number): Promise<numb
     .select({ value: count() })
     .from(contextChunks)
     .where(eq(contextChunks.teamId, teamId));
+  return row?.value ?? 0;
+}
+
+// The pending-ingest half of the AgentFactory#150 race fix — see
+// countPendingTaskContextItems's comment for the full rationale (mirrored here for the team
+// scope). Counts items, not chunks: a not-yet-indexed item has no chunks yet.
+export async function countPendingTeamContextItems(teamId: number, since: Date): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(teamContextItems)
+    .where(
+      and(
+        eq(teamContextItems.teamId, teamId),
+        inArray(teamContextItems.status, ["pending", "indexing"]),
+        gte(teamContextItems.createdAt, since),
+      ),
+    );
   return row?.value ?? 0;
 }

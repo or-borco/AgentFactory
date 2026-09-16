@@ -1,4 +1,4 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, gte, inArray } from "drizzle-orm";
 import type { TaskContextItem } from "@agentfactory/core";
 import { db } from "../client";
 import { runContextRetrievals, taskContextChunks, taskContextItems } from "../schema";
@@ -137,5 +137,25 @@ export async function countIndexedTaskContextItems(taskId: number): Promise<numb
     .select({ value: count() })
     .from(taskContextChunks)
     .where(eq(taskContextChunks.taskId, taskId));
+  return row?.value ?? 0;
+}
+
+// The pending-ingest half of the AgentFactory#150 race fix: how many of this task's context
+// items are still `pending` or `indexing`, and were created recently enough that they're
+// plausibly still being ingested right now (as opposed to a permanently stuck row from a crashed
+// worker — see context-ingest-wait.ts's own comment for why that cutoff exists). Counts items,
+// not chunks, deliberately the opposite of countIndexedTaskContextItems: a not-yet-indexed item
+// has no chunks to count yet, that's the whole problem.
+export async function countPendingTaskContextItems(taskId: number, since: Date): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(taskContextItems)
+    .where(
+      and(
+        eq(taskContextItems.taskId, taskId),
+        inArray(taskContextItems.status, ["pending", "indexing"]),
+        gte(taskContextItems.createdAt, since),
+      ),
+    );
   return row?.value ?? 0;
 }
