@@ -4,6 +4,7 @@ import type { SandboxProvider } from "../sandbox/types";
 export interface AgentTurnResult {
   text: string;
   providerSessionRef: string;
+  structuredOutput?: unknown;
 }
 
 // Named RuntimeEvent, not RunEvent, to avoid colliding with @agentfactory/core's RunEvent (the
@@ -32,6 +33,7 @@ export interface RunInput {
   userText: string;
   resumeSessionRef?: string;
   skillNames?: string[];
+  outputSchema?: Record<string, unknown>;
 }
 
 export interface AgentRuntime {
