@@ -6,11 +6,11 @@ export interface AgentTurnResult {
   providerSessionRef: string;
 }
 
-// Must match RESULT_MARKER in apps/worker/sandbox-image/run-turn.ts.
+// Must match RESULT_MARKER in apps/worker/sandbox-image/run-turn-claude.ts.
 const RESULT_MARKER = "__RESULT__";
-// Must match EVENT_MARKER in apps/worker/sandbox-image/run-turn.ts.
+// Must match EVENT_MARKER in apps/worker/sandbox-image/run-turn-claude.ts.
 const EVENT_MARKER = "__EVENT__";
-// Must match ERROR_MARKER in apps/worker/sandbox-image/run-turn.ts.
+// Must match ERROR_MARKER in apps/worker/sandbox-image/run-turn-claude.ts.
 const ERROR_MARKER = "__ERROR__";
 
 export class PromptTooLongError extends Error {
@@ -21,7 +21,7 @@ export class PromptTooLongError extends Error {
 }
 
 // Thrown when the sandbox reports that the Claude API rejected the turn because the org's
-// account has run out of usage credits (run-turn.ts matches Anthropic's "credit balance" error
+// account has run out of usage credits (run-turn-claude.ts matches Anthropic's "credit balance" error
 // text). Kept distinct from the generic failure path so worker.ts can classify the resulting
 // run event with ErrorCode "insufficient_credit" instead of a one-size-fits-all message.
 export class InsufficientCreditError extends Error {
@@ -31,7 +31,7 @@ export class InsufficientCreditError extends Error {
   }
 }
 
-// The Claude Agent SDK call now runs *inside* the sandbox (apps/worker/sandbox-image/run-turn.ts),
+// The Claude Agent SDK call now runs *inside* the sandbox (apps/worker/sandbox-image/run-turn-claude.ts),
 // not on the worker's own host process — this function just execs into it and parses the one
 // sentinel-prefixed result line back out. `resumeSessionRef` carries the prior turn's provider
 // session id (from runs.provider_session_ref); it only resolves because the sandbox is the same
@@ -71,7 +71,7 @@ export async function runAgentTurn(params: {
   let stderr = "";
   for await (const chunk of sandboxProvider.exec(
     sandboxId,
-    ["/agent/node_modules/.bin/tsx", "/agent/run-turn.ts"],
+    ["/agent/node_modules/.bin/tsx", "/agent/run-turn-claude.ts"],
     { env },
   )) {
     if (chunk.stream === "stdout") {
