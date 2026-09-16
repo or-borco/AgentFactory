@@ -8,10 +8,9 @@ import { createLogger } from "@agentfactory/logger";
 const log = createLogger("api:repos:map-status");
 
 // Answers "is this repo mapped for its current commit?" for the task-creation and task-edit
-// forms' wait-choice banner (see docs/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md).
-// checkable:false means "couldn't determine" (no connected SCM provider can see the repo, API
-// error) — every caller treats that identically to "not mapped, but skip the prompt", never as
-// an error to surface.
+// forms' wait-choice banner. checkable:false means "couldn't determine" (no connected SCM
+// provider can see the repo, API error) — every caller treats that identically to "not mapped,
+// but skip the prompt", never as an error to surface.
 export async function GET(request: Request) {
   const ctx = await requireAuthContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
