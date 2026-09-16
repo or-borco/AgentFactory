@@ -3,8 +3,7 @@ import { createConnection, createConnectionSecret, getConnection, listConnection
 import { JiraTaskProvider, ProviderError } from "@agentfactory/integrations";
 import { requireAuthContext } from "@/server/auth";
 
-// Cloud only (Product decision 4 — see docs/superpowers/specs/2026-09-12-jira-integration-
-// design.md). Strips a trailing slash (and any path/query the user pasted along with the host)
+// Cloud only. Strips a trailing slash (and any path/query the user pasted along with the host)
 // via URL.origin, and rejects anything that isn't an https://*.atlassian.net address.
 function normalizeSiteUrl(raw: unknown): string | undefined {
   if (typeof raw !== "string" || raw.trim() === "") return undefined;
@@ -22,9 +21,7 @@ function normalizeSiteUrl(raw: unknown): string | undefined {
   return url.origin;
 }
 
-// Connects a Jira Cloud site as the org's `tasks`-kind connection. See the spec's "Flow: connect"
-// and Design decision 15 (single-connection enforcement) —
-// docs/superpowers/specs/2026-09-12-jira-integration-design.md.
+// Connects a Jira Cloud site as the org's `tasks`-kind connection.
 export async function POST(request: Request) {
   const ctx = await requireAuthContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -91,9 +88,9 @@ export async function POST(request: Request) {
 }
 
 // Updates the org's write-back config for its Jira connection. Comment-on-PR is the only setting
-// there is (Product decision 3, docs/superpowers/specs/2026-09-12-jira-integration-design.md —
-// transitions are permanently out of scope, not just undefaulted). Merges into the existing
-// `config` rather than replacing it, so siteUrl/accountEmail/accountId survive the write.
+// there is (Product decision 3 — transitions are permanently out of scope, not just
+// undefaulted). Merges into the existing `config` rather than replacing it, so
+// siteUrl/accountEmail/accountId survive the write.
 export async function PATCH(request: Request) {
   const ctx = await requireAuthContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

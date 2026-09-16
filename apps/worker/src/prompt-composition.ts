@@ -276,11 +276,10 @@ export function buildRetrievedContextSegment(
 const PRIOR_CONVERSATION_BUDGET_BYTES = 32 * 1024;
 
 // Reconstructs enough prior-turn context for the model to continue coherently when a session's
-// sandbox has been recreated (docs/superpowers/specs/2026-09-08-session-context-reconstruction-
-// design.md) and `resume` can no longer work — the Claude Agent SDK's resume state lives in the
-// old, now-destroyed container's filesystem, not server-side. `excludeMessageId` is this run's
-// own triggering message: it's sent as `userText` the normal way, so including it here too would
-// just duplicate it.
+// sandbox has been recreated and `resume` can no longer work — the Claude Agent SDK's resume
+// state lives in the old, now-destroyed container's filesystem, not server-side.
+// `excludeMessageId` is this run's own triggering message: it's sent as `userText` the normal
+// way, so including it here too would just duplicate it.
 //
 // Walks messages newest-first accumulating against the byte budget, then reverses back to
 // chronological order — the most recent turns are what the model most needs to pick up where it
@@ -347,15 +346,13 @@ export function buildPriorConversationSegment(resumeIsValid: boolean, formatted:
 //    machine-SELECTED bulk, and they are more task-specific than the repo map, so they go after
 //    the map and before team context. This supersedes ARCHITECTURE.md §3, which puts retrieved
 //    items after shared_context — that ordering predates the measurement below. The re-run with
-//    a retrieved layer present (docs/superpowers/experiments/2026-08-27-retrieved-layer-ordering.md)
-//    did not falsify this order — Arm B (the §3 order) scored no worse, 10/10 vs 9/10 — but that
-//    is one task shape with no imperative team-context instruction and no long tool transcript,
-//    so it is inconclusive rather than a strong confirmation.
+//    a retrieved layer present did not falsify this order — Arm B (the §3 order) scored no worse,
+//    10/10 vs 9/10 — but that is one task shape with no imperative team-context instruction and
+//    no long tool transcript, so it is inconclusive rather than a strong confirmation.
 //
 // Rule 2 is measured, not assumed. The repo map used to sit between team context and the agent
 // prompt. Replaying a real run's exact layers against claude-haiku-4-5 and scoring the output
-// against every instruction those layers contained (docs/superpowers/experiments/
-// 2026-08-26-prompt-layer-ordering.md) gave, for fully-compliant responses:
+// against every instruction those layers contained gave, for fully-compliant responses:
 //
 //     map between team context and agent prompt   1/10
 //     map before both (this order)               10/10

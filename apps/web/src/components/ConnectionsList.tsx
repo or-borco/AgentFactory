@@ -109,8 +109,7 @@ function writeBackComment(conn: Connection): boolean {
 }
 
 // Per-connection write-back config, shown only for `kind: "tasks"` connections. Comment-on-PR is
-// the only setting there is (Product decision 3: no status transition, not even opt-in) — see
-// docs/superpowers/specs/2026-09-12-jira-integration-design.md.
+// the only setting there is (Product decision 3: no status transition, not even opt-in).
 function TaskWriteBackConfig({
   conn,
   t,

@@ -56,8 +56,7 @@ interface JiraIssueResponse {
   };
 }
 
-// Calls Jira Cloud REST v3 with HTTP Basic auth. See docs/superpowers/specs/2026-09-12-jira-
-// integration-design.md ("Mechanism > The port") for the field mapping this implements.
+// Calls Jira Cloud REST v3 with HTTP Basic auth.
 export class JiraTaskProvider implements TaskProvider {
   constructor(private readonly options: JiraTaskProviderOptions) {}
 

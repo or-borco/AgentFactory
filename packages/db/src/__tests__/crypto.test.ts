@@ -2,8 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { randomBytes } from "node:crypto";
 
 // No database involved — this file lives directly under __tests__/ (not __tests__/repositories/)
-// so vitest.config.ts's `unit` project picks it up and `db-integration` does not. See
-// docs/superpowers/plans/2026-09-12-jira-integration.md Task 2, Step 1.
+// so vitest.config.ts's `unit` project picks it up and `db-integration` does not.
 
 // crypto.ts reads CONNECTION_SECRET_KEY inside the function body, not at module scope (matching
 // packages/storage/src/index.ts's createBlobStore() pattern), so a plain top-level import here is

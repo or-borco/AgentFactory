@@ -12,10 +12,14 @@ export default function ActivityPage() {
   const { t } = useTranslation();
 
   // ── Derived stats ───────────────────────────────────────────────────────────
+  const openCount = tasks.filter((tk) => tk.status === "open").length;
+  const assignedCount = tasks.filter((tk) => tk.status === "assigned").length;
   const inProgressCount = tasks.filter((tk) => tk.status === "in_progress").length;
   const needsInputCount = tasks.filter((tk) => tk.status === "needs_input").length;
+  const reviewCycleCount = tasks.filter((tk) => tk.status === "review_cycle").length;
   const prOpenCount = tasks.filter((tk) => tk.status === "pr_open").length;
   const failedCount = tasks.filter((tk) => tk.status === "failed").length;
+  const cancelledCount = tasks.filter((tk) => tk.status === "cancelled").length;
 
   // "Done this week" = done tasks updated within the last 7 days
   const [oneWeekAgo] = useState(() => Date.now() - 7 * 24 * 60 * 60 * 1000);
@@ -39,16 +43,20 @@ export default function ActivityPage() {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(5, 1fr)",
+          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
           gap: 16,
           marginTop: 28,
         }}
       >
+        <StatTile label={t("activity.open")} value={openCount} color="var(--color-neutral-400)" />
+        <StatTile label={t("activity.assigned")} value={assignedCount} color="#5ba3d9" />
         <StatTile label={t("activity.inProgress")} value={inProgressCount} color="#5ba3d9" />
         <StatTile label={t("activity.needsInput")} value={needsInputCount} color="#e8a44a" />
+        <StatTile label={t("activity.reviewCycle")} value={reviewCycleCount} color="var(--color-accent)" />
         <StatTile label={t("activity.prsOpen")} value={prOpenCount} color="#4eca8b" />
         <StatTile label={t("activity.doneThisWeek")} value={doneThisWeek} color="var(--color-accent)" />
         <StatTile label={t("activity.failed")} value={failedCount} color="#e05a5a" />
+        <StatTile label={t("activity.cancelled")} value={cancelledCount} color="var(--color-neutral-500)" />
       </div>
 
       {/* ── Feed ────────────────────────────────────────────────────────────── */}
