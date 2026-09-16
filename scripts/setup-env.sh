@@ -1,17 +1,92 @@
 #!/usr/bin/env bash
-# One-command local env setup: creates the single root .env.local (from .env.example) if it
-# doesn't exist yet, auto-generates CONNECTION_SECRET_KEY (the one secret that doesn't need an
-# external account — no reason to make anyone run openssl by hand), optionally prompts for
-# ANTHROPIC_API_KEY (skippable — only needed to run the worker), and points apps/web/.env.local
-# and apps/worker/.env.local at it via symlinks, so Next.js and dotenv/config each keep finding a
-# config file exactly where they already look, with only one real file to ever edit.
+# One-command local env setup: installs any missing prerequisite tooling (Node.js, pnpm, Docker),
+# creates the single root .env.local (from .env.example) if it doesn't exist yet, auto-generates
+# CONNECTION_SECRET_KEY (the one secret that doesn't need an external account — no reason to make
+# anyone run openssl by hand), optionally prompts for ANTHROPIC_API_KEY (skippable — only needed to
+# run the worker), and points apps/web/.env.local and apps/worker/.env.local at it via symlinks, so
+# Next.js and dotenv/config each keep finding a config file exactly where they already look, with
+# only one real file to ever edit.
+#
+# Run directly (./scripts/setup-env.sh), not via `pnpm setup:env` — this script is what gets pnpm
+# itself installed if it's missing, so a pnpm-based entry point would be chicken-and-egg.
 #
 # Safe to re-run: never overwrites an existing root .env.local, and never silently discards an
 # existing per-app .env.local that isn't already one of our symlinks — those get backed up instead
 # (pre-dating this script, e.g. from before this consolidation), and you're told to fold any values
-# only found there into the root file by hand.
+# only found there into the root file by hand. Tooling installs are likewise skipped whenever the
+# tool is already on PATH.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+
+have() { command -v "$1" >/dev/null 2>&1; }
+os="$(uname -s)"
+
+# Node.js — needed for corepack (which provides pnpm) and for everything else in the repo.
+# No good non-interactive way to install a specific Node major version without a version manager
+# already present, so this sticks to Homebrew (macOS) and apt (Debian/Ubuntu) and otherwise just
+# points at the manual install docs.
+ensure_node() {
+  if have node; then
+    return
+  fi
+  echo "Node.js not found."
+  if [ "$os" = "Darwin" ] && have brew; then
+    echo "Installing Node.js via Homebrew..."
+    brew install node
+  elif [ "$os" = "Linux" ] && have apt-get; then
+    echo "Installing Node.js 22.x via NodeSource..."
+    curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+    sudo apt-get install -y nodejs
+  else
+    echo "Install Node.js 22+ manually: https://nodejs.org/"
+    exit 1
+  fi
+}
+
+# pnpm — pinned to the version in package.json's "packageManager" field via corepack, which ships
+# with Node.js itself, so this always prefers corepack over a bare `npm install -g pnpm`.
+ensure_pnpm() {
+  if have pnpm; then
+    return
+  fi
+  echo "pnpm not found."
+  if have corepack; then
+    echo "Enabling pnpm via corepack..."
+    corepack enable
+    corepack prepare pnpm@11.17.0 --activate
+  elif have npm; then
+    echo "corepack unavailable — installing pnpm via npm instead..."
+    npm install -g pnpm@11.17.0
+  else
+    echo "Install Node.js 22+ (which includes corepack) first: https://nodejs.org/"
+    exit 1
+  fi
+}
+
+# Docker — for local Postgres/Redis and the worker's sandbox image. Docker Desktop (macOS) needs a
+# one-time manual launch to finish onboarding and start the daemon; this only gets it onto disk.
+ensure_docker() {
+  if have docker; then
+    return
+  fi
+  echo "Docker not found."
+  if [ "$os" = "Darwin" ] && have brew; then
+    echo "Installing Docker Desktop via Homebrew..."
+    brew install --cask docker
+    echo "Docker Desktop installed — open it once from Applications to finish setup and start the daemon."
+  elif [ "$os" = "Linux" ] && have apt-get; then
+    echo "Installing Docker via the official convenience script..."
+    curl -fsSL https://get.docker.com | sh
+    echo "Docker installed — you may need to log out/in (or run 'newgrp docker') for group membership to take effect."
+  else
+    echo "Install Docker manually: https://docs.docker.com/get-docker/"
+    exit 1
+  fi
+}
+
+ensure_node
+ensure_pnpm
+ensure_docker
 
 ENV_LOCAL=".env.local"
 ENV_EXAMPLE=".env.example"

@@ -6,7 +6,6 @@
   },
   "packageManager": "pnpm@11.17.0",
   "scripts": {
-    "setup:env": "bash scripts/setup-env.sh",
     "dev": "pnpm --filter @agentfactory/web dev",
     "dev:worker": "pnpm --filter @agentfactory/worker dev",
     "dev:all": "bash scripts/dev-all.sh",
