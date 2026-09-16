@@ -43,7 +43,9 @@ import {
 import { parsePullRequestReferenceAcrossProviders, resolveScmConnection } from "@agentfactory/scm";
 import { SANDBOX_REAP_INTERVAL_MS, scanForIdleSandboxes } from "./sandbox-reap";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
-import { type AgentTurnResult, InsufficientCreditError, PromptTooLongError, runAgentTurn } from "./agent-runtime";
+import { InsufficientCreditError, PromptTooLongError } from "./agent-runtime/errors";
+import { getAgentRuntime } from "./agent-runtime/registry";
+import type { AgentTurnResult } from "./agent-runtime/types";
 import {
   PLATFORM_PREAMBLE,
   REVIEW_PLATFORM_PREAMBLE,
@@ -153,6 +155,8 @@ const runWorker = new Worker<RunJobData>(
       const session = await getSession(run.sessionId);
       const agent = session ? await getAgent(session.agentId) : undefined;
       if (!session || !agent) throw new Error(`Run ${runId} has no session/agent to work with`);
+      const runtime = getAgentRuntime(agent.runtimeKind);
+      const caps = runtime.capabilities();
 
       await updateRunStatus(runId, "provisioning");
       const sandboxId = await ensureSandbox(session);
@@ -333,7 +337,9 @@ const runWorker = new Worker<RunJobData>(
             ? `task documents (${taskDocuments.written.length} written)`
             : "task documents (none)",
         );
-        skillNames = await materialiseSkills(sandboxProvider, sandboxId, agent.id, agent.orgId);
+        skillNames = caps.supportsSkills
+          ? await materialiseSkills(sandboxProvider, sandboxId, agent.id, agent.orgId, { skillDir: caps.skillDir })
+          : [];
         mark(skillNames.length > 0 ? `skills (${skillNames.join(", ")})` : "skills (none)");
         repoMap = await ensureRepoMap(sandboxProvider, sandboxId, agent.orgId, workspace.repoFullName);
         // The phase duration separates the two ways a map can arrive: a cache hit returns in
@@ -514,19 +520,23 @@ const runWorker = new Worker<RunJobData>(
       let turnResult!: AgentTurnResult;
       for (;;) {
         try {
-          turnResult = await runAgentTurn({
-            sandboxProvider,
-            sandboxId,
-            systemPrompt,
-            model: attemptModel,
-            userText: (triggeringMessage?.content ?? "") + issueContext,
-            resumeSessionRef,
-            skillNames,
-            outputSchema: review ? REVIEW_OUTPUT_SCHEMA : undefined,
-            onEvent: async (type, data) => {
-              await createEvent(runId, seq++, type, data);
+          turnResult = await runtime.runTurn(
+            {
+              systemPrompt,
+              model: attemptModel,
+              userText: (triggeringMessage?.content ?? "") + issueContext,
+              resumeSessionRef,
+              skillNames,
+              outputSchema: review ? REVIEW_OUTPUT_SCHEMA : undefined,
             },
-          });
+            {
+              sandboxProvider,
+              sandboxId,
+              onEvent: async (event) => {
+                await createEvent(runId, seq++, event.type, { ...event });
+              },
+            },
+          );
           break;
         } catch (err) {
           if (!(err instanceof PromptTooLongError)) throw err;
