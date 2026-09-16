@@ -342,7 +342,7 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
 
 function AgentDetailPanel({ agent }: { agent: Agent }) {
   const { t } = useTranslation();
-  const { updateAgent, deleteAgent, notify } = useMockBackend();
+  const { teams, updateAgent, deleteAgent, duplicateAgent, notify } = useMockBackend();
 
   const [systemPrompt, setSystemPrompt] = useState(agent.systemPrompt);
   const [defaultCodebase, setDefaultCodebase] = useState(agent.defaultCodebase ?? "");
@@ -351,6 +351,13 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Mutually exclusive with confirmDelete — both replace the footer's left-hand controls with an
+  // inline confirmation, so only one can be open at a time.
+  const otherTeams = teams.filter((tm) => tm.id !== agent.teamId);
+  const [duplicating, setDuplicating] = useState(false);
+  const [duplicateTeamId, setDuplicateTeamId] = useState<number | "">("");
+  const [duplicateBusy, setDuplicateBusy] = useState(false);
 
   const dirty =
     systemPrompt !== agent.systemPrompt ||
@@ -374,6 +381,20 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
     } catch {
       notify("toast.error");
       setDeleting(false);
+    }
+  }
+
+  async function handleDuplicate() {
+    if (duplicateTeamId === "") return;
+    setDuplicateBusy(true);
+    try {
+      await duplicateAgent(agent.id, duplicateTeamId);
+      setDuplicating(false);
+      setDuplicateTeamId("");
+    } catch {
+      notify("toast.error");
+    } finally {
+      setDuplicateBusy(false);
     }
   }
 
@@ -469,13 +490,38 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
               {t("teamsV2.confirmDeleteButton")}
             </button>
           </div>
+        ) : duplicating ? (
+          <div className="flex items-center gap-2">
+            <Select
+              value={duplicateTeamId === "" ? "" : String(duplicateTeamId)}
+              onChange={(value) => setDuplicateTeamId(value ? Number(value) : "")}
+              placeholder={t("teamsV2.duplicateAgentTargetLabel", { name: agent.name })}
+              options={otherTeams.map((tm) => ({ key: tm.id, value: String(tm.id), label: tm.name }))}
+            />
+            <Button variant="secondary" onClick={() => { setDuplicating(false); setDuplicateTeamId(""); }}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={handleDuplicate} disabled={duplicateTeamId === "" || duplicateBusy}>
+              {duplicateBusy ? t("teamsV2.duplicateAgentButton") + "…" : t("teamsV2.duplicateAgentButton")}
+            </Button>
+          </div>
         ) : (
-          <button
-            onClick={() => setConfirmDelete(true)}
-            className="text-xs text-[var(--color-neutral-500)] hover:text-red-400 transition-colors cursor-pointer"
-          >
-            {t("teamsV2.deleteAgent")}
-          </button>
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => setDuplicating(true)}
+              disabled={otherTeams.length === 0}
+              title={otherTeams.length === 0 ? t("teamsV2.duplicateAgentNoOtherTeams") : undefined}
+              className="text-xs text-[var(--color-neutral-500)] hover:text-[var(--color-neutral-200)] transition-colors disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer"
+            >
+              {t("teamsV2.duplicateAgent")}
+            </button>
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="text-xs text-[var(--color-neutral-500)] hover:text-red-400 transition-colors cursor-pointer"
+            >
+              {t("teamsV2.deleteAgent")}
+            </button>
+          </div>
         )}
         <Button onClick={handleSave} disabled={!dirty || saving}>
           {saving ? t("common.save") + "…" : t("common.save")}
