@@ -8,9 +8,13 @@ vi.mock("@agentfactory/db", () => ({ listConnections: (orgId: number) => listCon
 // jsonwebtoken is mocked to avoid needing a real asymmetric key for tests
 vi.mock("jsonwebtoken", () => ({ default: { sign: vi.fn(() => "fake.app.jwt") } }));
 
-const { providers, getScmProvider, resolveScmConnection, parseIssueReferenceAcrossProviders } = await import(
-  "../registry"
-);
+const {
+  providers,
+  getScmProvider,
+  resolveScmConnection,
+  parseIssueReferenceAcrossProviders,
+  parsePullRequestReferenceAcrossProviders,
+} = await import("../registry");
 
 beforeEach(() => {
   process.env.GITHUB_APP_ID = "12345";
@@ -51,6 +55,16 @@ function stubBitbucketProvider(): ScmProvider & { seenConnections: Connection[][
       throw new Error("not implemented");
     },
     parseIssueReference: () => undefined,
+    fetchPullRequest: async () => {
+      throw new Error("not implemented");
+    },
+    fetchReviewThreads: async () => {
+      throw new Error("not implemented");
+    },
+    postReview: async () => {
+      throw new Error("not implemented");
+    },
+    parsePullRequestReference: () => undefined,
   };
 }
 
@@ -136,5 +150,34 @@ describe("parseIssueReferenceAcrossProviders", () => {
 
   it("returns undefined when no registered provider recognizes the text", () => {
     expect(parseIssueReferenceAcrossProviders("no link here")).toBeUndefined();
+  });
+});
+
+describe("parsePullRequestReferenceAcrossProviders", () => {
+  it("returns the matching provider's result tagged with its id", () => {
+    expect(parsePullRequestReferenceAcrossProviders("https://github.com/acme/widgets/pull/12")).toEqual({
+      repoFullName: "acme/widgets",
+      prNumber: 12,
+      provider: "github",
+    });
+  });
+
+  it("returns undefined when no registered provider recognizes the text", () => {
+    expect(parsePullRequestReferenceAcrossProviders("no link here")).toBeUndefined();
+  });
+
+  it("tries providers in registration order and returns the first match", () => {
+    const stub: ScmProvider = {
+      ...stubBitbucketProvider(),
+      parsePullRequestReference: (text) =>
+        text === "bitbucket-pr-link" ? { repoFullName: "acme/widgets", prNumber: 99 } : undefined,
+    };
+    providers.push(stub);
+
+    expect(parsePullRequestReferenceAcrossProviders("bitbucket-pr-link")).toEqual({
+      repoFullName: "acme/widgets",
+      prNumber: 99,
+      provider: "bitbucket",
+    });
   });
 });

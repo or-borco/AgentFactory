@@ -17,9 +17,14 @@ async function main(): Promise<void> {
   const resume = process.env.RESUME_SESSION_REF || undefined;
   const skillNamesEnv = process.env.SKILL_NAMES;
   const skills = skillNamesEnv ? skillNamesEnv.split(",").filter(Boolean) : [];
+  const outputSchemaEnv = process.env.OUTPUT_SCHEMA;
+  const outputFormat = outputSchemaEnv
+    ? ({ type: "json_schema", schema: JSON.parse(outputSchemaEnv) } as const)
+    : undefined;
 
   let resultText: string | undefined;
   let sessionId: string | undefined;
+  let structuredOutput: unknown;
 
   // No `tools` restriction (unlike the old host-side stub) + bypassPermissions: this slice runs
   // the agent's full default toolset inside the container with no approval-gate blocking, per
@@ -44,6 +49,7 @@ async function main(): Promise<void> {
         // answer lands. "summarized" returns a readable summary of the reasoning instead. Thinking
         // is billed identically either way; this only controls whether we can show it.
         thinking: { type: "adaptive", display: "summarized" },
+        ...(outputFormat ? { outputFormat } : {}),
       },
     })) {
       if (message.type === "assistant") {
@@ -81,6 +87,7 @@ async function main(): Promise<void> {
         sessionId = message.session_id;
         if (message.subtype === "success") {
           resultText = message.result;
+          structuredOutput = message.structured_output;
         } else {
           throw new Error(`Claude Agent SDK run failed: ${message.subtype} (${message.errors.join(", ") || "no details"})`);
         }
@@ -107,7 +114,13 @@ async function main(): Promise<void> {
     throw new Error("Claude Agent SDK query completed without a result message");
   }
 
-  process.stdout.write(`${RESULT_MARKER}${JSON.stringify({ text: resultText, providerSessionRef: sessionId })}\n`);
+  process.stdout.write(
+    `${RESULT_MARKER}${JSON.stringify({
+      text: resultText,
+      providerSessionRef: sessionId,
+      ...(structuredOutput !== undefined ? { structuredOutput } : {}),
+    })}\n`,
+  );
 }
 
 main().catch((err) => {

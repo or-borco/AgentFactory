@@ -93,6 +93,7 @@ export interface OrgMember {
 }
 
 export type AgentMode = "manual" | "automatic";
+
 export type RuntimeKind = "claude-code";
 
 export interface ModelSpec {
@@ -479,9 +480,45 @@ export interface RunContextRetrieval {
 export interface Artifact {
   id: ID;
   runId: ID;
-  type: "pr" | "diff" | "file" | "report";
+  type: "pr" | "diff" | "file" | "report" | "review";
   label: string;
   url?: string;
+}
+
+export type ReviewVerdict = "comment" | "request_changes";
+
+// A review is always produced automatically once the worker detects a PR link in a task's
+// description (see apps/worker/src/worker.ts) — but it only ever reaches GitHub after a human
+// approves it via POST /api/pr-reviews/[id]/approve. "pending": drafted, not yet posted, still
+// actionable. "posted": approved and live on GitHub — postedAs/githubReviewId/url are set only
+// at this point. "discarded": a human rejected the draft; it will never be posted.
+export type PrReviewStatus = "pending" | "posted" | "discarded";
+
+export interface PrReviewComment {
+  path: string;
+  line: number;
+  body: string;
+}
+
+export interface PrReview {
+  id: ID;
+  orgId: ID;
+  taskId: ID;
+  runId: ID;
+  repoFullName: string;
+  prNumber: number;
+  baseSha: string;
+  headSha: string;
+  status: PrReviewStatus;
+  verdict: ReviewVerdict;
+  summary: string;
+  comments: PrReviewComment[];
+  postedAs?: ReviewVerdict;
+  githubReviewId?: string;
+  url?: string;
+  commentCount: number;
+  truncated: boolean;
+  createdAt: ISODateTime;
 }
 
 export interface PolicyDecision {

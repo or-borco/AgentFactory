@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import type { EvalRetrievalResult, PromptSegment, RunEvalResult } from "@agentfactory/core";
 import type { EvalLayerResult } from "@agentfactory/core";
 import type { EvalArtefact } from "../eval-artefact";
@@ -991,7 +992,7 @@ describe("buildReportEvalTool", () => {
 
 // logRetrievalCoverageGaps logs through @agentfactory/logger (pino), which writes JSON lines to
 // stdout — spy there and parse the line rather than on console.warn, which the logger never calls.
-function loggedWarning(spy: ReturnType<typeof vi.spyOn<typeof process.stdout, "write">>) {
+function loggedWarning(spy: Mock<typeof process.stdout.write>) {
   const call = spy.mock.calls.at(-1);
   if (!call) return undefined;
   return JSON.parse(String(call[0]));

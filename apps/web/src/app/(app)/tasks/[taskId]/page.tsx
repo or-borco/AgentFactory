@@ -15,6 +15,7 @@ import { apiFetch } from "@/lib/api-client";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
 import { RunContextPanel } from "@/components/RunContextPanel";
 import { RunEvalPanel } from "@/components/RunEvalPanel";
+import { PrReviewPanel } from "@/components/PrReviewPanel";
 import { WriteBackFailureBanner } from "@/components/WriteBackFailureBanner";
 import type { Run, TaskContextItem, TaskStatus } from "@agentfactory/core";
 import type { ExternalIssue } from "@agentfactory/integrations";
@@ -1189,6 +1190,8 @@ export default function TaskDetailPage() {
                 </div>
               )}
             </div>
+
+            <PrReviewPanel taskId={task.id} runStatus={runStatus} />
 
             {/* Reply bar — always in DOM, disabled when no session */}
             <div

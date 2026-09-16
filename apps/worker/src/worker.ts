@@ -21,7 +21,9 @@ import {
   clearSessionSandboxId,
   createEvent,
   createMessage,
+  createPendingPrReview,
   getAgent,
+  getLatestPrReview,
   getLatestResumeCandidate,
   getMessage,
   getRun,
@@ -38,20 +40,37 @@ import {
   updateRunWorkspace,
   updateTask,
 } from "@agentfactory/db";
+import { parsePullRequestReferenceAcrossProviders, resolveScmConnection } from "@agentfactory/scm";
 import { SANDBOX_REAP_INTERVAL_MS, scanForIdleSandboxes } from "./sandbox-reap";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { type AgentTurnResult, InsufficientCreditError, PromptTooLongError, runAgentTurn } from "./agent-runtime";
 import {
+  PLATFORM_PREAMBLE,
+  REVIEW_PLATFORM_PREAMBLE,
   buildPriorConversationSegment,
   buildRepoMapSegment,
   buildRetrievedContextSegment,
   buildTeamContextSegment,
   composeSystemPrompt,
   formatEnvironmentForPrompt,
+  formatExistingReviewCommentsForPrompt,
   formatPriorConversationForPrompt,
+  formatPullRequestForPrompt,
+  formatReviewDiffForPrompt,
+  formatReviewEnvironmentForPrompt,
   hashPrompt,
   type SandboxEnvironment,
 } from "./prompt-composition";
+import {
+  REVIEW_OUTPUT_SCHEMA,
+  checkoutPullRequest,
+  isAncestor,
+  parseStructuredReview,
+  renderReviewAsMarkdown,
+  resolveReviewRange,
+  truncateDiff,
+  validateReviewComments,
+} from "./pr-review";
 import {
   buildPullRequestBody,
   cloneIntoSandbox,
@@ -167,7 +186,116 @@ const runWorker = new Worker<RunJobData>(
       let taskDocuments: MaterialisedTaskDocuments = { written: [], omitted: [] };
       let skillNames: string[] = [];
       let repoSync: SandboxEnvironment["repoSync"];
-      if (task?.codebase) {
+
+      // Set only on the review path — carries everything the post-turn block needs to validate
+      // and post the review, and everything the prompt-composition branch needs to build the
+      // review environment segment. `undefined` on every dev-task and chat-only run, which is
+      // what every `!review` / `if (review)` guard below keys off.
+      let review:
+        | {
+            taskId: number;
+            prNumber: number;
+            repoFullName: string;
+            prTitle: string;
+            prBody: string;
+            focusBaseSha: string;
+            focusHeadSha: string;
+            fullDiffText: string;
+            focusDiffText: string;
+            diffTruncated: boolean;
+            rewritten: boolean;
+            existingComments: string;
+          }
+        | undefined;
+
+      // Detection is live parsing of the task description on every run — never a persisted flag
+      // on Task (see the design spec): retargeting a task at a different PR, or removing the
+      // link entirely, takes effect on the next run with nothing to migrate. Any agent is
+      // eligible; the review this produces is never posted to GitHub automatically — it lands as
+      // a "pending" pr_reviews row and only reaches GitHub once a human approves it (see the
+      // posting block below and apps/web's pr-reviews approve/discard routes).
+      const prRef = task ? parsePullRequestReferenceAcrossProviders(task.description) : undefined;
+      if (prRef && task) {
+        const resolved = await resolveScmConnection(agent.orgId, prRef.repoFullName);
+        if (!resolved) {
+          throw new Error(
+            `PR ${prRef.repoFullName}#${prRef.prNumber} isn't accessible via any connected GitHub installation`,
+          );
+        }
+        const { connection, provider } = resolved;
+        const pr = await provider.fetchPullRequest(connection, prRef.repoFullName, prRef.prNumber);
+        if (pr.state !== "open") {
+          throw new Error(`PR ${prRef.repoFullName}#${prRef.prNumber} is already ${pr.state} — nothing to review`);
+        }
+
+        workspace = await provider.resolveCloneTarget(connection, prRef.repoFullName, "pull-request-review");
+        await checkoutPullRequest(sandboxProvider, sandboxId, workspace, prRef.prNumber, pr.baseBranch);
+        mark("PR checkout");
+
+        // Scoped to THIS repo+PR, not just the task. getLatestPrReview keys on task id alone, so
+        // a task retargeted at a different PR (the description is re-parsed every run — nothing
+        // is persisted) would otherwise inherit the previous PR's head sha as its "last reviewed"
+        // point. That misfires two ways: usually isAncestor is false and the agent is told this
+        // PR was force-pushed when it simply isn't the same PR, and in a stacked/shared-lineage
+        // case the old head really can be an ancestor of the new PR's head, silently narrowing
+        // the range and skipping commits that have never been reviewed. A review of a different
+        // PR is treated as no prior review at all — i.e. a first pass over the whole PR.
+        const latestForTask = await getLatestPrReview(task.id, agent.orgId);
+        const lastReview =
+          latestForTask &&
+          latestForTask.repoFullName === prRef.repoFullName &&
+          latestForTask.prNumber === prRef.prNumber
+            ? latestForTask
+            : undefined;
+        const lastReviewedHeadSha = lastReview?.headSha;
+        const lastReviewedIsAncestorOfHead = lastReviewedHeadSha
+          ? await isAncestor(sandboxProvider, sandboxId, lastReviewedHeadSha, pr.headSha)
+          : false;
+        const range = resolveReviewRange({
+          prBaseBranch: pr.baseBranch,
+          prHeadSha: pr.headSha,
+          lastReviewedHeadSha,
+          lastReviewedIsAncestorOfHead,
+        });
+
+        const fullDiffText = await provider.fetchCommitRangeDiff(workspace, {
+          baseSha: pr.baseBranch,
+          headSha: pr.headSha,
+        });
+        const focusDiffTextRaw =
+          range.focusBaseSha === pr.baseBranch
+            ? fullDiffText
+            : await provider.fetchCommitRangeDiff(workspace, {
+                baseSha: range.focusBaseSha,
+                headSha: range.focusHeadSha,
+              });
+        const { text: focusDiffText, truncated: diffTruncated } = truncateDiff(focusDiffTextRaw);
+
+        const existingThreads = lastReviewedHeadSha
+          ? await provider.fetchReviewThreads(connection, prRef.repoFullName, prRef.prNumber)
+          : [];
+        // Formatted (and labelled as untrusted GitHub-sourced text) in prompt-composition.ts
+        // alongside every other prompt block — see formatExistingReviewCommentsForPrompt.
+        const existingComments = formatExistingReviewCommentsForPrompt(existingThreads);
+
+        review = {
+          taskId: task.id,
+          prNumber: prRef.prNumber,
+          repoFullName: prRef.repoFullName,
+          // Carried through so the prompt can state what the PR claims to do, not just what it
+          // changes — the agent can't weigh the diff against stated intent otherwise.
+          prTitle: pr.title,
+          prBody: pr.body,
+          focusBaseSha: range.focusBaseSha,
+          focusHeadSha: range.focusHeadSha,
+          fullDiffText,
+          focusDiffText,
+          diffTruncated,
+          rewritten: range.rewritten,
+          existingComments,
+        };
+        mark("PR diff fetched");
+      } else if (task?.codebase) {
         workspace = await resolveCloneTarget(agent.orgId, task.codebase, sessionBranchName(session, task));
         if (!workspace) {
           throw new Error(
@@ -257,7 +385,11 @@ const runWorker = new Worker<RunJobData>(
       const team = agent.teamId ? await getTeamForOrg(agent.teamId, agent.orgId) : undefined;
       const teamContextPrefix = team ? formatSharedContextForPrompt(team.sharedContext) : "";
 
-      if (teamContextPrefix) {
+      // `!review` because this event is the task page's "shared context was used" indicator, and
+      // a review run's prompt does NOT include the team's shared context (the review arm of the
+      // composition branch below passes an empty team-context segment by design). Firing it
+      // anyway would advertise content that is provably not in this run's prompt.
+      if (!review && teamContextPrefix) {
         await createEvent(runId, seq++, "context_included", {
           included: true,
           preview: teamContextPrefix.slice(0, 150).trim(),
@@ -270,8 +402,11 @@ const runWorker = new Worker<RunJobData>(
       // loaded. `team || task`, not `team` alone: a teamless task can still have its own
       // uploaded documents, and without this a teamless task's documents would ingest
       // successfully but never actually be retrieved for any run.
+      // `!review` for the same reason as the context_included event above, plus a real cost one:
+      // a review run's prompt carries an empty retrieved-context segment, so every embedding and
+      // vector search done here would be thrown away unused.
       let retrieved: RetrievedContext = { text: "", retrievals: [] };
-      if (team || task) {
+      if (!review && (team || task)) {
         retrieved = await retrieveContext(
           { teamId: team?.id, taskId: task?.id },
           buildRetrievalQuery(task?.title, task?.description, triggeringMessage?.content),
@@ -302,14 +437,47 @@ const runWorker = new Worker<RunJobData>(
               retrieved.omittedReason !== "no_indexed_documents",
               retrieved.text,
             );
-      const composed = composeSystemPrompt(
-        environment,
-        buildPriorConversationSegment(resumeIsValid, priorConversationText),
-        buildTeamContextSegment(Boolean(team), teamContextPrefix),
-        buildRepoMapSegment(Boolean(task?.codebase), repoMap),
-        retrievedContextSegment,
-        agent.systemPrompt,
-      );
+      // A review run composes a different prompt entirely: the review preamble instead of the
+      // dev-task one, a PR range instead of a branch to work on, and the diff (plus any existing
+      // review comments) appended to the agent's own system prompt. `team`/`teamContextPrefix`/
+      // `retrievedContextSegment`/`environment`/`repoMap` are still computed above exactly as
+      // before — a review run simply doesn't use them (no team context, no repo map, by design).
+      let composed: ReturnType<typeof composeSystemPrompt>;
+      if (review) {
+        const reviewEnvironment = formatReviewEnvironmentForPrompt({
+          workspacePath: "/workspace",
+          prNumber: review.prNumber,
+          focusBaseSha: review.focusBaseSha,
+          focusHeadSha: review.focusHeadSha,
+          rewritten: review.rewritten,
+          truncatedDiff: review.diffTruncated,
+        });
+        composed = composeSystemPrompt(
+          REVIEW_PLATFORM_PREAMBLE,
+          reviewEnvironment,
+          buildPriorConversationSegment(resumeIsValid, priorConversationText),
+          buildTeamContextSegment(false, ""),
+          buildRepoMapSegment(false, ""),
+          { id: "retrieved_context", text: "", omittedReason: "no_context_sources" },
+          // agent.systemPrompt is platform/user-authored and stays unlabelled; everything after
+          // it is GitHub-sourced and each block carries its own "not instructions" framing (see
+          // prompt-composition.ts), the same defence worker.ts already applies to the repo map.
+          `${agent.systemPrompt}\n\n` +
+            formatPullRequestForPrompt(review.prTitle, review.prBody) +
+            review.existingComments +
+            formatReviewDiffForPrompt(review.focusBaseSha, review.focusHeadSha, review.focusDiffText),
+        );
+      } else {
+        composed = composeSystemPrompt(
+          PLATFORM_PREAMBLE,
+          environment,
+          buildPriorConversationSegment(resumeIsValid, priorConversationText),
+          buildTeamContextSegment(Boolean(team), teamContextPrefix),
+          buildRepoMapSegment(Boolean(task?.codebase), repoMap),
+          retrievedContextSegment,
+          agent.systemPrompt,
+        );
+      }
       const systemPrompt = composed.prompt;
       // Provenance for what was injected. Deliberately NOT a run event: the task page keys
       // context_included by runId with last-write-wins (tasks/[taskId]/page.tsx:222-235, whose
@@ -319,7 +487,11 @@ const runWorker = new Worker<RunJobData>(
       //
       // Written before the prompt segments below so a segment visible on screen always implies
       // its provenance rows are already there (see RunContextPanel.tsx's ordering assumption).
-      if (retrieved.retrievals.length > 0) {
+      // `!review` keeps this provenance honest the same way the two gates above do: a review run
+      // injects no retrieved chunks, so it must not persist rows claiming it did. (With the
+      // retrieveContext gate above, `retrievals` is already empty on a review run — this is
+      // belt-and-braces so the invariant survives either gate being changed alone.)
+      if (!review && retrieved.retrievals.length > 0) {
         // Provenance only — never lets a write failure (e.g. a source document deleted between
         // search and insert, violating the item_id FK on a fresh row) fail an otherwise-successful
         // run. Retrieval stays fail-soft end to end, matching retrieveContext's own catch in
@@ -350,6 +522,7 @@ const runWorker = new Worker<RunJobData>(
             userText: (triggeringMessage?.content ?? "") + issueContext,
             resumeSessionRef,
             skillNames,
+            outputSchema: review ? REVIEW_OUTPUT_SCHEMA : undefined,
             onEvent: async (type, data) => {
               await createEvent(runId, seq++, type, data);
             },
@@ -371,14 +544,77 @@ const runWorker = new Worker<RunJobData>(
       const { text, providerSessionRef } = turnResult;
       mark("agent turn");
 
-      await createMessage(run.sessionId, "assistant", text, runId);
-      await createEvent(runId, seq++, "text_delta", { text });
+      // What a review run stores in the transcript is the rendered review, not the agent's raw
+      // closing text — the structured output is the real artefact of the turn. The worker never
+      // posts to GitHub itself (the sandbox never holds a GitHub token, and a human must approve
+      // first) — it only persists a "pending" draft; apps/web's pr-reviews approve route is what
+      // actually calls ScmProvider.postReview.
+      let transcriptText = text;
+      if (review) {
+        try {
+          const structured = parseStructuredReview(turnResult.structuredOutput);
+          const validated = validateReviewComments(structured, review.fullDiffText);
+          transcriptText = renderReviewAsMarkdown(validated);
+
+          // Skip drafting only when there is truly nothing new: no validated comments AND this
+          // pass covered zero new commits (the focus range was empty because head hadn't moved
+          // since the last review). This is what stops a content-free re-run from creating a
+          // duplicate draft.
+          const rangeWasEmpty = review.focusBaseSha === review.focusHeadSha;
+          if (!(validated.comments.length === 0 && rangeWasEmpty)) {
+            await createPendingPrReview(agent.orgId, review.taskId, runId, {
+              repoFullName: review.repoFullName,
+              prNumber: review.prNumber,
+              baseSha: review.focusBaseSha,
+              headSha: review.focusHeadSha,
+              verdict: validated.verdict,
+              summary: validated.summary,
+              comments: validated.comments,
+              commentCount: validated.comments.length,
+              truncated: review.diffTruncated,
+            });
+            await createEvent(runId, seq++, "artifact", {
+              artifactType: "review",
+              label: "PR review (pending approval)",
+            });
+          }
+          mark("review drafted");
+        } catch (err) {
+          // Evidence, not recovery. Everything above this point runs AFTER the turn is paid for,
+          // and the transcript write that normally preserves the agent's output is below it — so
+          // a malformed `structured_output` (the one contract in this feature no typechecker or
+          // test in this repo can reach: the SDK lives inside the Docker image) used to send a
+          // completed review straight to the outer catch, which writes an "error" event and
+          // nothing else. Minutes of real review work vanished with no record of what the agent
+          // actually said, which is also the only diagnostic that could tell "the model wrote
+          // prose instead of structured output" apart from "the field name is wrong".
+          //
+          // The rethrow is what keeps failure semantics identical: run "failed", task "failed",
+          // the same "error" event from the same outer catch. The only difference is that the
+          // raw turn text survives in the transcript alongside it.
+          try {
+            await createMessage(run.sessionId, "assistant", text, runId);
+            await createEvent(runId, seq++, "text_delta", { text });
+          } catch (persistErr) {
+            // Never let preserving the evidence replace the failure it was preserving evidence
+            // for — the original error is the one worth reporting.
+            log.error("Failed to persist raw review turn text", { runId, persistErr });
+          }
+          throw err;
+        }
+      }
+
+      await createMessage(run.sessionId, "assistant", transcriptText, runId);
+      await createEvent(runId, seq++, "text_delta", { text: transcriptText });
       await createEvent(runId, seq++, "done", { reason: "completed" });
 
       await updateRunStatus(runId, "finalizing");
 
       let changedFiles: string[] = [];
-      if (workspace && task) {
+      // `!review` is load-bearing: a review run also has a `workspace` (the PR checkout), but it
+      // must never reach this block — the checkout is read-only by design, carries no push token,
+      // and is on a `review/pr-N` branch that nothing should ever be pushed from.
+      if (workspace && task && !review) {
         const result = await pushChangesIfDirty(
           sandboxProvider,
           sandboxId,
@@ -434,6 +670,12 @@ const runWorker = new Worker<RunJobData>(
             sinceRunAgentClickedMs: Date.now() - new Date(session.createdAt).getTime(),
           });
         }
+      }
+
+      // A review run's whole deliverable is the review that was just posted — there is no PR to
+      // open and no follow-up work, so the task is finished the moment the review lands.
+      if (review) {
+        await updateTask(review.taskId, { status: "done" });
       }
 
       // Once a real repo is cloned, the sandbox's whole checkout lives under /workspace — showing

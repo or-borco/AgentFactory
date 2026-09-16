@@ -46,7 +46,7 @@ export interface ModelEscalatedEvent extends RunEventBase {
 
 export interface ArtifactEvent extends RunEventBase {
   type: "artifact";
-  artifactType: "pr" | "diff" | "file" | "report";
+  artifactType: "pr" | "diff" | "file" | "report" | "review";
   label: string;
   url?: string;
 }

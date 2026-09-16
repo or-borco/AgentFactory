@@ -352,6 +352,58 @@ export const runEvals = pgTable(
   ],
 );
 
+export const reviewVerdictEnum = pgEnum("review_verdict", ["comment", "request_changes"]);
+export const prReviewStatusEnum = pgEnum("pr_review_status", ["pending", "posted", "discarded"]);
+
+// One row per review pass the worker produced — deliberately its own table, never columns on
+// runs, for the same reason run_evals is: the task page polls runs on a ~1.5s timer, and "latest
+// review for task X" / "last reviewed head_sha for task X" are both single indexed lookups here
+// instead. There is no persisted field on tasks identifying it as a review — see
+// parsePullRequestReference — so repo_full_name/pr_number are stored here, not looked up
+// elsewhere.
+//
+// A row starts "pending" the moment the worker validates the agent's structured review — it is
+// NOT posted to GitHub yet. A human must approve it (POST /api/pr-reviews/[id]/approve) before
+// postedAs/githubReviewId/url are ever populated; "discarded" means a human rejected it and it
+// will never be posted. summary/verdict/comments hold the full draft content so approval can post
+// it without re-deriving anything from the run's transcript.
+export const prReviews = pgTable(
+  "pr_reviews",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    taskId: integer("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    runId: integer("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    repoFullName: text("repo_full_name").notNull(),
+    prNumber: integer("pr_number").notNull(),
+    baseSha: text("base_sha").notNull(),
+    headSha: text("head_sha").notNull(),
+    status: prReviewStatusEnum("status").notNull().default("pending"),
+    verdict: reviewVerdictEnum("verdict").notNull(),
+    summary: text("summary").notNull(),
+    comments: jsonb("comments").$type<Array<{ path: string; line: number; body: string }>>().notNull().default([]),
+    // Set only once status flips to "posted" — a human-approved draft is what GitHub actually
+    // received, which can differ from `verdict` (see the own-PR fallback in packages/scm/github.ts).
+    postedAs: reviewVerdictEnum("posted_as"),
+    githubReviewId: text("github_review_id"),
+    url: text("url"),
+    commentCount: integer("comment_count").notNull().default(0),
+    truncated: boolean("truncated").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // getLatestPrReview/listPrReviewsForTask both filter WHERE task_id = ? ORDER BY created_at
+    // desc — without this, every task-page Review-block fetch is a sequential scan.
+    index("pr_reviews_task_id_created_at_idx").on(table.taskId, table.createdAt),
+  ],
+);
+
 // ── Tasks ───────────────────────────────────────────────────────────────────────
 // A Task is a human-authored unit of work (title, description, acceptance criteria) that
 // owns 0..1 sessions. It cannot simply extend Session because an open/unassigned task has
