@@ -27,6 +27,7 @@ class ClaudeCodeRuntime implements AgentRuntime {
     };
     if (input.resumeSessionRef) env.RESUME_SESSION_REF = input.resumeSessionRef;
     if (input.skillNames && input.skillNames.length > 0) env.SKILL_NAMES = input.skillNames.join(",");
+    if (input.outputSchema) env.OUTPUT_SCHEMA = JSON.stringify(input.outputSchema);
 
     const output = ctx.sandboxProvider.exec(
       ctx.sandboxId,

@@ -90,3 +90,54 @@ describe("claudeCodeRuntime", () => {
     ).rejects.toBeInstanceOf(InsufficientCreditError);
   });
 });
+
+describe("claudeCodeRuntime — structured output", () => {
+  it("passes OUTPUT_SCHEMA to the sandbox exec env when outputSchema is given", async () => {
+    const { sandboxProvider, execCalls } = fakeSandbox([
+      { stream: "stdout", data: `__RESULT__${JSON.stringify({ text: "Hi", providerSessionRef: "ref-1" })}\n` },
+    ]);
+    const schema = { type: "object", properties: { summary: { type: "string" } } };
+
+    await claudeCodeRuntime.runTurn(
+      { ...baseInput(), outputSchema: schema },
+      { sandboxProvider, sandboxId: "sandbox-1" },
+    );
+
+    expect(JSON.parse(execCalls[0].env?.OUTPUT_SCHEMA ?? "")).toEqual(schema);
+  });
+
+  it("does not set OUTPUT_SCHEMA when outputSchema is omitted", async () => {
+    const { sandboxProvider, execCalls } = fakeSandbox([
+      { stream: "stdout", data: `__RESULT__${JSON.stringify({ text: "Hi", providerSessionRef: "ref-1" })}\n` },
+    ]);
+
+    await claudeCodeRuntime.runTurn(baseInput(), { sandboxProvider, sandboxId: "sandbox-1" });
+
+    expect(execCalls[0].env?.OUTPUT_SCHEMA).toBeUndefined();
+  });
+
+  it("returns structuredOutput when the sandbox result includes it", async () => {
+    const { sandboxProvider } = fakeSandbox([
+      {
+        stream: "stdout",
+        data: `__RESULT__${JSON.stringify({
+          text: "Reviewed.",
+          providerSessionRef: "ref-1",
+          structuredOutput: { summary: "Looks good", verdict: "comment", comments: [] },
+        })}\n`,
+      },
+    ]);
+
+    const result = await claudeCodeRuntime.runTurn(baseInput(), { sandboxProvider, sandboxId: "sandbox-1" });
+    expect(result.structuredOutput).toEqual({ summary: "Looks good", verdict: "comment", comments: [] });
+  });
+
+  it("leaves structuredOutput undefined when the sandbox result omits it", async () => {
+    const { sandboxProvider } = fakeSandbox([
+      { stream: "stdout", data: `__RESULT__${JSON.stringify({ text: "Hi", providerSessionRef: "ref-1" })}\n` },
+    ]);
+
+    const result = await claudeCodeRuntime.runTurn(baseInput(), { sandboxProvider, sandboxId: "sandbox-1" });
+    expect(result.structuredOutput).toBeUndefined();
+  });
+});
