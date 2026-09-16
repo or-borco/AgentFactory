@@ -6,7 +6,7 @@ import { Modal } from "@/components/Modal";
 import { Button, GroupedSelect, Textarea, TextInput } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
-import type { AgentMode } from "@agentfactory/core";
+import type { AgentMode, AgentRole } from "@agentfactory/core";
 import type { RepoOption } from "@agentfactory/scm";
 
 export interface AgentFormValues {
@@ -14,6 +14,7 @@ export interface AgentFormValues {
   description: string;
   systemPrompt: string;
   mode: AgentMode;
+  role: AgentRole;
   defaultCodebase?: string;
 }
 
@@ -35,6 +36,7 @@ export function AgentFormModal({
   const [description, setDescription] = useState(initial?.description ?? "");
   const [systemPrompt, setSystemPrompt] = useState(initial?.systemPrompt ?? "");
   const [mode, setMode] = useState<AgentMode>(initial?.mode ?? "manual");
+  const [role, setRole] = useState<AgentRole>(initial?.role ?? "developer");
   const [defaultCodebase, setDefaultCodebase] = useState(initial?.defaultCodebase ?? "");
   const [repos, setRepos] = useState<RepoOption[]>([]);
   const [reposLoading, setReposLoading] = useState(true);
@@ -69,6 +71,7 @@ export function AgentFormModal({
             description: description.trim(),
             systemPrompt: systemPrompt.trim(),
             mode,
+            role,
             defaultCodebase: defaultCodebase.trim() || undefined,
           });
         }}
@@ -157,6 +160,30 @@ export function AgentFormModal({
           </div>
           <p className="mt-1.5 text-xs text-[var(--color-neutral-600)]">
             {mode === "manual" ? t("agentForm.modeManualHelp") : t("agentForm.modeAutomaticHelp")}
+          </p>
+        </div>
+        <div>
+          <label className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]">
+            {t("agentForm.roleLabel")}
+          </label>
+          <div className="flex gap-2">
+            {(["developer", "reviewer"] as const).map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRole(r)}
+                className={`flex-1 rounded-[var(--radius-sm)] border px-3 py-2 text-sm font-medium transition-colors ${
+                  role === r
+                    ? "border-[var(--color-accent-600)] bg-[var(--color-accent-900)] text-[var(--color-accent-300)]"
+                    : "border-[var(--color-divider)] text-[var(--color-neutral-400)] hover:border-[var(--color-neutral-600)] hover:text-[var(--color-neutral-200)]"
+                }`}
+              >
+                {r === "developer" ? t("agentForm.roleDeveloper") : t("agentForm.roleReviewer")}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-xs text-[var(--color-neutral-600)]">
+            {role === "developer" ? t("agentForm.roleDeveloperHelp") : t("agentForm.roleReviewerHelp")}
           </p>
         </div>
         <div className="flex justify-end gap-2 pt-2">

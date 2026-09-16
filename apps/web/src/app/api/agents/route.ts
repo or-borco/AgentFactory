@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createAgent, listAgents } from "@agentfactory/db";
-import { isValidModelId, isValidOverflowPolicy } from "@agentfactory/core";
+import { isValidAgentRole, isValidModelId, isValidOverflowPolicy } from "@agentfactory/core";
 import { enqueueRepoMapWarmJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
 import { createLogger } from "@agentfactory/logger";
@@ -19,6 +19,9 @@ export async function POST(request: Request) {
   const body = await request.json();
   if (body.model !== undefined && !isValidModelId(body.model)) {
     return NextResponse.json({ error: "Invalid model id" }, { status: 400 });
+  }
+  if (body.role !== undefined && !isValidAgentRole(body.role)) {
+    return NextResponse.json({ error: "Invalid role" }, { status: 400 });
   }
   if (body.onContextOverflow !== undefined && !isValidOverflowPolicy(body.onContextOverflow)) {
     return NextResponse.json({ error: "Invalid onContextOverflow value" }, { status: 400 });

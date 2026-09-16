@@ -88,6 +88,12 @@ const en = {
     modeAutomatic: "Automatic",
     modeManualHelp: "Responds only when messaged directly.",
     modeAutomaticHelp: "Also runs automatically from configured triggers.",
+    roleLabel: "Role",
+    roleDeveloper: "Developer",
+    roleReviewer: "Reviewer",
+    roleDeveloperHelp: "Runs ordinary dev and chat tasks.",
+    roleReviewerHelp:
+      "Also eligible to run PR-review tasks: when a task assigned to this agent links a GitHub PR, it checks out the PR and posts a real review to GitHub instead of running as a normal dev task.",
   },
   teams: {
     title: "Teams",
@@ -454,6 +460,7 @@ const en = {
     agentDescriptionLabel: "Description",
     agentDescriptionPlaceholder: "One line describing what this agent does",
     agentModeLabel: "Mode",
+    agentRoleLabel: "Role",
     modelLabel: "Model",
     onContextOverflowLabel: "On context overflow",
     onContextOverflowFallback: "Escalate to a larger model",

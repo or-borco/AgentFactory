@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import type { Agent, ChatMessage, Connection, OrgMember, OverflowPolicy, Run, Session, Task, Team, TaskExternalRef } from "@agentfactory/core";
+import type { Agent, AgentRole, ChatMessage, Connection, OrgMember, OverflowPolicy, Run, Session, Task, Team, TaskExternalRef } from "@agentfactory/core";
 import type { ExternalAttachment, ExternalIssue } from "@agentfactory/integrations";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
@@ -37,6 +37,7 @@ interface NewAgentInput {
   description: string;
   systemPrompt: string;
   mode: "manual" | "automatic";
+  role?: AgentRole;
   teamId?: number;
   /** Model catalog id (see @agentfactory/core MODEL_CATALOG). Defaults to DEFAULT_MODEL_ID. */
   model?: string;
@@ -79,7 +80,7 @@ interface MockBackendValue extends MockState {
   createAgent: (input: NewAgentInput) => Promise<Agent>;
   updateAgent: (
     agentId: number,
-    patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "areaMap" | "defaultCodebase">> & {
+    patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "role" | "areaMap" | "defaultCodebase">> & {
       model?: string;
       onContextOverflow?: OverflowPolicy;
     },
@@ -232,7 +233,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
   const updateAgent = useCallback(
     async (
       agentId: number,
-      patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "areaMap" | "defaultCodebase">> & {
+      patch: Partial<Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "role" | "areaMap" | "defaultCodebase">> & {
         model?: string;
         onContextOverflow?: OverflowPolicy;
       },
