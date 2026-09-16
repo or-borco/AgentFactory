@@ -110,4 +110,20 @@ describe("materialiseSkills", () => {
     expect(sandboxProvider._writes[".agents/skills/foo/SKILL.md"]).toContain("Body");
     expect(sandboxProvider._commands).toContainEqual(["mkdir", "-p", "/workspace/.agents/skills/foo"]);
   });
+
+  it("falls back to the default skillDir when overrides explicitly includes skillDir: undefined", async () => {
+    const sandboxProvider = fakeSandboxProvider();
+
+    const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1, {
+      skillDir: undefined,
+      listAgentSkills: async () => [{ skillId: 1, skillVersionId: 10, skillSlug: "foo" }],
+      getSkillVersion: async () =>
+        ({ id: 10, skillId: 1, version: 1, name: "foo", description: "d", bodySha256: "shaA", createdAt: "" }) as never,
+      getSkillVersionMarkdown: async () => "---\nname: foo\ndescription: d\n---\n\nBody",
+    });
+
+    expect(written).toEqual(["foo"]);
+    expect(sandboxProvider._writes[`${SKILL_DIR}/foo/SKILL.md`]).toContain("Body");
+    expect(sandboxProvider._commands).toContainEqual(["mkdir", "-p", `/workspace/${SKILL_DIR}/foo`]);
+  });
 });

@@ -22,9 +22,9 @@ function resolveDeps(overrides?: Partial<SkillMaterializeDeps>): SkillMaterializ
     listAgentSkills,
     getSkillVersion,
     getSkillVersionMarkdown,
+    ...overrides,
     blobStore: overrides?.blobStore ?? createBlobStore(),
     skillDir: overrides?.skillDir ?? SKILL_DIR,
-    ...overrides,
   };
 }
 
