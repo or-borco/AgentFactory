@@ -27,11 +27,10 @@ const chatMessage = (id: number, role: "user" | "assistant", content: string): C
 
 describe("composeSystemPrompt", () => {
   // Human-authored instruction layers (team context, agent prompt) must come AFTER the
-  // machine-generated bulk. Measured, not stylistic: see composeSystemPrompt's comment and
-  // AgentFactoryContext/superpowers/experiments/2026-08-26-prompt-layer-ordering.md — the old arrangement, with
-  // the map between them, produced fully-compliant output 1/10 vs 10/10 for this one. Retrieved
-  // excerpts are human-written prose but machine-SELECTED bulk, and more task-specific than the
-  // repo map, so they sit after the map and before team context.
+  // machine-generated bulk. Measured, not stylistic: see composeSystemPrompt's comment — the old
+  // arrangement, with the map between them, produced fully-compliant output 1/10 vs 10/10 for
+  // this one. Retrieved excerpts are human-written prose but machine-SELECTED bulk, and more
+  // task-specific than the repo map, so they sit after the map and before team context.
   it("orders preamble, environment, prior conversation, repo map, retrieved context, team context, agent system prompt", () => {
     const { prompt } = composeSystemPrompt(
       "## Environment\n\nCheckout is at /workspace.\n\n---\n\n",

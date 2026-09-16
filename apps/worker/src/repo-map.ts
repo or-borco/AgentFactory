@@ -18,12 +18,11 @@ const MAX_CONTENT_LENGTH = 16384;
 // gap, not a general guarantee.
 //
 // The actual fix — an explicit wait-or-proceed choice surfaced at the moment a codebase is set,
-// so the user decides instead of a guessed constant — is tracked in
-// AgentFactoryContext/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md. Once that ships for both
-// places a codebase can be set (task creation and the task edit page), this poll will be removed
-// in the same change, since there is no other path left for it to cover. Until then it stays as
-// a strictly-better-than-nothing chance of catching a warm that was already substantially
-// underway from an earlier trigger.
+// so the user decides instead of a guessed constant. Once that ships for both places a codebase
+// can be set (task creation and the task edit page), this poll will be removed in the same
+// change, since there is no other path left for it to cover. Until then it stays as a
+// strictly-better-than-nothing chance of catching a warm that was already substantially underway
+// from an earlier trigger.
 export const CACHE_POLL_TIMEOUT_MS = 20_000;
 export const CACHE_POLL_INTERVAL_MS = 1_000;
 // Design spec's "its own short wall-clock cap (e.g. 2 minutes), independent of the triggering
@@ -70,9 +69,8 @@ async function generateRepoMap(sandboxProvider: SandboxProvider, sandboxId: stri
 }
 
 // Run-time path: called from the run pipeline right after clone, with a sandbox that already
-// has the target repo checked out. Cache key is the exact commit sha being worked on — see
-// AgentFactoryContext/superpowers/specs/2026-08-23-repo-map-indexing-design.md's "Design decisions" for why
-// this (not repoFullName alone, not a merge-base) is the invalidation mechanism.
+// has the target repo checked out. Cache key is the exact commit sha being worked on — that
+// (not repoFullName alone, not a merge-base) is the invalidation mechanism.
 //
 // Deliberately NON-BLOCKING on a cache miss. Generation is itself a full agent turn against a
 // second model, measured at 33-38s on an 884KB repo, and it used to sit directly on the critical

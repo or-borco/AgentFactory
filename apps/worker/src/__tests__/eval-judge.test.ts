@@ -967,8 +967,7 @@ describe("hasRetrievedBlock", () => {
 
 // or-borco/AgentFactory#134: with `retrieval` always optional, the real judge omitted it from a
 // real <retrieved> block roughly 75-80% of the time. Measured across two real-API scenarios,
-// marking it required only on calls that actually send a block raised that to 19/20. See
-// AgentFactoryContext/superpowers/experiments/2026-09-01-judge-retrieval-required-field.md.
+// marking it required only on calls that actually send a block raised that to 19/20.
 describe("buildReportEvalTool", () => {
   it("requires only layers when there is nothing retrieved to grade", () => {
     const tool = buildReportEvalTool(false);

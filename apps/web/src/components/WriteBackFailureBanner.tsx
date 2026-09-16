@@ -12,10 +12,10 @@ interface WriteBackFailureBannerProps {
   onDismiss: () => void;
 }
 
-// Surfaces Design decision 13's persisted write-back-failure signal (see
-// AgentFactoryContext/superpowers/specs/2026-09-12-jira-integration-design.md) outside the run transcript, where
-// it would otherwise be invisible unless someone happened to open that specific run. Mirrors
-// RepoMapWaitBanner's use of ConfirmationBanner.module.css rather than introducing new styling.
+// Surfaces Design decision 13's persisted write-back-failure signal outside the run transcript,
+// where it would otherwise be invisible unless someone happened to open that specific run.
+// Mirrors RepoMapWaitBanner's use of ConfirmationBanner.module.css rather than introducing new
+// styling.
 export function WriteBackFailureBanner({ task, onDismiss }: WriteBackFailureBannerProps) {
   const { t } = useTranslation();
   const [dismissing, setDismissing] = useState(false);

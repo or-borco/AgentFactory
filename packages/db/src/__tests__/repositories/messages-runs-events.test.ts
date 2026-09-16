@@ -33,8 +33,8 @@ describe("messages repository", () => {
 
   // No prior test asserted ordering at all (just presence/length) — this was a real gap: without
   // an explicit ORDER BY, row order isn't guaranteed by Postgres, and callers like session context
-  // reconstruction (AgentFactoryContext/superpowers/specs/2026-09-08-session-context-reconstruction-design.md)
-  // depend on chronological order to know which messages are "most recent" for truncation.
+  // reconstruction depend on chronological order to know which messages are "most recent" for
+  // truncation.
   it("lists messages chronologically, oldest first", async () => {
     const session = await setupSession();
     const first = await createMessage(session.id, "user", "first");

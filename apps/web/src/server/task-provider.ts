@@ -8,8 +8,7 @@ const log = createLogger("task-provider");
 // Resolves the org's one `tasks`-kind connection (whichever provider it is) and builds the
 // TaskProvider adapter for it. "First tasks connection" is safe to treat as *the* connection, not
 // merely an arbitrary one, because POST /api/connections/jira's 409 check makes a second one
-// unreachable — see Design decision 15 in
-// AgentFactoryContext/superpowers/specs/2026-09-12-jira-integration-design.md.
+// unreachable.
 //
 // Returns undefined rather than throwing whenever the org has no usable connection: no tasks
 // connection at all, no credential stored against it, or a credential that fails to decrypt /
