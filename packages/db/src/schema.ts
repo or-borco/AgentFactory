@@ -104,7 +104,6 @@ export const teams = pgTable(
 // ARCHITECTURE.md §0/§1 expects more AgentRuntime adapters over time, and a plain text column
 // (validated by the RuntimeKind TS union) doesn't need a migration to accept a new one.
 export const agentModeEnum = pgEnum("agent_mode", ["manual", "automatic"]);
-export const agentRoleEnum = pgEnum("agent_role", ["developer", "reviewer"]);
 
 export const agents = pgTable(
   "agents",
@@ -120,7 +119,6 @@ export const agents = pgTable(
     systemPrompt: text("system_prompt").notNull(),
     model: jsonb("model").$type<ModelSpec>().notNull(),
     mode: agentModeEnum("mode").notNull().default("manual"),
-    role: agentRoleEnum("role").notNull().default("developer"),
     runtimeKind: text("runtime_kind").notNull().default("claude-code"),
     toolPolicy: jsonb("tool_policy").$type<ToolPolicy>().notNull(),
     connectionIds: jsonb("connection_ids").$type<number[]>().notNull().default([]),
@@ -356,13 +354,20 @@ export const runEvals = pgTable(
 );
 
 export const reviewVerdictEnum = pgEnum("review_verdict", ["comment", "request_changes"]);
+export const prReviewStatusEnum = pgEnum("pr_review_status", ["pending", "posted", "discarded"]);
 
-// One row per review pass actually posted to GitHub — deliberately its own table, never columns
-// on runs, for the same reason run_evals is: the task page polls runs on a ~1.5s timer, and
-// "latest review for task X" / "last reviewed head_sha for task X" are both single indexed
-// lookups here instead. There is no persisted field on tasks identifying it as a review — see
+// One row per review pass the worker produced — deliberately its own table, never columns on
+// runs, for the same reason run_evals is: the task page polls runs on a ~1.5s timer, and "latest
+// review for task X" / "last reviewed head_sha for task X" are both single indexed lookups here
+// instead. There is no persisted field on tasks identifying it as a review — see
 // parsePullRequestReference — so repo_full_name/pr_number are stored here, not looked up
 // elsewhere.
+//
+// A row starts "pending" the moment the worker validates the agent's structured review — it is
+// NOT posted to GitHub yet. A human must approve it (POST /api/pr-reviews/[id]/approve) before
+// postedAs/githubReviewId/url are ever populated; "discarded" means a human rejected it and it
+// will never be posted. summary/verdict/comments hold the full draft content so approval can post
+// it without re-deriving anything from the run's transcript.
 export const prReviews = pgTable(
   "pr_reviews",
   {
@@ -380,10 +385,15 @@ export const prReviews = pgTable(
     prNumber: integer("pr_number").notNull(),
     baseSha: text("base_sha").notNull(),
     headSha: text("head_sha").notNull(),
+    status: prReviewStatusEnum("status").notNull().default("pending"),
     verdict: reviewVerdictEnum("verdict").notNull(),
-    postedAs: reviewVerdictEnum("posted_as").notNull(),
-    githubReviewId: text("github_review_id").notNull(),
-    url: text("url").notNull(),
+    summary: text("summary").notNull(),
+    comments: jsonb("comments").$type<Array<{ path: string; line: number; body: string }>>().notNull().default([]),
+    // Set only once status flips to "posted" — a human-approved draft is what GitHub actually
+    // received, which can differ from `verdict` (see the own-PR fallback in packages/scm/github.ts).
+    postedAs: reviewVerdictEnum("posted_as"),
+    githubReviewId: text("github_review_id"),
+    url: text("url"),
     commentCount: integer("comment_count").notNull().default(0),
     truncated: boolean("truncated").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

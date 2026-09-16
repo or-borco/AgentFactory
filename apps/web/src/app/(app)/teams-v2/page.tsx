@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Badge, Button, EmptyState, GroupedSelect, PageHeader, Select, Tabs, TextInput, Textarea } from "@agentfactory/shared";
 import { useMockBackend } from "@/lib/mock/context";
 import { useTranslation } from "@/lib/i18n/context";
-import type { Agent, AgentRole, OverflowPolicy, Team } from "@agentfactory/core";
+import type { Agent, OverflowPolicy, Team } from "@agentfactory/core";
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
 import type { RepoOption } from "@agentfactory/scm";
 import { parseSharedContext, serializeSharedContext } from "@/lib/shared-context";
@@ -213,7 +213,6 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [mode, setMode] = useState<"manual" | "automatic">("manual");
-  const [role, setRole] = useState<AgentRole>("developer");
   const [model, setModel] = useState(DEFAULT_MODEL_ID);
   const [onContextOverflow, setOnContextOverflow] = useState<OverflowPolicy>("fallback");
   const [saving, setSaving] = useState(false);
@@ -223,7 +222,7 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
     if (!name.trim()) return;
     setSaving(true);
     try {
-      const agent = await createAgent({ name: name.trim(), description: description.trim(), systemPrompt: systemPrompt.trim(), mode, role, teamId, model, onContextOverflow });
+      const agent = await createAgent({ name: name.trim(), description: description.trim(), systemPrompt: systemPrompt.trim(), mode, teamId, model, onContextOverflow });
       onCreated(agent.id);
     } finally {
       setSaving(false);
@@ -297,32 +296,6 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
               </button>
             ))}
           </div>
-        </div>
-
-        <div>
-          <label className="mb-2 block text-xs font-medium text-[var(--color-neutral-400)]">
-            {t("teamsV2.agentRoleLabel")}
-          </label>
-          <div className="flex gap-2">
-            {(["developer", "reviewer"] as const).map((r) => (
-              <button
-                key={r}
-                type="button"
-                onClick={() => setRole(r)}
-                className={[
-                  "flex-1 rounded-[var(--radius-sm)] border px-3 py-2 text-sm transition-colors cursor-pointer",
-                  role === r
-                    ? "border-[var(--color-accent-500)] bg-[var(--color-accent-900)] text-[var(--color-accent-200)]"
-                    : "border-[var(--color-divider)] text-[var(--color-neutral-400)] hover:text-[var(--color-neutral-200)]",
-                ].join(" ")}
-              >
-                {r === "developer" ? t("agentForm.roleDeveloper") : t("agentForm.roleReviewer")}
-              </button>
-            ))}
-          </div>
-          <p className="mt-1.5 text-xs text-[var(--color-neutral-600)]">
-            {role === "developer" ? t("agentForm.roleDeveloperHelp") : t("agentForm.roleReviewerHelp")}
-          </p>
         </div>
 
         <div>

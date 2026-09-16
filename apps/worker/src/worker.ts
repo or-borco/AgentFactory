@@ -21,7 +21,7 @@ import {
   clearSessionSandboxId,
   createEvent,
   createMessage,
-  createPrReview,
+  createPendingPrReview,
   getAgent,
   getLatestPrReview,
   getLatestResumeCandidate,
@@ -211,12 +211,11 @@ const runWorker = new Worker<RunJobData>(
 
       // Detection is live parsing of the task description on every run — never a persisted flag
       // on Task (see the design spec): retargeting a task at a different PR, or removing the
-      // link entirely, takes effect on the next run with nothing to migrate. A review run
-      // additionally requires the run's agent to have `role: "reviewer"` — an ordinary dev
-      // agent's task is never hijacked into a review run just because its description happens to
-      // mention a PR link.
-      const prRef =
-        task && agent.role === "reviewer" ? parsePullRequestReferenceAcrossProviders(task.description) : undefined;
+      // link entirely, takes effect on the next run with nothing to migrate. Any agent is
+      // eligible; the review this produces is never posted to GitHub automatically — it lands as
+      // a "pending" pr_reviews row and only reaches GitHub once a human approves it (see the
+      // posting block below and apps/web's pr-reviews approve/discard routes).
+      const prRef = task ? parsePullRequestReferenceAcrossProviders(task.description) : undefined;
       if (prRef && task) {
         const resolved = await resolveScmConnection(agent.orgId, prRef.repoFullName);
         if (!resolved) {
@@ -547,8 +546,10 @@ const runWorker = new Worker<RunJobData>(
       mark("agent turn");
 
       // What a review run stores in the transcript is the rendered review, not the agent's raw
-      // closing text — the structured output is the real artefact of the turn. Posting happens
-      // here, host-side: the sandbox never holds a GitHub token.
+      // closing text — the structured output is the real artefact of the turn. The worker never
+      // posts to GitHub itself (the sandbox never holds a GitHub token, and a human must approve
+      // first) — it only persists a "pending" draft; apps/web's pr-reviews approve route is what
+      // actually calls ScmProvider.postReview.
       let transcriptText = text;
       if (review) {
         try {
@@ -556,41 +557,29 @@ const runWorker = new Worker<RunJobData>(
           const validated = validateReviewComments(structured, review.fullDiffText);
           transcriptText = renderReviewAsMarkdown(validated);
 
-          // Skip posting only when there is truly nothing new: no validated comments AND this pass
-          // covered zero new commits (the focus range was empty because head hadn't moved since
-          // the last review). This is what stops a content-free re-run from posting a duplicate
-          // summary to GitHub.
+          // Skip drafting only when there is truly nothing new: no validated comments AND this
+          // pass covered zero new commits (the focus range was empty because head hadn't moved
+          // since the last review). This is what stops a content-free re-run from creating a
+          // duplicate draft.
           const rangeWasEmpty = review.focusBaseSha === review.focusHeadSha;
           if (!(validated.comments.length === 0 && rangeWasEmpty)) {
-            const resolvedForPost = await resolveScmConnection(agent.orgId, review.repoFullName);
-            if (!resolvedForPost) {
-              throw new Error(`No connected GitHub provider can post the review for ${review.repoFullName}`);
-            }
-            const posted = await resolvedForPost.provider.postReview(
-              resolvedForPost.connection,
-              review.repoFullName,
-              review.prNumber,
-              { summary: validated.summary, verdict: validated.verdict, comments: validated.comments },
-            );
-            await createPrReview(agent.orgId, review.taskId, runId, {
+            await createPendingPrReview(agent.orgId, review.taskId, runId, {
               repoFullName: review.repoFullName,
               prNumber: review.prNumber,
               baseSha: review.focusBaseSha,
               headSha: review.focusHeadSha,
               verdict: validated.verdict,
-              postedAs: posted.postedAs,
-              githubReviewId: posted.id,
-              url: posted.url,
+              summary: validated.summary,
+              comments: validated.comments,
               commentCount: validated.comments.length,
               truncated: review.diffTruncated,
             });
             await createEvent(runId, seq++, "artifact", {
               artifactType: "review",
-              label: "PR review",
-              url: posted.url,
+              label: "PR review (pending approval)",
             });
           }
-          mark("review posted");
+          mark("review drafted");
         } catch (err) {
           // Evidence, not recovery. Everything above this point runs AFTER the turn is paid for,
           // and the transcript write that normally preserves the agent's output is below it — so

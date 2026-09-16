@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import type { Agent, AgentMode, AgentRole, OverflowPolicy } from "@agentfactory/core";
+import type { Agent, AgentMode, OverflowPolicy } from "@agentfactory/core";
 import { buildModelSpec } from "@agentfactory/core";
 import { db } from "../client";
 import { agents } from "../schema";
@@ -21,7 +21,6 @@ function toAgent(row: typeof agents.$inferSelect): Agent {
     systemPrompt: row.systemPrompt,
     model: row.model,
     mode: row.mode,
-    role: row.role,
     runtimeKind: row.runtimeKind as Agent["runtimeKind"],
     toolPolicy: row.toolPolicy,
     connectionIds: row.connectionIds,
@@ -48,7 +47,6 @@ export interface NewAgentInput {
   description: string;
   systemPrompt: string;
   mode: AgentMode;
-  role?: AgentRole;
   teamId?: number;
   /** Model catalog id (see @agentfactory/core MODEL_CATALOG). Defaults to DEFAULT_MODEL_ID. */
   model?: string;
@@ -68,7 +66,6 @@ export async function createAgent(orgId: number, input: NewAgentInput): Promise<
       systemPrompt: input.systemPrompt,
       model: buildModelSpec(input.model),
       mode: input.mode,
-      role: input.role ?? "developer",
       runtimeKind: "claude-code",
       toolPolicy: { defaultDecision: "deny", rules: [] },
       connectionIds: [],
@@ -81,7 +78,7 @@ export async function createAgent(orgId: number, input: NewAgentInput): Promise<
 
 export interface AgentPatch
   extends Partial<
-    Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "role" | "teamId" | "areaMap" | "defaultCodebase" | "onContextOverflow">
+    Pick<Agent, "name" | "description" | "systemPrompt" | "mode" | "teamId" | "areaMap" | "defaultCodebase" | "onContextOverflow">
   > {
   /** Model catalog id (see @agentfactory/core MODEL_CATALOG). */
   model?: string;
@@ -93,7 +90,6 @@ export async function updateAgent(agentId: number, patch: AgentPatch): Promise<A
   if (patch.description !== undefined) values.description = patch.description || null;
   if (patch.systemPrompt !== undefined) values.systemPrompt = patch.systemPrompt;
   if (patch.mode !== undefined) values.mode = patch.mode;
-  if (patch.role !== undefined) values.role = patch.role;
   if ("teamId" in patch) values.teamId = patch.teamId ?? null;
   if ("areaMap" in patch) values.areaMap = patch.areaMap ?? null;
   if (patch.defaultCodebase !== undefined) values.defaultCodebase = patch.defaultCodebase || null;

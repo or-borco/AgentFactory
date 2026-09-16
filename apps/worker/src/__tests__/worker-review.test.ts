@@ -53,7 +53,7 @@ vi.mock("@agentfactory/db", () => ({
   clearSessionSandboxId: vi.fn(),
   createEvent: vi.fn(),
   createMessage: vi.fn(),
-  createPrReview: vi.fn(),
+  createPendingPrReview: vi.fn(),
   getAgent: vi.fn(),
   getLatestPrReview: vi.fn(async () => undefined),
   getLatestResumeCandidate: vi.fn(async () => undefined),
@@ -134,7 +134,7 @@ vi.mock("../sandbox-reap", () => ({ SANDBOX_REAP_INTERVAL_MS: 60_000, scanForIdl
 import {
   createEvent,
   createMessage,
-  createPrReview,
+  createPendingPrReview,
   getAgent,
   getLatestPrReview,
   getRun,
@@ -214,9 +214,6 @@ beforeEach(() => {
     orgId: 5,
     teamId: null,
     name: "Reviewer",
-    // Explicit, not implicit: since Task 13 a review run requires BOTH this role and a PR link in
-    // the task description, so every review fixture in this file has to opt in by name.
-    role: "reviewer",
     systemPrompt: "You are a careful reviewer.",
     model: { family: "anthropic", id: "claude-x", maxTokens: 8192 },
     onContextOverflow: "fail",
@@ -323,11 +320,11 @@ describe("review run with a malformed structured output", () => {
     expect(createEvent).toHaveBeenCalledWith(1, expect.any(Number), "text_delta", { text: RAW_TURN_TEXT });
   });
 
-  it("still fails the run and the task, and never posts or records a review", async () => {
+  it("still fails the run and the task, and never drafts or posts a review", async () => {
     await expect(runProcessor({ data: { runId: 1 } })).rejects.toThrow(/not an object/);
 
     expect(postReview).not.toHaveBeenCalled();
-    expect(createPrReview).not.toHaveBeenCalled();
+    expect(createPendingPrReview).not.toHaveBeenCalled();
     expect(updateTask).toHaveBeenCalledWith(30, { status: "failed" });
     expect(createEvent).toHaveBeenCalledWith(
       1,
@@ -343,9 +340,10 @@ describe("review run with a malformed structured output", () => {
   });
 });
 
-// The gate that keeps a PR link in a task description from turning an ordinary dev agent's run
-// into a public GitHub review. Detection requires BOTH `agent.role === "reviewer"` AND a PR link;
-// either one alone is an ordinary run.
+// Detection is PR-link-only: any agent whose task description contains a GitHub PR link runs a
+// review pass. There is no per-agent gate — nothing in Agent restricts which agents are eligible.
+// The worker never posts to GitHub itself; a review run only ever drafts a "pending" row (see
+// apps/web's pr-reviews approve route for the actual ScmProvider.postReview call).
 describe("review run detection gate", () => {
   beforeEach(() => {
     vi.mocked(runAgentTurn).mockResolvedValue({
@@ -355,39 +353,20 @@ describe("review run detection gate", () => {
     } as never);
   });
 
-  it("does not start a review run for a developer-role agent, even with a PR link in the task", async () => {
-    vi.mocked(getAgent).mockResolvedValue({
-      id: 20,
-      orgId: 5,
-      teamId: null,
-      name: "Dev",
-      role: "developer",
-      systemPrompt: "You write code.",
-      model: { family: "anthropic", id: "claude-x", maxTokens: 8192 },
-      onContextOverflow: "fail",
-    } as never);
-
-    await runProcessor({ data: { runId: 1 } });
-
-    // The description is never even parsed — the role is checked first, so a dev agent's task
-    // description is inert text as far as this feature is concerned.
-    expect(parsePullRequestReferenceAcrossProviders).not.toHaveBeenCalled();
-    expect(checkoutPullRequest).not.toHaveBeenCalled();
-    expect(postReview).not.toHaveBeenCalled();
-    expect(createPrReview).not.toHaveBeenCalled();
-    // It still runs — as a normal (here chat-only, since the task has no codebase) task run.
-    expect(runAgentTurn).toHaveBeenCalled();
-  });
-
-  it("starts a review run for a reviewer-role agent with a PR link, and posts the review", async () => {
+  it("starts a review run for any agent with a PR link in the task, and drafts a pending review", async () => {
     await runProcessor({ data: { runId: 1 } });
 
     expect(checkoutPullRequest).toHaveBeenCalled();
-    expect(postReview).toHaveBeenCalled();
-    expect(createPrReview).toHaveBeenCalled();
+    expect(postReview).not.toHaveBeenCalled();
+    expect(createPendingPrReview).toHaveBeenCalledWith(
+      5,
+      30,
+      1,
+      expect.objectContaining({ repoFullName: "acme/app", prNumber: 7, verdict: "comment" }),
+    );
   });
 
-  it("runs a reviewer-role agent's PR-link-free task as an ordinary run", async () => {
+  it("runs a PR-link-free task as an ordinary run", async () => {
     vi.mocked(parsePullRequestReferenceAcrossProviders).mockReturnValue(undefined as never);
     vi.mocked(getTaskBySessionId).mockResolvedValue({
       id: 30,
@@ -402,7 +381,7 @@ describe("review run detection gate", () => {
 
     expect(checkoutPullRequest).not.toHaveBeenCalled();
     expect(postReview).not.toHaveBeenCalled();
-    expect(createPrReview).not.toHaveBeenCalled();
+    expect(createPendingPrReview).not.toHaveBeenCalled();
     expect(runAgentTurn).toHaveBeenCalled();
   });
 });

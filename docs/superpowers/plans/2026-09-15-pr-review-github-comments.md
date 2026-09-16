@@ -2,6 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Tasks 11-13 superseded (2026-09-16):** the `Agent.role` gate they added was removed —
+> `Agent.role`/`AgentRole`/`isValidAgentRole` no longer exist anywhere in the codebase, and PR-link
+> detection (Task 5's original design) applies to any agent again. In its place, the worker now
+> only ever drafts a `"pending"` `pr_reviews` row instead of calling `ScmProvider.postReview`
+> directly; a human approves via `POST /api/pr-reviews/[id]/approve` (which is what actually calls
+> `postReview`) or rejects via `POST /api/pr-reviews/[id]/discard`. See the design doc's matching
+> superseded-notice for the full rationale.
+
 **Goal:** when a task's description contains a GitHub PR link, running it produces a real GitHub
 review — inline comments anchored to files/lines, plus a summary and a Comment/Request-changes
 verdict — instead of only a run transcript.

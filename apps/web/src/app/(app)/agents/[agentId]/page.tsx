@@ -106,7 +106,6 @@ export default function AgentDetailPage() {
             description: agent.description ?? "",
             systemPrompt: agent.systemPrompt,
             mode: agent.mode,
-            role: agent.role,
             defaultCodebase: agent.defaultCodebase ?? "",
           }}
           onClose={() => setShowEdit(false)}

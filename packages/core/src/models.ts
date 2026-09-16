@@ -1,4 +1,4 @@
-import type { AgentRole, ModelSpec, OverflowPolicy } from "./domain";
+import type { ModelSpec, OverflowPolicy } from "./domain";
 
 export interface ModelCatalogEntry {
   id: string;
@@ -35,10 +35,6 @@ export function isValidModelId(id: string): boolean {
 
 export function isValidOverflowPolicy(value: string): value is OverflowPolicy {
   return value === "fallback" || value === "fail_fast";
-}
-
-export function isValidAgentRole(value: unknown): value is AgentRole {
-  return value === "developer" || value === "reviewer";
 }
 
 export function buildModelSpec(id: string = DEFAULT_MODEL_ID): ModelSpec {

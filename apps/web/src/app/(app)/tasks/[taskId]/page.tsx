@@ -1191,6 +1191,8 @@ export default function TaskDetailPage() {
               )}
             </div>
 
+            <PrReviewPanel taskId={task.id} runStatus={runStatus} />
+
             {/* Reply bar — always in DOM, disabled when no session */}
             <div
               style={{
@@ -1320,7 +1322,6 @@ export default function TaskDetailPage() {
               <ContextDocumentsPanel scope={{ kind: "task", taskId: task.id }} members={orgMembers} />
             </div>
             <RunContextPanel runs={sessionRuns} />
-            <PrReviewPanel taskId={task.id} />
           </div>
         )}
         {activeTab === "evals" && <RunEvalPanel runs={sessionRuns} />}

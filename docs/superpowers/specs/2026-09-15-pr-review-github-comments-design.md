@@ -3,6 +3,15 @@
 > Scopes [#213](https://github.com/or-borco/AgentFactory/issues/213). This is a design/spec
 > document; implementation follows in a separate plan/PR.
 
+> **Superseded (2026-09-16):** the `Agent.role` (`developer`/`reviewer`) gate described below was
+> removed. Detection is PR-link-only again — any agent is eligible. In its place, the worker never
+> posts a review to GitHub directly: it persists a `"pending"` draft (`pr_reviews.status`,
+> `summary`, `comments`), and a human must explicitly approve it (`POST
+> /api/pr-reviews/[id]/approve`) before `ScmProvider.postReview` is ever called. Every mention of
+> `Agent.role`/`role: "reviewer"` below reflects the earlier, now-reverted design — read it for
+> historical context on why PR-link-only detection alone was once considered insufficient, not as
+> current behavior.
+
 ## Problem
 
 A team can already have a Code review agent. A user creates a task like "Review PR #42",

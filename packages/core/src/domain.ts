@@ -94,12 +94,6 @@ export interface OrgMember {
 
 export type AgentMode = "manual" | "automatic";
 
-// "developer" runs ordinary dev/chat tasks. "reviewer" is additionally eligible to run PR-review
-// tasks (see apps/worker/src/worker.ts's review-run detection) — an agent must be a reviewer AND
-// the task must reference a PR for a run to post a real GitHub review; a reviewer agent given a
-// task with no PR link just behaves like any other agent.
-export type AgentRole = "developer" | "reviewer";
-
 export type RuntimeKind = "claude-code";
 
 export interface ModelSpec {
@@ -128,7 +122,6 @@ export interface Agent {
   systemPrompt: string;
   model: ModelSpec;
   mode: AgentMode;
-  role: AgentRole;
   runtimeKind: RuntimeKind;
   toolPolicy: ToolPolicy;
   connectionIds: ID[];
@@ -494,6 +487,19 @@ export interface Artifact {
 
 export type ReviewVerdict = "comment" | "request_changes";
 
+// A review is always produced automatically once the worker detects a PR link in a task's
+// description (see apps/worker/src/worker.ts) — but it only ever reaches GitHub after a human
+// approves it via POST /api/pr-reviews/[id]/approve. "pending": drafted, not yet posted, still
+// actionable. "posted": approved and live on GitHub — postedAs/githubReviewId/url are set only
+// at this point. "discarded": a human rejected the draft; it will never be posted.
+export type PrReviewStatus = "pending" | "posted" | "discarded";
+
+export interface PrReviewComment {
+  path: string;
+  line: number;
+  body: string;
+}
+
 export interface PrReview {
   id: ID;
   orgId: ID;
@@ -503,10 +509,13 @@ export interface PrReview {
   prNumber: number;
   baseSha: string;
   headSha: string;
+  status: PrReviewStatus;
   verdict: ReviewVerdict;
-  postedAs: ReviewVerdict;
-  githubReviewId: string;
-  url: string;
+  summary: string;
+  comments: PrReviewComment[];
+  postedAs?: ReviewVerdict;
+  githubReviewId?: string;
+  url?: string;
   commentCount: number;
   truncated: boolean;
   createdAt: ISODateTime;
