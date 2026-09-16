@@ -88,6 +88,7 @@ import {
 import { resolveEscalation } from "./model-escalation";
 import { ensureRepoMap, warmRepoMap } from "./repo-map";
 import { buildRetrievalQuery, retrieveContext, type RetrievedContext } from "./context-retrieval";
+import { waitForPendingContextIngest } from "./context-ingest-wait";
 import { materialiseTaskDocuments, type MaterialisedTaskDocuments } from "./task-documents";
 import { materialiseSkills } from "./skills-materialize";
 import { processEvalJob } from "./eval-runner";
@@ -413,6 +414,13 @@ const runWorker = new Worker<RunJobData>(
       // vector search done here would be thrown away unused.
       let retrieved: RetrievedContext = { text: "", retrievals: [] };
       if (!review && (team || task)) {
+        // Closes the AgentFactory#150 race: a run can otherwise start while a document attached
+        // moments ago is still being chunked and embedded, and retrieveContext (unchanged below)
+        // would see zero, a partial, or momentarily fewer chunks than an earlier run saw. This
+        // waits briefly for recently-created pending/indexing items to clear, then always
+        // proceeds — never fails or blocks the run beyond its own bounded timeout.
+        await waitForPendingContextIngest({ teamId: team?.id, taskId: task?.id });
+        mark("context ingest wait");
         retrieved = await retrieveContext(
           { teamId: team?.id, taskId: task?.id },
           buildRetrievalQuery(task?.title, task?.description, triggeringMessage?.content),
