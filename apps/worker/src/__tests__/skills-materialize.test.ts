@@ -94,4 +94,20 @@ describe("materialiseSkills", () => {
     expect(written).toEqual([]);
     expect(sandboxProvider.writeFiles).not.toHaveBeenCalled();
   });
+
+  it("writes into a custom skillDir when provided", async () => {
+    const sandboxProvider = fakeSandboxProvider();
+
+    const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1, {
+      skillDir: ".agents/skills",
+      listAgentSkills: async () => [{ skillId: 1, skillVersionId: 10, skillSlug: "foo" }],
+      getSkillVersion: async () =>
+        ({ id: 10, skillId: 1, version: 1, name: "foo", description: "d", bodySha256: "shaA", createdAt: "" }) as never,
+      getSkillVersionMarkdown: async () => "---\nname: foo\ndescription: d\n---\n\nBody",
+    });
+
+    expect(written).toEqual(["foo"]);
+    expect(sandboxProvider._writes[".agents/skills/foo/SKILL.md"]).toContain("Body");
+    expect(sandboxProvider._commands).toContainEqual(["mkdir", "-p", "/workspace/.agents/skills/foo"]);
+  });
 });
