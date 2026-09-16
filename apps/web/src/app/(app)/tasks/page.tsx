@@ -20,9 +20,11 @@ export default function TasksPage() {
         title={t("tasks.title")}
         subtitle={t("tasks.subtitle")}
         action={
-          <Link href="/tasks/new">
-            <Button variant="primary">{t("tasks.newTask")}</Button>
-          </Link>
+          tasks.length > 0 ? (
+            <Link href="/tasks/new">
+              <Button variant="primary">{t("tasks.newTask")}</Button>
+            </Link>
+          ) : undefined
         }
       />
 

@@ -1,5 +1,29 @@
 import { expect, test } from "./fixtures";
 
+// ── Tasks list header button (redundant with empty-state CTA) ───────────────
+
+test("empty state hides the redundant top New task button, keeping only the empty-state CTA", async ({
+  page,
+  registeredUser,
+}) => {
+  await page.goto("/tasks");
+
+  await expect(page.getByText("No tasks yet")).toBeVisible();
+
+  // Only the empty-state's own "New task" button should render — the top-right
+  // header button would be redundant while the list is empty.
+  await expect(page.getByRole("button", { name: "New task" })).toHaveCount(1);
+});
+
+test("top New task button reappears once the list has tasks", async ({ page, registeredUser }) => {
+  await page.request.post("/api/tasks", { data: { title: "First task" } });
+
+  await page.goto("/tasks");
+
+  await expect(page.getByText("No tasks yet")).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "New task" })).toHaveCount(1);
+});
+
 // ── Task detail layout (issue #32) ───────────────────────────────────────────
 
 test("task detail shows split-pane layout with reply bar always visible", async ({ page, registeredUser }) => {
