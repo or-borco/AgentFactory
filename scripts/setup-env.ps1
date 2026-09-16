@@ -91,9 +91,22 @@ function Ensure-Docker {
     }
 }
 
+# The worker's sandbox image — built from the repo's own Dockerfile, no external inputs, so this
+# can just build it non-interactively like everything else here. Skipped if it's already present
+# (same idempotent pattern as Ensure-Docker) since a rebuild after every edit to sandbox-image/ is
+# the developer's call, not this script's.
+function Ensure-SandboxImage {
+    if (-not (Test-CommandExists docker)) { return }
+    docker image inspect agentfactory-sandbox:local *> $null
+    if ($LASTEXITCODE -eq 0) { return }
+    Write-Host "Building agentfactory-sandbox:local (needed to run the worker)..."
+    docker build -t agentfactory-sandbox:local apps/worker/sandbox-image
+}
+
 Ensure-Node
 Ensure-Pnpm
 Ensure-Docker
+Ensure-SandboxImage
 
 $EnvLocal = ".env.local"
 $EnvExample = ".env.example"
