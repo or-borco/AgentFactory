@@ -481,6 +481,10 @@ const en = {
     confirmDelete: "Delete '{name}'?",
     confirmDeleteSub: "This will permanently remove the agent.",
     confirmDeleteButton: "Delete",
+    duplicateAgent: "Duplicate to team…",
+    duplicateAgentTargetLabel: "Duplicate '{name}' to",
+    duplicateAgentButton: "Duplicate",
+    duplicateAgentNoOtherTeams: "No other teams to duplicate into yet.",
     role: {
       owner: "Owner",
       admin: "Admin",
@@ -563,6 +567,7 @@ const en = {
     agentCreated: "Agent created",
     agentUpdated: "Agent updated",
     agentDeleted: "Agent deleted",
+    agentDuplicated: "Agent duplicated",
     error: "Something went wrong",
     connectionDeleted: "Connection removed",
     taskDeleted: "Task deleted",

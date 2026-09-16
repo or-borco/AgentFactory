@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type { Agent, AgentMode, OverflowPolicy } from "@agentfactory/core";
 import { buildModelSpec } from "@agentfactory/core";
 import { db } from "../client";
-import { agents } from "../schema";
+import { agents, agentSkills } from "../schema";
 
 const MAX_NAME_LENGTH = 80;
 
@@ -102,4 +102,49 @@ export async function updateAgent(agentId: number, patch: AgentPatch): Promise<A
 
 export async function deleteAgent(agentId: number): Promise<void> {
   await db.delete(agents).where(eq(agents.id, agentId));
+}
+
+// Clones an agent into another team — everything the agent carries (prompt, model, tool policy,
+// connections, default codebase, area map) plus its pinned skill versions, so the copy runs
+// identically to the original from the moment it's created. The caller (the API route) is
+// responsible for verifying both the source agent and the target team belong to the caller's
+// org — this function trusts targetTeamId the same way assignSkillToAgent trusts a bare skillId.
+// Returns undefined only if the source agent no longer exists.
+export async function duplicateAgent(agentId: number, targetTeamId: number): Promise<Agent | undefined> {
+  const source = await getAgent(agentId);
+  if (!source) return undefined;
+
+  const [row] = await db
+    .insert(agents)
+    .values({
+      orgId: source.orgId,
+      teamId: targetTeamId,
+      name: capName(`Copy of ${source.name}`),
+      description: source.description ?? null,
+      avatarEmoji: source.avatarEmoji ?? null,
+      systemPrompt: source.systemPrompt,
+      model: source.model,
+      mode: source.mode,
+      runtimeKind: source.runtimeKind,
+      toolPolicy: source.toolPolicy,
+      connectionIds: source.connectionIds,
+      onContextOverflow: source.onContextOverflow,
+      areaMap: source.areaMap ?? null,
+      defaultCodebase: source.defaultCodebase ?? null,
+    })
+    .returning();
+  const duplicate = toAgent(row);
+
+  const pinnedSkills = await db.select().from(agentSkills).where(eq(agentSkills.agentId, agentId));
+  if (pinnedSkills.length > 0) {
+    await db.insert(agentSkills).values(
+      pinnedSkills.map((skill) => ({
+        agentId: duplicate.id,
+        skillId: skill.skillId,
+        skillVersionId: skill.skillVersionId,
+      })),
+    );
+  }
+
+  return duplicate;
 }

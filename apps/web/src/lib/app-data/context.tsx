@@ -85,6 +85,9 @@ interface AppDataContextValue extends AppDataState {
     },
   ) => Promise<void>;
   deleteAgent: (agentId: number) => Promise<void>;
+  /** Clones an agent (prompt, model, tool policy, connections, default codebase, pinned skills)
+   *  into another team, prefixed "Copy of ". Returns the new agent. */
+  duplicateAgent: (agentId: number, teamId: number) => Promise<Agent>;
   createSession: (agentId: number, title: string) => Promise<Session>;
   sendMessage: (sessionId: number, text: string) => Promise<{ runId: number }>;
   createTask: (input: NewTaskInput) => Promise<Task>;
@@ -248,6 +251,16 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     await apiFetch<void>(`/api/agents/${agentId}`, { method: "DELETE" });
     setState((s) => ({ ...s, agents: s.agents.filter((a) => a.id !== agentId) }));
     showToast("toast.agentDeleted");
+  }, [showToast]);
+
+  const duplicateAgent = useCallback(async (agentId: number, teamId: number) => {
+    const agent = await apiFetch<Agent>(`/api/agents/${agentId}/duplicate`, {
+      method: "POST",
+      body: JSON.stringify({ teamId }),
+    });
+    setState((s) => ({ ...s, agents: [...s.agents, agent] }));
+    showToast("toast.agentDuplicated");
+    return agent;
   }, [showToast]);
 
   const createSession = useCallback(async (agentId: number, title: string) => {
@@ -439,6 +452,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     createAgent,
     updateAgent,
     deleteAgent,
+    duplicateAgent,
     createSession,
     sendMessage,
     createTask,
