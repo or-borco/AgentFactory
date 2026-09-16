@@ -124,6 +124,7 @@ vi.mock("../context-retrieval", () => ({
   buildRetrievalQuery: vi.fn(() => ""),
   retrieveContext: vi.fn(async () => ({ text: "", retrievals: [] })),
 }));
+vi.mock("../context-ingest-wait", () => ({ waitForPendingContextIngest: vi.fn(async () => undefined) }));
 vi.mock("../task-documents", () => ({ materialiseTaskDocuments: vi.fn(async () => ({ written: [], omitted: [] })) }));
 vi.mock("../skills-materialize", () => ({ materialiseSkills: vi.fn(async () => []) }));
 vi.mock("../eval-runner", () => ({ processEvalJob: vi.fn() }));

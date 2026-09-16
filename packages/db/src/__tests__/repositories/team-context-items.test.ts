@@ -2,16 +2,18 @@ import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { db } from "../../client.js";
-import { teams } from "../../schema.js";
+import { teams, teamContextItems } from "../../schema.js";
 import { insertContentBlob } from "../../repositories/content-blobs.js";
 import { insertTeamContextChunks } from "../../repositories/context-chunks.js";
 import {
   countIndexedTeamContextItems,
+  countPendingTeamContextItems,
   createTeamContextItem,
   deleteTeamContextItemForOrg,
   getTeamContextItem,
   listTeamContextItemsForOrg,
   markTeamContextItemIndexed,
+  markTeamContextItemIndexing,
 } from "../../repositories/team-context-items.js";
 import { insertOrg, insertTeam, insertUser } from "../fixtures.js";
 
@@ -210,5 +212,93 @@ describe("team-context-items repository", () => {
     await markTeamContextItemIndexed(item!.id);
 
     await expect(countIndexedTeamContextItems(team.id)).resolves.toBe(0);
+  });
+});
+
+describe("countPendingTeamContextItems", () => {
+  it("counts a freshly created pending item within the window", async () => {
+    const { org, team } = await setupTeamWithBlob();
+    await createTeamContextItem({
+      teamId: team.id,
+      orgId: org.id,
+      title: "Engineering handbook",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+    });
+
+    const since = new Date(Date.now() - 5 * 60_000);
+    await expect(countPendingTeamContextItems(team.id, since)).resolves.toBe(1);
+  });
+
+  it("counts an indexing item within the window", async () => {
+    const { org, team } = await setupTeamWithBlob();
+    const item = await createTeamContextItem({
+      teamId: team.id,
+      orgId: org.id,
+      title: "Engineering handbook",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+    });
+    if (!item) throw new Error("fixture item was not created");
+    await markTeamContextItemIndexing(item.id);
+
+    const since = new Date(Date.now() - 5 * 60_000);
+    await expect(countPendingTeamContextItems(team.id, since)).resolves.toBe(1);
+  });
+
+  it("excludes an indexed item", async () => {
+    const { org, team } = await setupTeamWithBlob();
+    const item = await createTeamContextItem({
+      teamId: team.id,
+      orgId: org.id,
+      title: "Engineering handbook",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+    });
+    if (!item) throw new Error("fixture item was not created");
+    await markTeamContextItemIndexed(item.id);
+
+    const since = new Date(Date.now() - 5 * 60_000);
+    await expect(countPendingTeamContextItems(team.id, since)).resolves.toBe(0);
+  });
+
+  it("excludes a pending item outside the recency window", async () => {
+    const { org, team } = await setupTeamWithBlob();
+    const item = await createTeamContextItem({
+      teamId: team.id,
+      orgId: org.id,
+      title: "Engineering handbook",
+      sizeBytes: 42,
+      sha256: SHA_A,
+      mime: "text/markdown",
+    });
+    if (!item) throw new Error("fixture item was not created");
+    await db
+      .update(teamContextItems)
+      .set({ createdAt: new Date(Date.now() - 10 * 60_000) })
+      .where(eq(teamContextItems.id, item.id));
+
+    const since = new Date(Date.now() - 5 * 60_000);
+    await expect(countPendingTeamContextItems(team.id, since)).resolves.toBe(0);
+  });
+
+  it("does not count another team's pending item", async () => {
+    const { org, team } = await setupTeamWithBlob();
+    const otherTeam = await insertTeam(org.id);
+    await insertContentBlob(org.id, SHA_B, 42, "text/markdown");
+    await createTeamContextItem({
+      teamId: otherTeam.id,
+      orgId: org.id,
+      title: "Other handbook",
+      sizeBytes: 42,
+      sha256: SHA_B,
+      mime: "text/markdown",
+    });
+
+    const since = new Date(Date.now() - 5 * 60_000);
+    await expect(countPendingTeamContextItems(team.id, since)).resolves.toBe(0);
   });
 });
