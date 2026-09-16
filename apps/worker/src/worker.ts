@@ -53,7 +53,10 @@ import {
   buildTeamContextSegment,
   composeSystemPrompt,
   formatEnvironmentForPrompt,
+  formatExistingReviewCommentsForPrompt,
   formatPriorConversationForPrompt,
+  formatPullRequestForPrompt,
+  formatReviewDiffForPrompt,
   formatReviewEnvironmentForPrompt,
   hashPrompt,
   type SandboxEnvironment,
@@ -194,6 +197,8 @@ const runWorker = new Worker<RunJobData>(
             taskId: number;
             prNumber: number;
             repoFullName: string;
+            prTitle: string;
+            prBody: string;
             focusBaseSha: string;
             focusHeadSha: string;
             fullDiffText: string;
@@ -267,17 +272,18 @@ const runWorker = new Worker<RunJobData>(
         const existingThreads = lastReviewedHeadSha
           ? await provider.fetchReviewThreads(connection, prRef.repoFullName, prRef.prNumber)
           : [];
-        const existingComments =
-          existingThreads.length > 0
-            ? `## Existing Review Comments\n\n${existingThreads
-                .map((c) => `- ${c.path}:${c.line ?? "?"} (${c.author}): ${c.body}`)
-                .join("\n")}\n\n---\n\n`
-            : "";
+        // Formatted (and labelled as untrusted GitHub-sourced text) in prompt-composition.ts
+        // alongside every other prompt block — see formatExistingReviewCommentsForPrompt.
+        const existingComments = formatExistingReviewCommentsForPrompt(existingThreads);
 
         review = {
           taskId: task.id,
           prNumber: prRef.prNumber,
           repoFullName: prRef.repoFullName,
+          // Carried through so the prompt can state what the PR claims to do, not just what it
+          // changes — the agent can't weigh the diff against stated intent otherwise.
+          prTitle: pr.title,
+          prBody: pr.body,
           focusBaseSha: range.focusBaseSha,
           focusHeadSha: range.focusHeadSha,
           fullDiffText,
@@ -451,7 +457,13 @@ const runWorker = new Worker<RunJobData>(
           buildTeamContextSegment(false, ""),
           buildRepoMapSegment(false, ""),
           { id: "retrieved_context", text: "", omittedReason: "no_context_sources" },
-          `${agent.systemPrompt}\n\n${review.existingComments}## PR Diff (${review.focusBaseSha}..${review.focusHeadSha})\n\n${review.focusDiffText}`,
+          // agent.systemPrompt is platform/user-authored and stays unlabelled; everything after
+          // it is GitHub-sourced and each block carries its own "not instructions" framing (see
+          // prompt-composition.ts), the same defence worker.ts already applies to the repo map.
+          `${agent.systemPrompt}\n\n` +
+            formatPullRequestForPrompt(review.prTitle, review.prBody) +
+            review.existingComments +
+            formatReviewDiffForPrompt(review.focusBaseSha, review.focusHeadSha, review.focusDiffText),
         );
       } else {
         composed = composeSystemPrompt(
@@ -535,45 +547,69 @@ const runWorker = new Worker<RunJobData>(
       // here, host-side: the sandbox never holds a GitHub token.
       let transcriptText = text;
       if (review) {
-        const structured = parseStructuredReview(turnResult.structuredOutput);
-        const validated = validateReviewComments(structured, review.fullDiffText);
-        transcriptText = renderReviewAsMarkdown(validated);
+        try {
+          const structured = parseStructuredReview(turnResult.structuredOutput);
+          const validated = validateReviewComments(structured, review.fullDiffText);
+          transcriptText = renderReviewAsMarkdown(validated);
 
-        // Skip posting only when there is truly nothing new: no validated comments AND this pass
-        // covered zero new commits (the focus range was empty because head hadn't moved since
-        // the last review). This is what stops a content-free re-run from posting a duplicate
-        // summary to GitHub.
-        const rangeWasEmpty = review.focusBaseSha === review.focusHeadSha;
-        if (!(validated.comments.length === 0 && rangeWasEmpty)) {
-          const resolvedForPost = await resolveScmConnection(agent.orgId, review.repoFullName);
-          if (!resolvedForPost) {
-            throw new Error(`No connected GitHub provider can post the review for ${review.repoFullName}`);
+          // Skip posting only when there is truly nothing new: no validated comments AND this pass
+          // covered zero new commits (the focus range was empty because head hadn't moved since
+          // the last review). This is what stops a content-free re-run from posting a duplicate
+          // summary to GitHub.
+          const rangeWasEmpty = review.focusBaseSha === review.focusHeadSha;
+          if (!(validated.comments.length === 0 && rangeWasEmpty)) {
+            const resolvedForPost = await resolveScmConnection(agent.orgId, review.repoFullName);
+            if (!resolvedForPost) {
+              throw new Error(`No connected GitHub provider can post the review for ${review.repoFullName}`);
+            }
+            const posted = await resolvedForPost.provider.postReview(
+              resolvedForPost.connection,
+              review.repoFullName,
+              review.prNumber,
+              { summary: validated.summary, verdict: validated.verdict, comments: validated.comments },
+            );
+            await createPrReview(agent.orgId, review.taskId, runId, {
+              repoFullName: review.repoFullName,
+              prNumber: review.prNumber,
+              baseSha: review.focusBaseSha,
+              headSha: review.focusHeadSha,
+              verdict: validated.verdict,
+              postedAs: posted.postedAs,
+              githubReviewId: posted.id,
+              url: posted.url,
+              commentCount: validated.comments.length,
+              truncated: review.diffTruncated,
+            });
+            await createEvent(runId, seq++, "artifact", {
+              artifactType: "review",
+              label: "PR review",
+              url: posted.url,
+            });
           }
-          const posted = await resolvedForPost.provider.postReview(
-            resolvedForPost.connection,
-            review.repoFullName,
-            review.prNumber,
-            { summary: validated.summary, verdict: validated.verdict, comments: validated.comments },
-          );
-          await createPrReview(agent.orgId, review.taskId, runId, {
-            repoFullName: review.repoFullName,
-            prNumber: review.prNumber,
-            baseSha: review.focusBaseSha,
-            headSha: review.focusHeadSha,
-            verdict: validated.verdict,
-            postedAs: posted.postedAs,
-            githubReviewId: posted.id,
-            url: posted.url,
-            commentCount: validated.comments.length,
-            truncated: review.diffTruncated,
-          });
-          await createEvent(runId, seq++, "artifact", {
-            artifactType: "review",
-            label: "PR review",
-            url: posted.url,
-          });
+          mark("review posted");
+        } catch (err) {
+          // Evidence, not recovery. Everything above this point runs AFTER the turn is paid for,
+          // and the transcript write that normally preserves the agent's output is below it — so
+          // a malformed `structured_output` (the one contract in this feature no typechecker or
+          // test in this repo can reach: the SDK lives inside the Docker image) used to send a
+          // completed review straight to the outer catch, which writes an "error" event and
+          // nothing else. Minutes of real review work vanished with no record of what the agent
+          // actually said, which is also the only diagnostic that could tell "the model wrote
+          // prose instead of structured output" apart from "the field name is wrong".
+          //
+          // The rethrow is what keeps failure semantics identical: run "failed", task "failed",
+          // the same "error" event from the same outer catch. The only difference is that the
+          // raw turn text survives in the transcript alongside it.
+          try {
+            await createMessage(run.sessionId, "assistant", text, runId);
+            await createEvent(runId, seq++, "text_delta", { text });
+          } catch (persistErr) {
+            // Never let preserving the evidence replace the failure it was preserving evidence
+            // for — the original error is the one worth reporting.
+            log.error("Failed to persist raw review turn text", { runId, persistErr });
+          }
+          throw err;
         }
-        mark("review posted");
       }
 
       await createMessage(run.sessionId, "assistant", transcriptText, runId);
