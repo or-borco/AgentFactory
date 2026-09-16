@@ -5,12 +5,12 @@ import { useEffect, useRef, useState } from "react";
 import { Truncate } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { ArrowLeftIcon, BotIcon, SendIcon } from "@/lib/icons";
-import { useMockBackend } from "@/lib/mock/context";
+import { useAppData } from "@/lib/app-data/context";
 
 export default function SessionPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const router = useRouter();
-  const { getSession, getAgent, messagesForSession, loadMessages, sendMessage } = useMockBackend();
+  const { getSession, getAgent, messagesForSession, loadMessages, sendMessage } = useAppData();
   const { t } = useTranslation();
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);

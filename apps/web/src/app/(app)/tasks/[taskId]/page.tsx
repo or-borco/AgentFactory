@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Badge, Button } from "@agentfactory/shared";
-import { useMockBackend } from "@/lib/mock/context";
+import { useAppData } from "@/lib/app-data/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { StatusMenu } from "@/components/StatusMenu";
 import { AssigneeSelect } from "@/components/AssigneeSelect";
@@ -57,7 +57,7 @@ export default function TaskDetailPage() {
     refreshTask,
     deleteTask,
     notify,
-  } = useMockBackend();
+  } = useAppData();
   const { t } = useTranslation();
 
   const [starting, setStarting] = useState(false);

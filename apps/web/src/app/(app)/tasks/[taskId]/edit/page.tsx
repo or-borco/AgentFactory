@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button, Breadcrumb, GroupedSelect, PageHeader, TextInput, Textarea } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
-import { useMockBackend } from "@/lib/mock/context";
+import { useAppData } from "@/lib/app-data/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { useRepoMapWaitGate } from "@/lib/use-repo-map-wait-gate";
 import { RepoMapWaitBanner } from "@/components/RepoMapWaitBanner";
@@ -14,7 +14,7 @@ import type { RepoOption } from "@agentfactory/scm";
 export default function EditTaskPage() {
   const { taskId } = useParams<{ taskId: string }>();
   const router = useRouter();
-  const { getTask, updateTask } = useMockBackend();
+  const { getTask, updateTask } = useAppData();
   const { t } = useTranslation();
 
   const task = getTask(Number(taskId));

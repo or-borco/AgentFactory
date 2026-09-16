@@ -7,12 +7,12 @@ import { AgentSkillsSection } from "@/components/AgentSkillsSection";
 import { Badge, Breadcrumb, Button, Card, CardLink, Truncate } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { ArrowLeftIcon, ChatIcon, PlusIcon, SettingsIcon } from "@/lib/icons";
-import { useMockBackend } from "@/lib/mock/context";
+import { useAppData } from "@/lib/app-data/context";
 import { relativeTime } from "@/lib/relative-time";
 
 export default function AgentDetailPage() {
   const { agentId } = useParams<{ agentId: string }>();
-  const { getAgent, sessionsForAgent, updateAgent, createSession } = useMockBackend();
+  const { getAgent, sessionsForAgent, updateAgent, createSession } = useAppData();
   const { t } = useTranslation();
   const [showEdit, setShowEdit] = useState(false);
   const router = useRouter();

@@ -61,11 +61,11 @@ access — no budget/cost enforcement, and no `resolveCredentials` (the platform
 `process.env` in `apps/worker/src/agent-runtime.ts`). Don't assume a `PolicyEngine`, budget caps, or credential
 resolution exist anywhere in the code just because `agents.toolPolicy` is a schema column — see ARCHITECTURE.md §6.
 
-**A naming trap to know about:** `apps/web/src/lib/mock/context.tsx` still exports `MockBackendProvider` and
-`useMockBackend()` — these names are legacy from the original UI-mock phase. They now fetch from the real API
-routes below, not an in-memory store; `apps/web/src/server/mock-store.ts` no longer exists in the codebase. Data
-flow today: `packages/db` → `apps/web/src/app/api/**/route.ts` Route Handler → `apiFetch<T>()`
-(`apps/web/src/lib/api-client.ts`) → `MockBackendProvider` → `useMockBackend()` hook → component.
+**Client data access:** `apps/web/src/lib/app-data/context.tsx` exports `AppDataProvider` and `useAppData()` —
+renamed from `MockBackendProvider`/`useMockBackend()` now that the original UI-mock phase is fully gone (there's no
+`mock-store.ts` left; `apps/web/src/server/mock-store.ts` no longer exists in the codebase). Data flow today:
+`packages/db` → `apps/web/src/app/api/**/route.ts` Route Handler → `apiFetch<T>()`
+(`apps/web/src/lib/api-client.ts`) → `AppDataProvider` → `useAppData()` hook → component.
 
 ## Routing
 

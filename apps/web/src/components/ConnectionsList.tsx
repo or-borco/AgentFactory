@@ -7,7 +7,7 @@ import { Modal } from "@/components/Modal";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
 import { AlertIcon, LinkIcon, TrashIcon } from "@/lib/icons";
-import { useMockBackend } from "@/lib/mock/context";
+import { useAppData } from "@/lib/app-data/context";
 import type { TranslationKey } from "@/lib/i18n/paths";
 import type { Connection, ConnectionHealth, ConnectionKind } from "@agentfactory/core";
 
@@ -232,11 +232,11 @@ function ConnectionRow({
 // The interactive body of the Connections surface — extracted so it can be embedded inside
 // /settings (see apps/web/src/app/(app)/settings/page.tsx) rather than living on its own route.
 export function ConnectionsList() {
-  const { connections: backendConnections, deleteConnection, addConnection } = useMockBackend();
+  const { connections: backendConnections, deleteConnection, addConnection } = useAppData();
   const { t } = useTranslation();
   const [pendingDelete, setPendingDelete] = useState<Connection | null>(null);
   const [activeModal, setActiveModal] = useState<"jira" | null>(null);
-  // useMockBackend() has no updateConnection — the PATCH write-back toggle applies its result
+  // useAppData() has no updateConnection — the PATCH write-back toggle applies its result
   // over the fetched list locally rather than reaching into the shared client cache.
   const [configOverrides, setConfigOverrides] = useState<Record<number, Connection>>({});
   const connections = backendConnections.map((c) => configOverrides[c.id] ?? c);

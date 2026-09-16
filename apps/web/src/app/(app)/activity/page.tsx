@@ -3,12 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { PageHeader } from "@agentfactory/shared";
-import { useMockBackend } from "@/lib/mock/context";
+import { useAppData } from "@/lib/app-data/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { StatusPill } from "@/components/StatusPill";
 
 export default function ActivityPage() {
-  const { tasks, agents } = useMockBackend();
+  const { tasks, agents } = useAppData();
   const { t } = useTranslation();
 
   // ── Derived stats ───────────────────────────────────────────────────────────

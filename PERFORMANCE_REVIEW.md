@@ -95,7 +95,7 @@ for SSE/WebSocket run streaming (already implied by ARCHITECTURE.md's event log)
 
 ## 8. Web: context re-renders the whole app
 
-`MockBackendProvider` rebuilds its `value` object on every render (no `useMemo`), so any state
+`AppDataProvider` rebuilds its `value` object on every render (no `useMemo`), so any state
 change re-renders every consumer. The fake word-by-word reveal in `sendMessage` calls `setState`
 every 45ms per word, and the task page ticks a 1s `setInterval` clock — each tick re-rendering
 the full tree under the provider.

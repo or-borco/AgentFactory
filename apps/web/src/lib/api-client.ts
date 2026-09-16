@@ -1,6 +1,6 @@
 // Every client-side data call goes through here. Paths are same-origin now (Next.js Route
 // Handlers), so there's no base URL to configure — but this is the one place that would
-// change if the mock API were ever replaced by the real apps/worker service from
+// change if these Route Handlers were ever replaced by the real apps/worker service from
 // ARCHITECTURE.md, instead of every call site.
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   // A FormData body has to reach the server with the browser's own multipart content-type,
