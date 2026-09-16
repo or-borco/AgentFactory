@@ -1,10 +1,9 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { OutputChunk, SandboxProvider } from "../sandbox/types";
 
-// skills-materialize reaches for the db package (whose client throws at import without
-// DATABASE_URL) and the storage package (whose createBlobStore reads env). The unit project has
-// neither, and .husky/pre-push runs it, so both are mocked at import — same pattern as
-// task-documents.test.ts.
+// skills-materialize reaches for the db package, whose client throws at import without
+// DATABASE_URL — the unit project has neither, and .husky/pre-push runs it, so it's mocked at
+// import, same pattern as task-documents.test.ts.
 const listAgentSkillsMock = vi.fn();
 const getSkillVersionMock = vi.fn();
 const getSkillVersionMarkdownMock = vi.fn();
@@ -12,11 +11,6 @@ vi.mock("@agentfactory/db", () => ({
   listAgentSkills: (...args: unknown[]) => listAgentSkillsMock(...args),
   getSkillVersion: (...args: unknown[]) => getSkillVersionMock(...args),
   getSkillVersionMarkdown: (...args: unknown[]) => getSkillVersionMarkdownMock(...args),
-}));
-
-const createBlobStoreMock = vi.fn();
-vi.mock("@agentfactory/storage", () => ({
-  createBlobStore: () => createBlobStoreMock(),
 }));
 
 const { materialiseSkills, SKILL_DIR } = await import("../skills-materialize");
@@ -41,16 +35,20 @@ function fakeSandboxProvider() {
   };
 }
 
+const SKILL_VERSION = { id: 10, skillId: 1, version: 1, name: "foo", description: "d", bodySha256: "shaA", createdAt: "" };
+
 describe("materialiseSkills", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("writes each pinned skill's SKILL.md and returns its slug", async () => {
     const sandboxProvider = fakeSandboxProvider();
+    listAgentSkillsMock.mockResolvedValue([{ skillId: 1, skillVersionId: 10, skillSlug: "foo" }]);
+    getSkillVersionMock.mockResolvedValue(SKILL_VERSION);
+    getSkillVersionMarkdownMock.mockResolvedValue("---\nname: foo\ndescription: d\n---\n\nBody");
 
-    const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1, {
-      listAgentSkills: async () => [{ skillId: 1, skillVersionId: 10, skillSlug: "foo" }],
-      getSkillVersion: async () =>
-        ({ id: 10, skillId: 1, version: 1, name: "foo", description: "d", bodySha256: "shaA", createdAt: "" }) as never,
-      getSkillVersionMarkdown: async () => "---\nname: foo\ndescription: d\n---\n\nBody",
-    });
+    const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1);
 
     expect(written).toEqual(["foo"]);
     expect(sandboxProvider._writes[`${SKILL_DIR}/foo/SKILL.md`]).toContain("Body");
@@ -59,10 +57,9 @@ describe("materialiseSkills", () => {
 
   it("returns [] when the agent has no pinned skills", async () => {
     const sandboxProvider = fakeSandboxProvider();
+    listAgentSkillsMock.mockResolvedValue([]);
 
-    const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1, {
-      listAgentSkills: async () => [],
-    });
+    const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1);
 
     expect(written).toEqual([]);
     expect(sandboxProvider.writeFiles).not.toHaveBeenCalled();
@@ -70,13 +67,11 @@ describe("materialiseSkills", () => {
 
   it("skips a pin whose blob is missing, without failing", async () => {
     const sandboxProvider = fakeSandboxProvider();
+    listAgentSkillsMock.mockResolvedValue([{ skillId: 1, skillVersionId: 10, skillSlug: "foo" }]);
+    getSkillVersionMock.mockResolvedValue({ ...SKILL_VERSION, bodySha256: "missing" } as never);
+    getSkillVersionMarkdownMock.mockResolvedValue(undefined);
 
-    const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1, {
-      listAgentSkills: async () => [{ skillId: 1, skillVersionId: 10, skillSlug: "foo" }],
-      getSkillVersion: async () =>
-        ({ id: 10, skillId: 1, version: 1, name: "foo", description: "d", bodySha256: "missing", createdAt: "" }) as never,
-      getSkillVersionMarkdown: async () => undefined,
-    });
+    const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1);
 
     expect(written).toEqual([]);
     expect(sandboxProvider.writeFiles).not.toHaveBeenCalled();
@@ -84,12 +79,9 @@ describe("materialiseSkills", () => {
 
   it("returns [] and logs rather than throwing when listAgentSkills rejects", async () => {
     const sandboxProvider = fakeSandboxProvider();
+    listAgentSkillsMock.mockRejectedValue(new Error("db down"));
 
-    const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1, {
-      listAgentSkills: async () => {
-        throw new Error("db down");
-      },
-    });
+    const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1);
 
     expect(written).toEqual([]);
     expect(sandboxProvider.writeFiles).not.toHaveBeenCalled();
@@ -97,13 +89,12 @@ describe("materialiseSkills", () => {
 
   it("writes into a custom skillDir when provided", async () => {
     const sandboxProvider = fakeSandboxProvider();
+    listAgentSkillsMock.mockResolvedValue([{ skillId: 1, skillVersionId: 10, skillSlug: "foo" }]);
+    getSkillVersionMock.mockResolvedValue(SKILL_VERSION);
+    getSkillVersionMarkdownMock.mockResolvedValue("---\nname: foo\ndescription: d\n---\n\nBody");
 
     const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1, {
       skillDir: ".agents/skills",
-      listAgentSkills: async () => [{ skillId: 1, skillVersionId: 10, skillSlug: "foo" }],
-      getSkillVersion: async () =>
-        ({ id: 10, skillId: 1, version: 1, name: "foo", description: "d", bodySha256: "shaA", createdAt: "" }) as never,
-      getSkillVersionMarkdown: async () => "---\nname: foo\ndescription: d\n---\n\nBody",
     });
 
     expect(written).toEqual(["foo"]);
@@ -111,15 +102,14 @@ describe("materialiseSkills", () => {
     expect(sandboxProvider._commands).toContainEqual(["mkdir", "-p", "/workspace/.agents/skills/foo"]);
   });
 
-  it("falls back to the default skillDir when overrides explicitly includes skillDir: undefined", async () => {
+  it("falls back to the default skillDir when opts explicitly includes skillDir: undefined", async () => {
     const sandboxProvider = fakeSandboxProvider();
+    listAgentSkillsMock.mockResolvedValue([{ skillId: 1, skillVersionId: 10, skillSlug: "foo" }]);
+    getSkillVersionMock.mockResolvedValue(SKILL_VERSION);
+    getSkillVersionMarkdownMock.mockResolvedValue("---\nname: foo\ndescription: d\n---\n\nBody");
 
     const written = await materialiseSkills(sandboxProvider as unknown as SandboxProvider, "sandbox-1", 42, 1, {
       skillDir: undefined,
-      listAgentSkills: async () => [{ skillId: 1, skillVersionId: 10, skillSlug: "foo" }],
-      getSkillVersion: async () =>
-        ({ id: 10, skillId: 1, version: 1, name: "foo", description: "d", bodySha256: "shaA", createdAt: "" }) as never,
-      getSkillVersionMarkdown: async () => "---\nname: foo\ndescription: d\n---\n\nBody",
     });
 
     expect(written).toEqual(["foo"]);
