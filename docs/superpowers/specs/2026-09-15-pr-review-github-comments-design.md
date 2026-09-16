@@ -11,10 +11,12 @@ It never reaches GitHub, so nobody sees it where PR review actually happens.
 
 ## Goal
 
-When a task whose description contains a GitHub PR link is run by any agent, the run behaves as
-a *review*: it reads the PR in a sandbox, produces a structured review, and the worker posts it
-to GitHub as a real review with inline comments anchored to files/lines — then marks the task
-done with a link to the posted review.
+When a task whose description contains a GitHub PR link is run by an agent with `role:
+"reviewer"`, the run behaves as a *review*: it reads the PR in a sandbox, produces a structured
+review, and the worker posts it to GitHub as a real review with inline comments anchored to
+files/lines — then marks the task done with a link to the posted review. A task with a PR link
+run by an agent without the reviewer role runs as an ordinary task; the PR link is inert text to
+it.
 
 ## Decisions
 
@@ -62,9 +64,12 @@ a Reviews dashboard, reviewing PRs on repos without a connected GitHub App.
 ## Data model
 
 No new field on `Task`. `parsePullRequestReference(description)` (new sibling to
-`parseIssueReference` — see `packages/scm` additions below) is what tells the worker a run is a
-review, computed fresh each run; nothing about "this task is a review" is persisted ahead of
-time. The only new persistence is the record of reviews actually posted:
+`parseIssueReference` — see `packages/scm` additions below) tells the worker *which* PR a review
+run is about, computed fresh each run; nothing about "this task is a review" is persisted ahead of
+time. *Whether* a run is a review at all additionally requires the run's agent to have `role:
+"reviewer"` (`Agent.role`, a new required field, default `"developer"` for every pre-existing
+agent — see "What this does not change" below). The only new persistence beyond that field is the
+record of reviews actually posted:
 
 ### `pr_reviews` (new table)
 
@@ -132,9 +137,9 @@ fallback (see below) — callers don't detect it themselves.
 
 ## The review run, step by step
 
-Applies when `parsePullRequestReference(task.description)` returns a match. Branches off the
-existing worker pipeline at the point where it resolves the workspace, and rejoins at prompt
-composition.
+Applies when the run's agent has `role: "reviewer"` AND `parsePullRequestReference
+(task.description)` returns a match. Branches off the existing worker pipeline at the point where
+it resolves the workspace, and rejoins at prompt composition.
 
 1. **Resolve the PR.** `fetchPullRequest`. If `state !== "open"`, fail the run immediately with
    "PR #N is already merged/closed" — never review dead code. If the org's GitHub connection
@@ -235,6 +240,8 @@ A new "Review" block, populated from the latest `pr_reviews` row for the task:
 ## What this does not change
 
 - No `triggers` table, no webhook receiver, no policy engine, no `ToolPolicy` enforcement.
-- No new agent field, no new task-kind/type column, no new field on `Task` at all.
+- No new task-kind/type column, no new field on `Task` at all. (There is one new field, `Agent
+  .role`, required for detection — see "Data model" above; every pre-existing agent defaults to
+  `"developer"`, so no existing agent starts running review runs on its own.)
 - `Session`/`Run` shapes are unchanged; a review run is an ordinary run whose task's description
-  happens to parse as a PR link.
+  happens to parse as a PR link, run by an agent with `role: "reviewer"`.
