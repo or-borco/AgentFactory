@@ -16,14 +16,32 @@ See `ARCHITECTURE.md` for the full system design and `CLAUDE.md` for repo-specif
 
 ## 1. Set up your local environment
 
+macOS/Linux:
+
 ```bash
 ./scripts/setup-env.sh
 ```
 
+Windows (PowerShell):
+
+```powershell
+.\scripts\setup-env.ps1
+```
+
+If PowerShell refuses to run it ("running scripts is disabled on this system"), that's the
+default execution policy blocking unsigned local scripts — either run it once with
+`powershell -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1`, or allow local scripts for
+your user going forward with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
 Run the script directly (not via `pnpm setup:env`) — it's what installs pnpm itself if it's
 missing, so a pnpm-based entry point would be chicken-and-egg. It installs any of the
-[prerequisites](#prerequisites) above that aren't already on your machine (Node.js, pnpm, Docker),
-then sets up the repo's env files.
+[prerequisites](#prerequisites) above that aren't already on your machine (Node.js, pnpm, Docker —
+via Homebrew/apt on macOS/Linux, via [winget](https://learn.microsoft.com/windows/package-manager/winget/)
+on Windows), then sets up the repo's env files. On Windows, linking `apps/web/.env.local` and
+`apps/worker/.env.local` to the root file needs a real symlink, which needs
+[Developer Mode](https://learn.microsoft.com/windows/apps/get-started/developer-mode-features-and-debugging)
+enabled or an elevated shell — without either, the script falls back to copying the file instead,
+and you'll need to re-run it after editing the root `.env.local` to keep the copies in sync.
 
 `apps/web` and `apps/worker` share almost every env var (`DATABASE_URL`, `BLOB_DIR`,
 `CONNECTION_SECRET_KEY`, the GitHub App credentials — a document the web app writes has to resolve
@@ -31,9 +49,9 @@ to the same place the worker reads it from, a token the web app encrypts has to 
 way in both processes, and so on), so there's a single `.env.local` at the repo root rather than
 one per app. The script copies `.env.example` to `.env.local` if you don't have one yet, generates
 `CONNECTION_SECRET_KEY` for you (a random key, not something you obtain from anywhere — no reason
-to make you run `openssl` by hand), and symlinks `apps/web/.env.local` and
-`apps/worker/.env.local` to the root file, so both processes keep finding a config file exactly
-where they already expect one, with nothing to duplicate or keep in sync. Safe to re-run.
+to make you run `openssl` by hand), and points `apps/web/.env.local` and `apps/worker/.env.local`
+at the root file, so both processes keep finding a config file exactly where they already expect
+one, with nothing to duplicate or keep in sync. Safe to re-run.
 
 Everything else in the generated file already has a working default (`DATABASE_URL`/`REDIS_URL`
 match the `docker-compose.yml` services above, `BLOB_STORE=fs`/`BLOB_DIR=.blobs` needs no
