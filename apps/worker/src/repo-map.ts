@@ -19,7 +19,7 @@ const MAX_CONTENT_LENGTH = 16384;
 //
 // The actual fix — an explicit wait-or-proceed choice surfaced at the moment a codebase is set,
 // so the user decides instead of a guessed constant — is tracked in
-// docs/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md. Once that ships for both
+// AgentFactoryContext/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md. Once that ships for both
 // places a codebase can be set (task creation and the task edit page), this poll will be removed
 // in the same change, since there is no other path left for it to cover. Until then it stays as
 // a strictly-better-than-nothing chance of catching a warm that was already substantially
@@ -71,7 +71,7 @@ async function generateRepoMap(sandboxProvider: SandboxProvider, sandboxId: stri
 
 // Run-time path: called from the run pipeline right after clone, with a sandbox that already
 // has the target repo checked out. Cache key is the exact commit sha being worked on — see
-// docs/superpowers/specs/2026-08-23-repo-map-indexing-design.md's "Design decisions" for why
+// AgentFactoryContext/superpowers/specs/2026-08-23-repo-map-indexing-design.md's "Design decisions" for why
 // this (not repoFullName alone, not a merge-base) is the invalidation mechanism.
 //
 // Deliberately NON-BLOCKING on a cache miss. Generation is itself a full agent turn against a

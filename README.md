@@ -135,11 +135,12 @@ set `DOCKER_HOST` in `.env.local` — check `docker context ls` for the right so
 Neither of these is needed to run the app or click around the UI — only for the Connections
 feature itself. Each has its own setup doc:
 
-- **[GitHub](docs/setup/github-app.md)** — clone repos and open PRs. Uses a one-time admin route
-  that registers a GitHub App for you via its manifest flow; no manual form-filling.
-- **[Jira](docs/setup/jira.md)** — link tasks to Jira issues, with attachments pulled in and a PR
-  comment written back when a run opens one. Entirely self-service from the Connections UI, no
-  admin route needed — just a Jira Cloud API token.
+- **[GitHub](https://github.com/or-borco/AgentFactoryContext/blob/main/setup/github-app.md)** — clone repos and
+  open PRs. Uses a one-time admin route that registers a GitHub App for you via its manifest flow; no manual
+  form-filling.
+- **[Jira](https://github.com/or-borco/AgentFactoryContext/blob/main/setup/jira.md)** — link tasks to Jira issues,
+  with attachments pulled in and a PR comment written back when a run opens one. Entirely self-service from the
+  Connections UI, no admin route needed — just a Jira Cloud API token.
 
 ## Running tests
 

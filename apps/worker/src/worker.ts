@@ -151,7 +151,7 @@ const runWorker = new Worker<RunJobData>(
       // happens during this specific run, not one that already happened before it started (e.g.
       // an earlier run already recreated the sandbox and then failed before recording a new ref,
       // so every run since has been silently attempting to resume a ref from a sandbox that's
-      // long gone — see docs/superpowers/specs/2026-09-08-session-context-reconstruction-
+      // long gone — see AgentFactoryContext/superpowers/specs/2026-09-08-session-context-reconstruction-
       // design.md and its follow-up fix). When invalid, skip resume entirely and reconstruct
       // from message history instead of attempting (and failing) to resume a conversation that
       // no longer exists anywhere.

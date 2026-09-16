@@ -20,7 +20,7 @@ interface TaskStaleDialogProps {
 // One dialog, two callers: the Refresh action next to the linked-issue badge (Update task /
 // Dismiss) and the Run button's 409 task_stale catch (Update and run / Run anyway) — see
 // "Flow: refresh and the pre-run staleness check" in
-// docs/superpowers/specs/2026-09-12-jira-integration-design.md. Only the labels and the two
+// AgentFactoryContext/superpowers/specs/2026-09-12-jira-integration-design.md. Only the labels and the two
 // callbacks differ per caller; the diff view itself is identical either way.
 export function TaskStaleDialog({
   task,

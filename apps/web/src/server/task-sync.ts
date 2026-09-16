@@ -9,7 +9,7 @@ export type TaskSyncResult = { stale: false } | { stale: true; latest: ExternalI
 
 // A staleness check is a read, triggered by a user (Refresh, or the instant Run is clicked), and
 // it must never be why a run couldn't happen — see Design decision 12 in
-// docs/superpowers/specs/2026-09-12-jira-integration-design.md. Provider errors, a missing
+// AgentFactoryContext/superpowers/specs/2026-09-12-jira-integration-design.md. Provider errors, a missing
 // connection, a deleted issue, and an unset externalRef all resolve to "not stale"; only a
 // successful fetch that shows real drift returns `stale: true`. The whole body is wrapped so
 // this function itself can never throw — a Jira outage must read as "nothing to worry about,"

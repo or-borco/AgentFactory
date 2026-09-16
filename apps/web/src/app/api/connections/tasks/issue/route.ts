@@ -4,7 +4,7 @@ import { resolveTaskProvider } from "@/server/task-provider";
 
 // Named for the connection *kind*, not the provider — connections/tasks/issue, not
 // connections/jira/issue — even though createTaskProvider only resolves to a Jira adapter today.
-// See Design decision 14 in docs/superpowers/specs/2026-09-12-jira-integration-design.md: looking
+// See Design decision 14 in AgentFactoryContext/superpowers/specs/2026-09-12-jira-integration-design.md: looking
 // up an issue never touches provider-specific fields, only the generic
 // parseIssueReference/fetchIssue pair on the TaskProvider port, so this route (unlike the connect
 // flow) costs nothing to keep provider-neutral.

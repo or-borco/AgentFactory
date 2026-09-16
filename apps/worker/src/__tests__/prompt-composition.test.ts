@@ -28,7 +28,7 @@ const chatMessage = (id: number, role: "user" | "assistant", content: string): C
 describe("composeSystemPrompt", () => {
   // Human-authored instruction layers (team context, agent prompt) must come AFTER the
   // machine-generated bulk. Measured, not stylistic: see composeSystemPrompt's comment and
-  // docs/superpowers/experiments/2026-08-26-prompt-layer-ordering.md — the old arrangement, with
+  // AgentFactoryContext/superpowers/experiments/2026-08-26-prompt-layer-ordering.md — the old arrangement, with
   // the map between them, produced fully-compliant output 1/10 vs 10/10 for this one. Retrieved
   // excerpts are human-written prose but machine-SELECTED bulk, and more task-specific than the
   // repo map, so they sit after the map and before team context.

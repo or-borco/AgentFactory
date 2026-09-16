@@ -13,7 +13,7 @@ interface RepoMapWaitBannerProps {
 }
 
 // Perceived-progress only — the backend exposes no real per-stage signal (see
-// docs/superpowers/specs/2026-09-05-repo-map-wait-progress-design.md). These boundaries are a
+// AgentFactoryContext/superpowers/specs/2026-09-05-repo-map-wait-progress-design.md). These boundaries are a
 // rough approximation weighted toward the real proportions (provisioning+clone is quick,
 // generation dominates at 33-38s), not a claim of accurate telemetry.
 function progressLabelKey(elapsedSeconds: number): TranslationKey {
@@ -42,7 +42,7 @@ function useElapsedWhileWaiting(waiting: boolean): number {
   return elapsed;
 }
 
-// Renders the two states from docs/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md's
+// Renders the two states from AgentFactoryContext/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md's
 // approved mockups: the decision prompt, and the waiting screen with its escape hatch. Shared by
 // both the task-creation and task-edit forms.
 export function RepoMapWaitBanner({ gate }: RepoMapWaitBannerProps) {

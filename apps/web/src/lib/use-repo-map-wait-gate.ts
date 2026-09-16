@@ -31,7 +31,7 @@ function fetchStatus(codebase: string): Promise<MapStatusResponse> {
 }
 
 // Drives the wait-choice banner's state machine, shared by the task-creation and task-edit forms.
-// See docs/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md.
+// See AgentFactoryContext/superpowers/specs/2026-09-05-repo-map-wait-choice-design.md.
 //
 // The check runs when the user *attempts to submit* (`requestSubmit`, called by the form's own
 // submit handler after its own validation) — never automatically on selection, so a pre-selected

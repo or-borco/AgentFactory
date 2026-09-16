@@ -9,7 +9,7 @@ const log = createLogger("task-provider");
 // TaskProvider adapter for it. "First tasks connection" is safe to treat as *the* connection, not
 // merely an arbitrary one, because POST /api/connections/jira's 409 check makes a second one
 // unreachable — see Design decision 15 in
-// docs/superpowers/specs/2026-09-12-jira-integration-design.md.
+// AgentFactoryContext/superpowers/specs/2026-09-12-jira-integration-design.md.
 //
 // Returns undefined rather than throwing whenever the org has no usable connection: no tasks
 // connection at all, no credential stored against it, or a credential that fails to decrypt /

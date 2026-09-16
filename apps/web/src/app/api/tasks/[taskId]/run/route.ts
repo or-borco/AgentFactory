@@ -49,7 +49,7 @@ export async function POST(
 
   // A task with no linked issue, or a request that already acknowledged staleness, never calls
   // checkTaskSync at all — zero added latency for the common case. See Design decision 12
-  // (docs/superpowers/specs/2026-09-12-jira-integration-design.md): this is a UI-level
+  // (AgentFactoryContext/superpowers/specs/2026-09-12-jira-integration-design.md): this is a UI-level
   // confirmation before a run is enqueued, not an approval gate on a run already in flight.
   if (task.externalRef && body.acknowledgeStale !== true) {
     const sync = await checkTaskSync(ctx.orgId, task);

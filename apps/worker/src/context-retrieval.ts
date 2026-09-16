@@ -20,7 +20,7 @@ export const RETRIEVAL_K = 12;
 // omitted entirely rather than padded.
 //
 // Measured, not guessed (see or-borco/AgentFactory#135 and
-// docs/superpowers/experiments/2026-09-01-similarity-floor.md): across 16 real queries against
+// AgentFactoryContext/superpowers/experiments/2026-09-01-similarity-floor.md): across 16 real queries against
 // the real 7-document corpus, every off-topic or gibberish query's best-scoring chunk topped out
 // at 0.556, while every genuinely on-topic query's best-scoring chunk started at 0.642 or higher.
 // 0.6 sits in that gap.

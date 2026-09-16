@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 // AES-256-GCM helpers for connection_secrets.ciphertext — see Design decision 2 in
-// docs/superpowers/specs/2026-09-12-jira-integration-design.md. Envelope format is
+// AgentFactoryContext/superpowers/specs/2026-09-12-jira-integration-design.md. Envelope format is
 // base64(iv[12] || authTag[16] || ciphertext). This is defense against a database dump, not a
 // KMS: the key is a single app-level secret read from CONNECTION_SECRET_KEY.
 

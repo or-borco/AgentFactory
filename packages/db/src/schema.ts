@@ -282,7 +282,7 @@ export const runs = pgTable(
     // taken once per run (before vs. after that run's own ensureSandbox call) is not equivalent:
     // it only detects a recreation happening during that one run, not one that already happened
     // before it started and has since gone unnoticed across several failed runs in a row — see
-    // docs/superpowers/specs/2026-09-08-session-context-reconstruction-design.md and its
+    // AgentFactoryContext/superpowers/specs/2026-09-08-session-context-reconstruction-design.md and its
     // follow-up fix. Null for runs that predate this column, which correctly never matches any
     // real sandboxId and so is always treated as "resume unsafe" — exactly the right default.
     sandboxId: text("sandbox_id"),
@@ -713,7 +713,7 @@ export const events = pgTable(
 );
 
 // Auto-generated CLAUDE.md-style summary of a repo, cached per exact commit so it self-
-// invalidates the moment the code moves on — see docs/superpowers/specs/
+// invalidates the moment the code moves on — see AgentFactoryContext/superpowers/specs/
 // 2026-08-23-repo-map-indexing-design.md. Plain text, not S3/content-addressed, following
 // teams.sharedContext's reasoning (small, hot, read on every run) rather than the
 // skills-bundle pattern.
