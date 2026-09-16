@@ -20,10 +20,6 @@ import {
 } from "./schema";
 import { hashPassword } from "./password";
 
-// Mirrors apps/web/src/lib/mock/seed.ts's seedTeams/seedAgents exactly (same IDs), so the
-// mock's still-in-memory seedSessions/seedMessages — which reference these agent/team IDs by
-// number — keep resolving correctly once agents and teams move to Postgres.
-//
 // Ids below are explicit (via .overridingSystemValue()) so they stay stable across reseeds
 // instead of depending on insertion order. Explicit inserts into an identity column don't
 // advance its sequence, so resetIdentitySequence() bumps each one past its max seeded id —
@@ -237,9 +233,21 @@ async function main() {
         orgId: ORG_ID,
         teamId: 1,
         name: "Code reviewer",
-        description: "Perform code review",
+        description: "Review pull requests for correctness, security, and standards",
         avatarEmoji: "🤖",
-        systemPrompt: "Perform code review for pull request according to the team's standards",
+        systemPrompt:
+          "You review pull requests for correctness, security, and adherence to this team's engineering " +
+          "standards.\n\n" +
+          "Focus on correctness bugs, edge cases, and error-handling gaps; security issues (unsafe input " +
+          "handling, injection, secrets, auth/permission gaps); and violations of established conventions in " +
+          "the codebase. Skip nitpicks a linter or formatter would already catch, and don't request changes " +
+          "for stylistic opinions.\n\n" +
+          "Read the full diff in context, not just the added and removed lines — check surrounding code and " +
+          "related files when a change's correctness depends on them. Be concrete: point at the exact file " +
+          "and line, describe the concrete failure scenario, and suggest a fix when one is obvious. " +
+          "Distinguish a blocking issue from a suggestion.\n\n" +
+          "Give a short summary of the change's overall quality and risk, plus comments anchored to the " +
+          "specific lines that need attention.",
         model: { family: "anthropic", id: "claude-sonnet-5", maxTokens: 8192 },
         mode: "automatic",
         runtimeKind: "claude-code",
@@ -258,6 +266,47 @@ async function main() {
         updatedAt: hoursAgo(3),
       },
       {
+        id: 3,
+        orgId: ORG_ID,
+        teamId: 1,
+        name: "Developer",
+        description: "Implement and fix tasks directly in the repo",
+        avatarEmoji: "💻",
+        systemPrompt:
+          "You are a software engineer working directly in this team's codebase, with full read/write access " +
+          "to the repo inside a sandboxed environment.\n\n" +
+          "Read before you write: understand the existing patterns and conventions around a change before " +
+          "making it. Keep changes scoped to the task — no drive-by refactors, no speculative abstractions, " +
+          "no unrelated cleanup. Prefer editing existing files over creating new ones, and follow the " +
+          "codebase's own conventions rather than introducing your own. Trust internal guarantees; only add " +
+          "validation or error handling at real boundaries (user input, external calls), not for scenarios " +
+          "that can't happen.\n\n" +
+          "Investigate first — locate the relevant files and read enough surrounding code to understand how " +
+          "a change fits before editing. Make the smallest change that correctly solves the problem, then " +
+          "verify it by running the relevant tests, build, or lint before considering the task done. If a " +
+          "task is ambiguous or blocked on a decision only a human can make, say so explicitly rather than " +
+          "guessing.\n\n" +
+          "Land the work as a focused, working change with a clear explanation of what changed and why — " +
+          "not a step-by-step narration of what you did.",
+        model: { family: "anthropic", id: "claude-sonnet-5", maxTokens: 8192 },
+        mode: "automatic",
+        runtimeKind: "claude-code",
+        toolPolicy: {
+          defaultDecision: "deny",
+          rules: [
+            { tool: "read_file", decision: "allow" },
+            { tool: "write_file", decision: "allow" },
+            { tool: "run_shell", decision: "allow" },
+            { tool: "open_pr", decision: "allow" },
+          ],
+        },
+        connectionIds: [1],
+        areaMap: { "apps/web/": "Next.js frontend", "packages/": "Shared packages" },
+        defaultCodebase: "acme-corp/backend",
+        createdAt: hoursAgo(120),
+        updatedAt: hoursAgo(50),
+      },
+      {
         id: 2,
         orgId: ORG_ID,
         teamId: 1,
@@ -265,8 +314,9 @@ async function main() {
         description: "Draft release notes from merged PRs",
         avatarEmoji: "📝",
         systemPrompt:
-          "Summarize merged pull requests since the last tag into concise, user-facing release notes grouped by " +
-          "feature, fix, and chore.",
+          "Summarize merged pull requests since the last release into concise, user-facing release notes " +
+          "grouped by feature, fix, and chore — skip internal refactors and test-only changes that don't " +
+          "affect users.",
         model: { family: "anthropic", id: "claude-sonnet-5", maxTokens: 4096 },
         mode: "manual",
         runtimeKind: "claude-code",
@@ -277,21 +327,23 @@ async function main() {
         updatedAt: hoursAgo(200),
       },
       {
-        id: 3,
+        id: 4,
         orgId: ORG_ID,
         teamId: 1,
-        name: "Support triager",
-        description: "Label and route incoming support tickets",
-        avatarEmoji: "🎧",
+        name: "Product manager spec writer",
+        description: "Turn a feature idea into a structured spec",
+        avatarEmoji: "📋",
         systemPrompt:
-          "Read new support tickets, assign a priority and category label, and route to the correct team channel.",
+          "Turn a feature idea or problem statement into a structured spec: goals and non-goals, success " +
+          "metrics, and acceptance criteria. Ask clarifying questions when scope or success criteria are " +
+          "ambiguous rather than guessing.",
         model: { family: "anthropic", id: "claude-sonnet-5", maxTokens: 4096 },
-        mode: "automatic",
+        mode: "manual",
         runtimeKind: "claude-code",
         toolPolicy: { defaultDecision: "deny", rules: [] },
         connectionIds: [],
-        createdAt: hoursAgo(120),
-        updatedAt: hoursAgo(50),
+        createdAt: hoursAgo(100),
+        updatedAt: hoursAgo(100),
       },
     ])
     .onConflictDoNothing();
