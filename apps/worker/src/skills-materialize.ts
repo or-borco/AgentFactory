@@ -14,6 +14,7 @@ export interface SkillMaterializeDeps {
   getSkillVersion: (id: number) => ReturnType<typeof getSkillVersion>;
   getSkillVersionMarkdown: (orgId: number, version: NonNullable<Awaited<ReturnType<typeof getSkillVersion>>>) => Promise<string | undefined>;
   blobStore: BlobStore;
+  skillDir: string;
 }
 
 function resolveDeps(overrides?: Partial<SkillMaterializeDeps>): SkillMaterializeDeps {
@@ -22,6 +23,7 @@ function resolveDeps(overrides?: Partial<SkillMaterializeDeps>): SkillMaterializ
     getSkillVersion,
     getSkillVersionMarkdown,
     blobStore: overrides?.blobStore ?? createBlobStore(),
+    skillDir: overrides?.skillDir ?? SKILL_DIR,
     ...overrides,
   };
 }
@@ -56,14 +58,14 @@ export async function materialiseSkills(
         log.error("Skill version has no blob", { skillVersionId: version.id, skillSlug: pin.skillSlug, bodySha256: version.bodySha256 });
         continue;
       }
-      files[`${SKILL_DIR}/${pin.skillSlug}/SKILL.md`] = markdown;
+      files[`${resolved.skillDir}/${pin.skillSlug}/SKILL.md`] = markdown;
       written.push(pin.skillSlug);
     }
 
     if (written.length === 0) return [];
 
     for (const slug of written) {
-      await execToCompletion(sandboxProvider, sandboxId, ["mkdir", "-p", `/workspace/${SKILL_DIR}/${slug}`]);
+      await execToCompletion(sandboxProvider, sandboxId, ["mkdir", "-p", `/workspace/${resolved.skillDir}/${slug}`]);
     }
     await sandboxProvider.writeFiles(sandboxId, files);
     return written;
