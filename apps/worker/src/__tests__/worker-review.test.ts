@@ -20,7 +20,8 @@ const h = vi.hoisted(() => {
     exists: vi.fn(async () => true),
     resetMemory: vi.fn(),
   };
-  return { workers, sandbox };
+  const runTurn = vi.fn();
+  return { workers, sandbox, runTurn };
 });
 
 vi.mock("bullmq", () => ({
@@ -90,14 +91,13 @@ vi.mock("../sandbox/docker-sandbox-provider", () => ({
   },
 }));
 
-vi.mock("../agent-runtime", async () => {
-  const actual = await vi.importActual<typeof import("../agent-runtime")>("../agent-runtime");
-  return {
-    PromptTooLongError: actual.PromptTooLongError,
-    InsufficientCreditError: actual.InsufficientCreditError,
-    runAgentTurn: vi.fn(),
-  };
-});
+vi.mock("../agent-runtime/registry", () => ({
+  getAgentRuntime: () => ({
+    kind: "claude-code",
+    capabilities: () => ({ supportsSkills: true, skillDir: ".claude/skills", supportsResume: true }),
+    runTurn: h.runTurn,
+  }),
+}));
 
 // Only the two sandbox-executing helpers are stubbed; parseStructuredReview,
 // validateReviewComments, renderReviewAsMarkdown, resolveReviewRange and truncateDiff stay real,
@@ -143,7 +143,6 @@ import {
   updateTask,
 } from "@agentfactory/db";
 import { parsePullRequestReferenceAcrossProviders, resolveScmConnection } from "@agentfactory/scm";
-import { runAgentTurn } from "../agent-runtime";
 import { checkoutPullRequest } from "../pr-review";
 
 const PR_TITLE = "Add exponential backoff to the webhook sender";
@@ -232,13 +231,13 @@ beforeEach(() => {
 });
 
 function composedSystemPrompt(): string {
-  expect(runAgentTurn).toHaveBeenCalled();
-  return vi.mocked(runAgentTurn).mock.calls[0][0].systemPrompt;
+  expect(h.runTurn).toHaveBeenCalled();
+  return vi.mocked(h.runTurn).mock.calls[0][0].systemPrompt;
 }
 
 describe("review run prompt composition", () => {
   beforeEach(() => {
-    vi.mocked(runAgentTurn).mockResolvedValue({
+    h.runTurn.mockResolvedValue({
       text: "Looks good overall.",
       providerSessionRef: "sdk-1",
       structuredOutput: { summary: "Looks fine.", verdict: "comment", comments: [] },
@@ -305,7 +304,7 @@ describe("review run with a malformed structured output", () => {
   const RAW_TURN_TEXT = "I reviewed all four files. The retry loop never resets its counter.";
 
   beforeEach(() => {
-    vi.mocked(runAgentTurn).mockResolvedValue({
+    h.runTurn.mockResolvedValue({
       text: RAW_TURN_TEXT,
       providerSessionRef: "sdk-1",
       // What a wrong SDK field name or a model that answered in prose looks like here.
@@ -346,7 +345,7 @@ describe("review run with a malformed structured output", () => {
 // apps/web's pr-reviews approve route for the actual ScmProvider.postReview call).
 describe("review run detection gate", () => {
   beforeEach(() => {
-    vi.mocked(runAgentTurn).mockResolvedValue({
+    h.runTurn.mockResolvedValue({
       text: "Looks good overall.",
       providerSessionRef: "sdk-1",
       structuredOutput: { summary: "Looks fine.", verdict: "comment", comments: [] },
@@ -382,6 +381,6 @@ describe("review run detection gate", () => {
     expect(checkoutPullRequest).not.toHaveBeenCalled();
     expect(postReview).not.toHaveBeenCalled();
     expect(createPendingPrReview).not.toHaveBeenCalled();
-    expect(runAgentTurn).toHaveBeenCalled();
+    expect(h.runTurn).toHaveBeenCalled();
   });
 });
