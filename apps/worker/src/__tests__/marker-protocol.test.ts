@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { OutputChunk } from "../sandbox/types";
-import { InsufficientCreditError, PromptTooLongError, readAgentTurnOutput } from "../agent-runtime/marker-protocol";
+import { readAgentTurnOutput } from "../agent-runtime/marker-protocol";
+import { InsufficientCreditError, PromptTooLongError } from "../agent-runtime/errors";
 
 async function* chunks(items: OutputChunk[]): AsyncGenerator<OutputChunk> {
   for (const item of items) yield item;

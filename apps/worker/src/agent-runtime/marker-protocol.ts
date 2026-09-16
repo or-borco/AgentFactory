@@ -1,25 +1,7 @@
 import type { OutputChunk } from "../sandbox/types";
 import type { AgentTurnResult, RuntimeEvent } from "./types";
-
-// Must match RESULT_MARKER in apps/worker/sandbox-image/run-turn-claude.ts (and any future
-// adapter's own turn-runner script — the marker protocol is shared across runtimes).
-export const RESULT_MARKER = "__RESULT__";
-export const EVENT_MARKER = "__EVENT__";
-export const ERROR_MARKER = "__ERROR__";
-
-export class PromptTooLongError extends Error {
-  constructor() {
-    super("Prompt is too long for the assigned model's context window");
-    this.name = "PromptTooLongError";
-  }
-}
-
-export class InsufficientCreditError extends Error {
-  constructor() {
-    super("The connected model provider account has run out of usage credits");
-    this.name = "InsufficientCreditError";
-  }
-}
+import { EVENT_MARKER, ERROR_MARKER, RESULT_MARKER } from "./constants";
+import { InsufficientCreditError, PromptTooLongError } from "./errors";
 
 // Reads a turn-runner script's stdout/stderr, forwarding __EVENT__ lines to onEvent as they
 // arrive and returning the __RESULT__ payload once the stream ends. Shared by every AgentRuntime
