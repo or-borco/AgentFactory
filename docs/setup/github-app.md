@@ -5,7 +5,7 @@ web app and worker. Rather than hand-filling GitHub's app-creation form, the rep
 admin route that uses GitHub's manifest flow to create it for you.
 
 Run these from the repo root, after you've completed the main [setup](../../README.md) through
-step 3 (`pnpm setup:env`).
+step 1 (`./scripts/setup-env.sh`, or `.\scripts\setup-env.ps1` on Windows).
 
 1. Start the web app (`pnpm dev`) and log in (the seeded `demo@acme.test` user works; the route
    just requires an authenticated session, no separate admin role today).

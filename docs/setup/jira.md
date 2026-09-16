@@ -83,7 +83,8 @@ order of likelihood:
 
 If curl succeeds but connecting through the app still fails, that *is* an app-side bug — the
 request our server makes should be identical to curl's. Worth checking `CONNECTION_SECRET_KEY` is
-actually set (`pnpm setup:env`, see the main [README](../../README.md)) before assuming it's the
-Jira request itself; a missing encryption key fails at the "store the credential" step, which
-happens right after a successful `verify()`, and produces an unrelated 500 that's easy to conflate
-with the auth error above if you're not looking closely at which request actually failed.
+actually set (`./scripts/setup-env.sh` / `.\scripts\setup-env.ps1` on Windows, see the main
+[README](../../README.md)) before assuming it's the Jira request itself; a missing encryption key
+fails at the "store the credential" step, which happens right after a successful `verify()`, and
+produces an unrelated 500 that's easy to conflate with the auth error above if you're not looking
+closely at which request actually failed.

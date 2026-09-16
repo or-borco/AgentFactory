@@ -14,45 +14,44 @@ See `ARCHITECTURE.md` for the full system design and `CLAUDE.md` for repo-specif
 - **Docker** — for local Postgres/Redis, and for building the worker's sandbox image
 - An **Anthropic API key** — only required if you're running the worker (real agent execution)
 
-## 1. Install dependencies
+## 1. Set up your local environment
+
+macOS/Linux:
 
 ```bash
-pnpm install
+./scripts/setup-env.sh
 ```
 
-## 2. Start Postgres and Redis
+Windows (PowerShell):
 
-The repo's `docker-compose.yml` spins up both with the credentials the default env files expect:
-
-```bash
-docker compose up -d
+```powershell
+.\scripts\setup-env.ps1
 ```
 
-This starts Postgres on `localhost:5432` (db `agentfactory`, user/password `agentfactory`) and
-Redis on `localhost:6379`.
+If PowerShell refuses to run it ("running scripts is disabled on this system"), that's the
+default execution policy blocking unsigned local scripts — either run it once with
+`powershell -ExecutionPolicy Bypass -File .\scripts\setup-env.ps1`, or allow local scripts for
+your user going forward with `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
-The Postgres image is `pgvector/pgvector:pg16` (stock PostgreSQL 16 plus the `vector` extension,
-which the migrations enable). If you have a volume from before that change, recreate it —
-`docker compose down -v && docker compose up -d` — then re-run step 4. The image is glibc-based
-where the old one was musl, and Postgres cannot detect the collation-provider change on its own.
-
-## 3. Configure environment variables
+Run the script directly (not via `pnpm setup:env`) — it's what installs pnpm itself if it's
+missing, so a pnpm-based entry point would be chicken-and-egg. It installs any of the
+[prerequisites](#prerequisites) above that aren't already on your machine (Node.js, pnpm, Docker —
+via Homebrew/apt on macOS/Linux, via [winget](https://learn.microsoft.com/windows/package-manager/winget/)
+on Windows), then sets up the repo's env files. On Windows, linking `apps/web/.env.local` and
+`apps/worker/.env.local` to the root file needs a real symlink, which needs
+[Developer Mode](https://learn.microsoft.com/windows/apps/get-started/developer-mode-features-and-debugging)
+enabled or an elevated shell — without either, the script falls back to copying the file instead,
+and you'll need to re-run it after editing the root `.env.local` to keep the copies in sync.
 
 `apps/web` and `apps/worker` share almost every env var (`DATABASE_URL`, `BLOB_DIR`,
 `CONNECTION_SECRET_KEY`, the GitHub App credentials — a document the web app writes has to resolve
 to the same place the worker reads it from, a token the web app encrypts has to decrypt the same
 way in both processes, and so on), so there's a single `.env.local` at the repo root rather than
-one per app. One command sets it up:
-
-```bash
-pnpm setup:env
-```
-
-This copies `.env.example` to `.env.local` if you don't have one yet, generates
+one per app. The script copies `.env.example` to `.env.local` if you don't have one yet, generates
 `CONNECTION_SECRET_KEY` for you (a random key, not something you obtain from anywhere — no reason
-to make you run `openssl` by hand), and symlinks `apps/web/.env.local` and
-`apps/worker/.env.local` to the root file, so both processes keep finding a config file exactly
-where they already expect one, with nothing to duplicate or keep in sync. Safe to re-run.
+to make you run `openssl` by hand), and points `apps/web/.env.local` and `apps/worker/.env.local`
+at the root file, so both processes keep finding a config file exactly where they already expect
+one, with nothing to duplicate or keep in sync. Safe to re-run.
 
 Everything else in the generated file already has a working default (`DATABASE_URL`/`REDIS_URL`
 match the `docker-compose.yml` services above, `BLOB_STORE=fs`/`BLOB_DIR=.blobs` needs no
@@ -67,6 +66,28 @@ adjustment for local dev). Two things need a value you fill in by hand:
 **Rotating `CONNECTION_SECRET_KEY` orphans every stored credential**: existing `connection_secrets`
 rows become undecryptable, and affected users will need to reconnect (re-enter their Jira site
 credentials, etc.) before those connections work again.
+
+## 2. Install dependencies
+
+```bash
+pnpm install
+```
+
+## 3. Start Postgres and Redis
+
+The repo's `docker-compose.yml` spins up both with the credentials the default env files expect:
+
+```bash
+docker compose up -d
+```
+
+This starts Postgres on `localhost:5432` (db `agentfactory`, user/password `agentfactory`) and
+Redis on `localhost:6379`.
+
+The Postgres image is `pgvector/pgvector:pg16` (stock PostgreSQL 16 plus the `vector` extension,
+which the migrations enable). If you have a volume from before that change, recreate it —
+`docker compose down -v && docker compose up -d` — then re-run step 4. The image is glibc-based
+where the old one was musl, and Postgres cannot detect the collation-provider change on its own.
 
 ## 4. Run database migrations and seed data
 
@@ -89,7 +110,7 @@ pnpm dev:all
 ```
 
 Starts Postgres/Redis, runs migrations and seeding, then runs the web app and worker together — a
-shortcut for step 2 above and steps 5-6 below. Ctrl+C stops the web/worker processes; Postgres/Redis
+shortcut for step 3 above and steps 5-6 below. Ctrl+C stops the web/worker processes; Postgres/Redis
 keep running in the background.
 
 ```bash
