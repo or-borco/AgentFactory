@@ -144,6 +144,7 @@ import {
 } from "@agentfactory/db";
 import { parsePullRequestReferenceAcrossProviders, resolveScmConnection } from "@agentfactory/scm";
 import { runAgentTurn } from "../agent-runtime";
+import { checkoutPullRequest } from "../pr-review";
 
 const PR_TITLE = "Add exponential backoff to the webhook sender";
 const PR_BODY = "Retries failed deliveries three times with backoff.\n\nCloses #12.";
@@ -213,6 +214,9 @@ beforeEach(() => {
     orgId: 5,
     teamId: null,
     name: "Reviewer",
+    // Explicit, not implicit: since Task 13 a review run requires BOTH this role and a PR link in
+    // the task description, so every review fixture in this file has to opt in by name.
+    role: "reviewer",
     systemPrompt: "You are a careful reviewer.",
     model: { family: "anthropic", id: "claude-x", maxTokens: 8192 },
     onContextOverflow: "fail",
@@ -336,5 +340,69 @@ describe("review run with a malformed structured output", () => {
   it("writes the raw text exactly once — the success path's transcript write is not reached", async () => {
     await expect(runProcessor({ data: { runId: 1 } })).rejects.toThrow();
     expect(vi.mocked(createMessage).mock.calls).toHaveLength(1);
+  });
+});
+
+// The gate that keeps a PR link in a task description from turning an ordinary dev agent's run
+// into a public GitHub review. Detection requires BOTH `agent.role === "reviewer"` AND a PR link;
+// either one alone is an ordinary run.
+describe("review run detection gate", () => {
+  beforeEach(() => {
+    vi.mocked(runAgentTurn).mockResolvedValue({
+      text: "Looks good overall.",
+      providerSessionRef: "sdk-1",
+      structuredOutput: { summary: "Looks fine.", verdict: "comment", comments: [] },
+    } as never);
+  });
+
+  it("does not start a review run for a developer-role agent, even with a PR link in the task", async () => {
+    vi.mocked(getAgent).mockResolvedValue({
+      id: 20,
+      orgId: 5,
+      teamId: null,
+      name: "Dev",
+      role: "developer",
+      systemPrompt: "You write code.",
+      model: { family: "anthropic", id: "claude-x", maxTokens: 8192 },
+      onContextOverflow: "fail",
+    } as never);
+
+    await runProcessor({ data: { runId: 1 } });
+
+    // The description is never even parsed — the role is checked first, so a dev agent's task
+    // description is inert text as far as this feature is concerned.
+    expect(parsePullRequestReferenceAcrossProviders).not.toHaveBeenCalled();
+    expect(checkoutPullRequest).not.toHaveBeenCalled();
+    expect(postReview).not.toHaveBeenCalled();
+    expect(createPrReview).not.toHaveBeenCalled();
+    // It still runs — as a normal (here chat-only, since the task has no codebase) task run.
+    expect(runAgentTurn).toHaveBeenCalled();
+  });
+
+  it("starts a review run for a reviewer-role agent with a PR link, and posts the review", async () => {
+    await runProcessor({ data: { runId: 1 } });
+
+    expect(checkoutPullRequest).toHaveBeenCalled();
+    expect(postReview).toHaveBeenCalled();
+    expect(createPrReview).toHaveBeenCalled();
+  });
+
+  it("runs a reviewer-role agent's PR-link-free task as an ordinary run", async () => {
+    vi.mocked(parsePullRequestReferenceAcrossProviders).mockReturnValue(undefined as never);
+    vi.mocked(getTaskBySessionId).mockResolvedValue({
+      id: 30,
+      ref: "T-2",
+      title: "Write the changelog",
+      description: "Summarise this release for the changelog.",
+      codebase: undefined,
+      prNumber: undefined,
+    } as never);
+
+    await runProcessor({ data: { runId: 1 } });
+
+    expect(checkoutPullRequest).not.toHaveBeenCalled();
+    expect(postReview).not.toHaveBeenCalled();
+    expect(createPrReview).not.toHaveBeenCalled();
+    expect(runAgentTurn).toHaveBeenCalled();
   });
 });

@@ -24,14 +24,20 @@ done with a link to the posted review.
   pushed" language — re-review here is a one-message action (see below), not automatic. Flagging
   this for Or to confirm is in scope; building the trigger bus (`triggers` table, webhook
   receiver — ARCHITECTURE.md §2.6/§5, M5) is not.
-- **Detection: a PR link in the task, not an agent role.** No new "reviewer" role on `Agent`, no
-  new task-kind field, no persisted field on `Task` either. The worker parses `task.description`
-  for a GitHub PR URL live, at the start of every run — the same mechanism
-  `parseIssueReference`/`worker.ts:228` already uses for GitHub *issue* links, just a sibling
+- **Detection: a reviewer-role agent AND a PR link in the task.** A run is a review run only when
+  *both* hold: the agent the run is executing under has `role: "reviewer"` (`AgentRole`, set on
+  the agent form), and `task.description` contains a GitHub PR URL. The role is what makes "post a
+  real review to GitHub" the correct behaviour for this run rather than a normal task run; the PR
+  link is only needed to know *which* PR. Without the role gate, an ordinary dev agent's task
+  would be silently hijacked into posting a public GitHub review just because its description
+  happened to mention a PR URL. There is still no new task-kind field and no persisted field on
+  `Task`: the worker parses `task.description` for a GitHub PR URL live, at the start of every run
+  — the same mechanism `parseIssueReference` already uses for GitHub *issue* links, just a sibling
   regex for `/pull/` instead of `/issues/`. `RegExp.exec` naturally returns the first match, so
   "the first PR link in the description wins" falls out of reusing that mechanism rather than
-  needing its own rule. The existing agent picker on the task form is unchanged — the user still
-  chooses which agent runs the task.
+  needing its own rule. A PR link on a non-reviewer agent's task is inert text — the run proceeds
+  down the normal dev-task / chat-only path. The existing agent picker on the task form is
+  unchanged — the user still chooses which agent runs the task.
 - **What the agent sees:** the full repo checked out at the PR's head, not just the diff — so it
   can follow imports, check callers, read surrounding code.
 - **How comments reach GitHub:** the agent never holds a GitHub token. It ends its turn with a

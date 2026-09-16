@@ -211,8 +211,12 @@ const runWorker = new Worker<RunJobData>(
 
       // Detection is live parsing of the task description on every run — never a persisted flag
       // on Task (see the design spec): retargeting a task at a different PR, or removing the
-      // link entirely, takes effect on the next run with nothing to migrate.
-      const prRef = task ? parsePullRequestReferenceAcrossProviders(task.description) : undefined;
+      // link entirely, takes effect on the next run with nothing to migrate. A review run
+      // additionally requires the run's agent to have `role: "reviewer"` — an ordinary dev
+      // agent's task is never hijacked into a review run just because its description happens to
+      // mention a PR link.
+      const prRef =
+        task && agent.role === "reviewer" ? parsePullRequestReferenceAcrossProviders(task.description) : undefined;
       if (prRef && task) {
         const resolved = await resolveScmConnection(agent.orgId, prRef.repoFullName);
         if (!resolved) {
