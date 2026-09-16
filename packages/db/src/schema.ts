@@ -104,6 +104,7 @@ export const teams = pgTable(
 // ARCHITECTURE.md §0/§1 expects more AgentRuntime adapters over time, and a plain text column
 // (validated by the RuntimeKind TS union) doesn't need a migration to accept a new one.
 export const agentModeEnum = pgEnum("agent_mode", ["manual", "automatic"]);
+export const agentRoleEnum = pgEnum("agent_role", ["developer", "reviewer"]);
 
 export const agents = pgTable(
   "agents",
@@ -119,6 +120,7 @@ export const agents = pgTable(
     systemPrompt: text("system_prompt").notNull(),
     model: jsonb("model").$type<ModelSpec>().notNull(),
     mode: agentModeEnum("mode").notNull().default("manual"),
+    role: agentRoleEnum("role").notNull().default("developer"),
     runtimeKind: text("runtime_kind").notNull().default("claude-code"),
     toolPolicy: jsonb("tool_policy").$type<ToolPolicy>().notNull(),
     connectionIds: jsonb("connection_ids").$type<number[]>().notNull().default([]),

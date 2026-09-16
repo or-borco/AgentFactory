@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextEscalationTier } from "../models";
+import { isValidAgentRole, nextEscalationTier } from "../models";
 
 describe("nextEscalationTier", () => {
   it("walks up the ladder from haiku to sonnet", () => {
@@ -20,5 +20,27 @@ describe("nextEscalationTier", () => {
 
   it("returns undefined for an unknown model id", () => {
     expect(nextEscalationTier("not-a-real-model")).toBeUndefined();
+  });
+});
+
+describe("isValidAgentRole", () => {
+  it("accepts developer", () => {
+    expect(isValidAgentRole("developer")).toBe(true);
+  });
+
+  it("accepts reviewer", () => {
+    expect(isValidAgentRole("reviewer")).toBe(true);
+  });
+
+  it("rejects manual", () => {
+    expect(isValidAgentRole("manual")).toBe(false);
+  });
+
+  it("rejects undefined", () => {
+    expect(isValidAgentRole(undefined)).toBe(false);
+  });
+
+  it("rejects a number", () => {
+    expect(isValidAgentRole(123)).toBe(false);
   });
 });

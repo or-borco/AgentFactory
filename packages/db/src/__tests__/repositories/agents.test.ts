@@ -161,4 +161,33 @@ describe("agents repository", () => {
 
     expect(updated?.onContextOverflow).toBe("fail_fast");
   });
+
+  it("defaults role to developer", async () => {
+    const org = await insertOrg();
+    const agent = await createAgent(org.id, {
+      name: "Reviewer",
+      description: "",
+      systemPrompt: "Be helpful.",
+      mode: "manual",
+    });
+    expect(agent.role).toBe("developer");
+  });
+
+  it("accepts an explicit role on create and can update it back and forth", async () => {
+    const org = await insertOrg();
+    const agent = await createAgent(org.id, {
+      name: "Code reviewer",
+      description: "",
+      systemPrompt: "Review the diff.",
+      mode: "automatic",
+      role: "reviewer",
+    });
+    expect(agent.role).toBe("reviewer");
+
+    const toDeveloper = await updateAgent(agent.id, { role: "developer" });
+    expect(toDeveloper?.role).toBe("developer");
+
+    const toReviewer = await updateAgent(agent.id, { role: "reviewer" });
+    expect(toReviewer?.role).toBe("reviewer");
+  });
 });

@@ -93,6 +93,13 @@ export interface OrgMember {
 }
 
 export type AgentMode = "manual" | "automatic";
+
+// "developer" runs ordinary dev/chat tasks. "reviewer" is additionally eligible to run PR-review
+// tasks (see apps/worker/src/worker.ts's review-run detection) — an agent must be a reviewer AND
+// the task must reference a PR for a run to post a real GitHub review; a reviewer agent given a
+// task with no PR link just behaves like any other agent.
+export type AgentRole = "developer" | "reviewer";
+
 export type RuntimeKind = "claude-code";
 
 export interface ModelSpec {
@@ -121,6 +128,7 @@ export interface Agent {
   systemPrompt: string;
   model: ModelSpec;
   mode: AgentMode;
+  role: AgentRole;
   runtimeKind: RuntimeKind;
   toolPolicy: ToolPolicy;
   connectionIds: ID[];
