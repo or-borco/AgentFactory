@@ -177,8 +177,13 @@ pnpm --filter @agentfactory/web exec playwright install --with-deps chromium
 ```
 
 It boots its own `next dev` instance on port 3100 (see `apps/web/playwright.config.ts`), so it
-also needs `apps/web/.env.local` configured (step 3) and the test Postgres/Redis running. To watch
-the browser instead of running headless, use:
+also needs `apps/web/.env.local` configured (step 3) and Postgres running — it talks to the dev
+database, not the `agentfactory_test` one, so `test:e2e` can't run concurrently with `test:db`
+(which truncates tables between tests). Its Redis queue is pinned to db index `2`, separate from
+both the dev worker's (db 0, unset) and `test:db`/`test:queue`'s (`.env.test.local`, db 1) — every
+worktree on a machine shares one Redis instance, so without this a live `pnpm dev:worker` from
+another worktree can steal this run's ingest job and fail to find the blob it's looking for
+(wrong worktree's `BLOB_DIR`). To watch the browser instead of running headless, use:
 
 ```bash
 pnpm test:e2e:headed
@@ -193,5 +198,6 @@ pnpm typecheck   # tsc --noEmit across all packages
 
 ### Git hooks
 
-A pre-push hook (via husky) runs `pnpm test:unit` before every `git push`. Skip it for a single
-push with `git push --no-verify` if needed.
+A pre-push hook (via husky) runs `pnpm test` (unit, DB integration, queue integration, and E2E —
+see "Running tests" above for the local setup each of those needs) before every `git push`. Skip
+it for a single push with `git push --no-verify` if needed.
