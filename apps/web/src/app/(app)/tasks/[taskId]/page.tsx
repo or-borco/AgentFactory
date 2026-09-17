@@ -20,7 +20,7 @@ import { WriteBackFailureBanner } from "@/components/WriteBackFailureBanner";
 import type { Run, TaskContextItem, TaskStatus } from "@agentfactory/core";
 import type { ExternalIssue } from "@agentfactory/integrations";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
-import { groupErrorsByRun, unattachedRunErrors } from "@/lib/run-errors";
+import { groupErrorsByRun, isErrorResolved, unattachedRunErrors } from "@/lib/run-errors";
 
 type WorkspaceSnapshot = Record<string, string>;
 
@@ -1120,7 +1120,7 @@ export default function TaskDetailPage() {
                     <div key={msg.id} style={{ animation: "fadein 0.18s ease" }}>
                       {/* Non-fatal issues from this turn, shown above the agent's reply. */}
                       {msg.role === "assistant" && msg.runId != null && errorsByRun.has(msg.runId) && (
-                        <ErrorNotice messages={errorsByRun.get(msg.runId)!} />
+                        <ErrorNotice messages={errorsByRun.get(msg.runId)!} resolved={isErrorResolved(sessionRuns, msg.runId)} />
                       )}
                       {/* Thinking for this turn, shown right above the agent's reply. */}
                       {showThinking && msg.role === "assistant" && msg.runId != null && thinkingByRun.has(msg.runId) && (
@@ -1182,7 +1182,7 @@ export default function TaskDetailPage() {
                       messages.filter((m) => m.role === "assistant" && m.runId != null).map((m) => m.runId),
                     );
                     return unattachedRunErrors(errorsByRun, answeredRunIds).map(([runId, errMessages]) => (
-                      <ErrorNotice key={`live-${runId}`} messages={errMessages} />
+                      <ErrorNotice key={`live-${runId}`} messages={errMessages} resolved={isErrorResolved(sessionRuns, runId)} />
                     ));
                   })()}
 
@@ -1353,24 +1353,114 @@ export default function TaskDetailPage() {
   );
 }
 
-function ErrorNotice({ messages }: { messages: string[] }) {
+function ErrorNotice({ messages, resolved }: { messages: string[]; resolved: boolean }) {
+  const { t } = useTranslation();
+  // `resolved` flips true once a later run on this session succeeds. Track the user's own
+  // toggle separately so a manual expand/collapse isn't clobbered by that transition, but
+  // default to (and keep following) `resolved` until they interact with it themselves.
+  const [collapsed, setCollapsed] = useState(resolved);
+  const userToggledRef = useRef(false);
+  useEffect(() => {
+    if (!userToggledRef.current) setCollapsed(resolved);
+  }, [resolved]);
+
+  if (!resolved) {
+    return (
+      <div
+        style={{
+          marginLeft: 2,
+          marginBottom: 14,
+          padding: "8px 12px",
+          borderRadius: "var(--radius-sm)",
+          border: "1px solid rgba(232,164,74,0.28)",
+          background: "rgba(232,164,74,0.08)",
+          color: "#e8a44a",
+          fontSize: 12,
+          lineHeight: 1.5,
+        }}
+      >
+        {messages.map((message, i) => (
+          <div key={i}>{message}</div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
         marginLeft: 2,
         marginBottom: 14,
-        padding: "8px 12px",
-        borderRadius: "var(--radius-sm)",
-        border: "1px solid rgba(232,164,74,0.28)",
-        background: "rgba(232,164,74,0.08)",
-        color: "#e8a44a",
-        fontSize: 12,
-        lineHeight: 1.5,
+        borderLeft: "2px solid rgba(232,164,74,0.28)",
+        borderRadius: "0 var(--radius-sm) var(--radius-sm) 0",
+        background: "rgba(232,164,74,0.05)",
+        overflow: "hidden",
       }}
     >
-      {messages.map((message, i) => (
-        <div key={i}>{message}</div>
-      ))}
+      <button
+        onClick={() => {
+          userToggledRef.current = true;
+          setCollapsed((v) => !v);
+        }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+          width: "100%",
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          padding: "6px 12px 6px 14px",
+          textAlign: "left",
+        }}
+      >
+        <svg
+          width={8}
+          height={8}
+          viewBox="0 0 8 8"
+          fill="none"
+          style={{
+            flexShrink: 0,
+            transform: collapsed ? "rotate(-90deg)" : "none",
+            transition: "transform 0.15s",
+          }}
+        >
+          <path d="M1 2.5L4 5.5L7 2.5" stroke="#a37838" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span
+          style={{
+            flexShrink: 0,
+            fontSize: 10,
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: "#a37838",
+          }}
+        >
+          {t("taskDetail.resolvedError")}
+        </span>
+        {collapsed && (
+          <span
+            title={messages[0]}
+            style={{
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              fontSize: 12.5,
+              color: "var(--color-neutral-500)",
+            }}
+          >
+            {messages[0]}
+          </span>
+        )}
+      </button>
+      {!collapsed && (
+        <div style={{ padding: "0 12px 10px 14px", display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#a37838" }}>
+          {messages.map((message, i) => (
+            <div key={i}>{message}</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

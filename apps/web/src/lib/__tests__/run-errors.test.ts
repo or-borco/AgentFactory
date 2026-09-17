@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findErrorCodeForRun, groupErrorsByRun, unattachedRunErrors } from "../run-errors";
+import { findErrorCodeForRun, groupErrorsByRun, isErrorResolved, unattachedRunErrors } from "../run-errors";
 
 describe("groupErrorsByRun", () => {
   it("groups error events by runId, ignoring other event types", () => {
@@ -80,5 +80,53 @@ describe("findErrorCodeForRun", () => {
     const events = [{ runId: 2, type: "error", data: { message: "boom", code: "insufficient_credit" } }];
 
     expect(findErrorCodeForRun(events, 1)).toBeUndefined();
+  });
+});
+
+describe("isErrorResolved", () => {
+  it("is false when no later run exists", () => {
+    const runs = [{ id: 1, status: "failed" }];
+
+    expect(isErrorResolved(runs, 1)).toBe(false);
+  });
+
+  it("is false when a later run exists but hasn't succeeded yet", () => {
+    const runs = [
+      { id: 1, status: "failed" },
+      { id: 2, status: "running" },
+    ];
+
+    expect(isErrorResolved(runs, 1)).toBe(false);
+  });
+
+  it("is false when a later run also failed — the case from the bug report, two failed retries in a row", () => {
+    const runs = [
+      { id: 1, status: "failed" },
+      { id: 2, status: "failed" },
+    ];
+
+    expect(isErrorResolved(runs, 1)).toBe(false);
+    expect(isErrorResolved(runs, 2)).toBe(false);
+  });
+
+  it("is true once a later run succeeds", () => {
+    const runs = [
+      { id: 1, status: "failed" },
+      { id: 2, status: "failed" },
+      { id: 3, status: "done" },
+    ];
+
+    expect(isErrorResolved(runs, 1)).toBe(true);
+    expect(isErrorResolved(runs, 2)).toBe(true);
+    expect(isErrorResolved(runs, 3)).toBe(false);
+  });
+
+  it("ignores an earlier successful run — only a LATER success resolves the error", () => {
+    const runs = [
+      { id: 1, status: "done" },
+      { id: 2, status: "failed" },
+    ];
+
+    expect(isErrorResolved(runs, 2)).toBe(false);
   });
 });
