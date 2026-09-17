@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Badge, Button } from "@agentfactory/shared";
+import { Badge, Button, TooltipBubble } from "@agentfactory/shared";
 import { useAppData } from "@/lib/app-data/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { StatusMenu } from "@/components/StatusMenu";
@@ -829,28 +829,6 @@ export default function TaskDetailPage() {
                 </Button>
               </div>
             )}
-
-            {/* Status / lifecycle actions */}
-            <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
-              {!task.sessionId && (
-                <Link href={`/tasks/${task.id}/edit`}>
-                  <Button variant="secondary">
-                    <EditIcon size={14} />
-                    {t("taskDetail.editTask")}
-                  </Button>
-                </Link>
-              )}
-              {task.status !== "done" && (
-                <Button variant="secondary" disabled={markingDone} onClick={handleMarkDone}>
-                  <CheckIcon size={14} />
-                  {markingDone ? t("taskDetail.markingDone") : t("taskDetail.markDone")}
-                </Button>
-              )}
-              <Button variant="secondary" disabled={deleting} onClick={() => setConfirmingDelete(true)}>
-                <TrashIcon size={14} />
-                {t("taskDetail.deleteTask")}
-              </Button>
-            </div>
           </div>
         </div>
 
@@ -959,55 +937,87 @@ export default function TaskDetailPage() {
           style={{
             display: "flex",
             alignItems: "center",
+            justifyContent: "space-between",
             borderBottom: "1px solid var(--color-divider)",
             padding: "0 24px",
             flexShrink: 0,
           }}
         >
-          <TabBtn active={activeTab === "transcript"} onClick={() => setActiveTab("transcript")}>
-            Transcript
-          </TabBtn>
-          {workspace && Object.keys(workspace).length > 0 && (
-            <TabBtn active={activeTab === "files"} onClick={() => setActiveTab("files")}>
-              {`Files (${Object.keys(workspace).length})`}
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <TabBtn active={activeTab === "transcript"} onClick={() => setActiveTab("transcript")}>
+              Transcript
             </TabBtn>
-          )}
-          {/* Unlike the Evaluation tab below, Context is not gated on a session existing: it
-              now also hosts task document management (ContextDocumentsPanel), which has
-              nothing to do with runs and should be reachable right after task creation. */}
-          <TabBtn active={activeTab === "context"} onClick={() => setActiveTab("context")}>
-            {t("taskDetail.contextTab")}
-          </TabBtn>
-          {session && (
-            <TabBtn active={activeTab === "evals"} onClick={() => setActiveTab("evals")}>
-              {t("taskDetail.evalTab")}
+            {workspace && Object.keys(workspace).length > 0 && (
+              <TabBtn active={activeTab === "files"} onClick={() => setActiveTab("files")}>
+                {`Files (${Object.keys(workspace).length})`}
+              </TabBtn>
+            )}
+            {/* Unlike the Evaluation tab below, Context is not gated on a session existing: it
+                now also hosts task document management (ContextDocumentsPanel), which has
+                nothing to do with runs and should be reachable right after task creation. */}
+            <TabBtn active={activeTab === "context"} onClick={() => setActiveTab("context")}>
+              {t("taskDetail.contextTab")}
             </TabBtn>
-          )}
-          {/* Agent working indicator in tab bar */}
-          {isRunning && (
-            <div
-              style={{
-                marginLeft: "auto",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                fontSize: 12,
-                color: "var(--color-neutral-500)",
-              }}
-            >
-              <span
+            {session && (
+              <TabBtn active={activeTab === "evals"} onClick={() => setActiveTab("evals")}>
+                {t("taskDetail.evalTab")}
+              </TabBtn>
+            )}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
+            {/* Agent working indicator */}
+            {isRunning && (
+              <div
                 style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: "50%",
-                  background: "var(--color-accent)",
-                  animation: "pulse 1.2s ease-in-out infinite",
-                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontSize: 12,
+                  color: "var(--color-neutral-500)",
                 }}
-              />
-              Agent working
+              >
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: "50%",
+                    background: "var(--color-accent)",
+                    animation: "pulse 1.2s ease-in-out infinite",
+                    flexShrink: 0,
+                  }}
+                />
+                Agent working
+              </div>
+            )}
+
+            {/* Task lifecycle actions — icon buttons with a hover tooltip, since this row
+                sits beside the tabs and has no room for labeled buttons. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              {!task.sessionId && (
+                <ToolbarIconButton label={t("taskDetail.editTask")} href={`/tasks/${task.id}/edit`}>
+                  <EditIcon size={15} />
+                </ToolbarIconButton>
+              )}
+              {task.status !== "done" && (
+                <ToolbarIconButton
+                  label={markingDone ? t("taskDetail.markingDone") : t("taskDetail.markDone")}
+                  onClick={handleMarkDone}
+                  disabled={markingDone}
+                >
+                  <CheckIcon size={15} />
+                </ToolbarIconButton>
+              )}
+              <ToolbarIconButton
+                label={t("taskDetail.deleteTask")}
+                onClick={() => setConfirmingDelete(true)}
+                disabled={deleting}
+                variant="danger"
+              >
+                <TrashIcon size={15} />
+              </ToolbarIconButton>
             </div>
-          )}
+          </div>
         </div>
 
         {task.externalRef?.writeBackFailure && (
@@ -1476,6 +1486,74 @@ function runStatusLabel(status: string | null): string {
     default:
       return "Agent is working…";
   }
+}
+
+function ToolbarIconButton({
+  label,
+  onClick,
+  href,
+  disabled,
+  variant = "default",
+  children,
+}: {
+  label: string;
+  onClick?: () => void;
+  href?: string;
+  disabled?: boolean;
+  variant?: "default" | "danger";
+  children: React.ReactNode;
+}) {
+  const color = variant === "danger" ? "#e8768a" : "var(--color-neutral-400)";
+  const hoverColor = variant === "danger" ? "#e8768a" : "var(--color-neutral-200)";
+  const style: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 30,
+    height: 30,
+    background: "none",
+    border: "1px solid var(--color-divider)",
+    borderRadius: "var(--radius-sm)",
+    color,
+    cursor: disabled ? "default" : "pointer",
+    opacity: disabled ? 0.5 : 1,
+    transition: "background 0.15s, color 0.15s, border-color 0.15s",
+  };
+  const onMouseEnter = (e: React.MouseEvent<HTMLElement>) => {
+    if (disabled) return;
+    const el = e.currentTarget as HTMLElement;
+    el.style.background = "var(--color-surface)";
+    el.style.color = hoverColor;
+    el.style.borderColor = "var(--color-neutral-700)";
+  };
+  const onMouseLeave = (e: React.MouseEvent<HTMLElement>) => {
+    const el = e.currentTarget as HTMLElement;
+    el.style.background = "none";
+    el.style.color = color;
+    el.style.borderColor = "var(--color-divider)";
+  };
+
+  return (
+    <div className="group/tooltip relative">
+      {href ? (
+        <Link href={href} aria-label={label} style={style} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}>
+          {children}
+        </Link>
+      ) : (
+        <button
+          onClick={onClick}
+          disabled={disabled}
+          aria-label={label}
+          style={style}
+          onMouseEnter={onMouseEnter}
+          onMouseLeave={onMouseLeave}
+        >
+          {children}
+        </button>
+      )}
+      <TooltipBubble label={label} />
+    </div>
+  );
 }
 
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
