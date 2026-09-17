@@ -8,11 +8,13 @@ vi.mock("@agentfactory/db", () => ({
   getConnectionCredentialRef: vi.fn(async () => 5),
   readConnectionSecret: vi.fn(async () => ({ botToken: "t" })),
   setConnectionHealth: vi.fn(),
+  getTaskBySessionId: vi.fn(),
 }));
 vi.mock("@agentfactory/integrations", () => ({
   createChannelAdapter: () => ({ send: mockSend, sendTyping: mockSendTyping }),
 }));
 
+import { getTaskBySessionId } from "@agentfactory/db";
 import { notifySessionOfReply, startTypingIndicator } from "../channel-notify";
 
 function webSession(): Session {
@@ -42,6 +44,24 @@ describe("notifySessionOfReply", () => {
     const emitEvent = vi.fn();
     await expect(notifySessionOfReply(9, telegramSession(), "hello", emitEvent)).resolves.toBeUndefined();
     expect(emitEvent).toHaveBeenCalledWith("error", expect.objectContaining({ message: expect.stringContaining("Telegram is down") }));
+  });
+
+  it("prefixes the reply with the task ref when the session belongs to a task", async () => {
+    vi.mocked(getTaskBySessionId).mockResolvedValue({ ref: "T-042" } as never);
+    const emitEvent = vi.fn();
+
+    await notifySessionOfReply(9, telegramSession(), "Done!", emitEvent);
+
+    expect(mockSend).toHaveBeenCalledWith("42", "[T-042] Done!");
+  });
+
+  it("sends unprefixed when the session has no owning task", async () => {
+    vi.mocked(getTaskBySessionId).mockResolvedValue(undefined);
+    const emitEvent = vi.fn();
+
+    await notifySessionOfReply(9, telegramSession(), "Done!", emitEvent);
+
+    expect(mockSend).toHaveBeenCalledWith("42", "Done!");
   });
 });
 

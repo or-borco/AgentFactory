@@ -1,5 +1,5 @@
 import type { Session } from "@agentfactory/core";
-import { getConnectionCredentialRef, listConnections, readConnectionSecret, setConnectionHealth } from "@agentfactory/db";
+import { getConnectionCredentialRef, getTaskBySessionId, listConnections, readConnectionSecret, setConnectionHealth } from "@agentfactory/db";
 import { createChannelAdapter } from "@agentfactory/integrations";
 import { createLogger } from "@agentfactory/logger";
 
@@ -37,10 +37,18 @@ export async function notifySessionOfReply(
 
   let connectionId: number | undefined;
   try {
+    // A session with no owning task shouldn't happen for new Telegram sessions after the
+    // task-integration redesign, but sends unprefixed rather than failing if it ever does. This
+    // lookup stays inside the try along with everything else in this function, on purpose —
+    // nothing here can be allowed to fail the run, and moving it above the try would let a
+    // transient DB error escape uncaught instead of degrading to an unprefixed send.
+    const task = await getTaskBySessionId(session.id);
+    const prefixedText = task ? `[${task.ref}] ${text}` : text;
+
     const resolved = await resolveChannelAdapter(orgId);
     if (!resolved) return;
     connectionId = resolved.connection.id;
-    await resolved.adapter.send(externalThreadRef, text);
+    await resolved.adapter.send(externalThreadRef, prefixedText);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await emitEvent("error", { message: `Couldn't deliver reply to Telegram: ${message}` });
