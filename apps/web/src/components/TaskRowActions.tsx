@@ -55,7 +55,7 @@ function ActionButton({
       >
         {icon}
       </button>
-      <TooltipBubble label={label} />
+      <TooltipBubble label={label} placement="top" />
     </span>
   );
 }
