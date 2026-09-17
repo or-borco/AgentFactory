@@ -95,8 +95,8 @@ export function AgentMemorySection({ agentId }: { agentId: number }) {
     <div className="px-10 pt-8">
       <h2 className="mb-3 text-base font-semibold text-[var(--color-text)]">{t("agentMemory.title")}</h2>
       {error && <p className="mb-3 text-xs text-red-400">{error}</p>}
-      {error ? null : entries === null ? (
-        <p className="text-sm text-[var(--color-neutral-500)]">{t("common.loading")}</p>
+      {entries === null ? (
+        error ? null : <p className="text-sm text-[var(--color-neutral-500)]">{t("common.loading")}</p>
       ) : entries.length === 0 ? (
         <Card className="px-5 py-10 text-center text-sm text-[var(--color-neutral-500)]">
           {t("agentMemory.emptyState")}

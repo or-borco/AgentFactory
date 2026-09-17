@@ -101,4 +101,21 @@ describe("AgentMemorySection", () => {
     expect(await screen.findByText(/Couldn't load this agent's memory/)).toBeInTheDocument();
     expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
   });
+
+  it("keeps the entries list visible when a delete fails", async () => {
+    apiFetchMock.mockResolvedValueOnce([ENTRY_ONE]);
+    apiFetchMock.mockRejectedValueOnce(new Error("network down")); // DELETE response
+    renderSection();
+    await screen.findByText("Never push directly to main.");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Delete$/ }));
+
+    // The delete failed, so `entries` is still the populated array it was before the click:
+    // the section must still be rendering that row (its delete-confirm copy), not have
+    // collapsed the whole entries-driven branch to nothing but the error banner.
+    expect(await screen.findByText(/Couldn't delete that entry/)).toBeInTheDocument();
+    expect(screen.getByText("Delete this memory entry?")).toBeInTheDocument();
+    expect(screen.getByText("Told to remember")).toBeInTheDocument();
+  });
 });
