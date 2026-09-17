@@ -423,8 +423,8 @@ per-trusted-org host is honest and sufficient.
   PATs — real today. The Anthropic API key is **not** yet resolved this way: `agent-runtime.ts` reads the
   platform's `ANTHROPIC_API_KEY` straight from the worker's environment for every run, with a comment marking
   `resolveCredentials(orgId)` (§9) as the still-open TODO.
-- Every event is persisted *and* published — the browser streams live, and a refresh replays from Postgres (no
-  Slack render yet — no channel adapter exists, §5). Same log serves both.
+- Every event is persisted *and* published — the browser streams live, and a refresh replays from Postgres (Telegram
+  render via channel adapter §5; Slack adapter not yet). Same log serves both.
 
 **Multi-node constraint:** Warm containers are **node-local** — `sessions.sandboxId` stores the Docker container ID,
 but the container only exists on the node's local daemon that created it. In a multi-node deployment (load balancer
@@ -477,7 +477,7 @@ Lumping these together is the classic mistake; they behave differently.
    Port: `ChannelAdapter { receive(raw) → InboundMessage, send(outbound) }` (`packages/integrations/src/channel-provider.ts`).
    **A channel thread maps 1:1 to a Session** — the same session the web UI shows. **Telegram is real** —
    `TelegramChannelAdapter` (`packages/integrations/src/telegram/`), an unauthenticated webhook route
-   (`apps/web/src/app/api/webhooks/telegram/[webhookSecret]/route.ts`) securitized by a per-connection secret
+   (`apps/web/src/app/api/webhooks/telegram/[webhookSecret]/route.ts`) secured by a per-connection secret
    plus Telegram's own `secret_token` header, single-use invite-code admission
    (`channel_invite_codes`/`channel_authorized_users` tables), and outbound delivery hooked into
    `apps/worker/src/worker.ts` via `channel-notify.ts` (mirrors `task-notify.ts`'s best-effort,
@@ -582,7 +582,7 @@ Milestones are sequential build phases, referred to elsewhere in this doc as M0�
 | M1 | First working agent | Web session → `DockerSandboxProvider` → `ClaudeCodeRuntime` (no repo) → streamed events, persisted + replayable, **with policy engine, budget caps and credential resolution live** | The runtime port and event log | **Half done.** Sandbox + streamed/persisted/replayable events are real. No `AgentRuntime` port (§1), no policy engine, no budget caps, no `resolveCredentials` (§6, §9) — the safety half is still open. |
 | M2 | Coding agents | GitHub App: install, repo binding, clone, `agent/*` branch, draft PR; blast-radius limits enforced; `Code reviewer` mock works end-to-end | Coding agents are real and contained | **Mostly done.** GitHub App + clone + branch + draft PR are real (§5). "Contained" currently means GitHub App scope only — the policy-engine layer from M1 is still missing, so blast-radius enforcement is one layer deep, not two (§6). |
 | M3 | Context | Skills library + team shared context → context assembly pipeline | §3 | **Done**, and grew beyond the original scope: task-scoped context (not just team-scoped) and a repo-map pipeline shipped alongside it (§2.7). |
-| M4 | Channels | Slack adapter (thread ↔ session) | Channel port | **Not started.** |
+| M4 | Channels | Slack adapter (thread ↔ session) | Channel port | **Partial.** Telegram done; Slack not started. |
 | M5 | Automation | Jira/Monday/Sheets via MCP + trigger bus + `automatic` mode | §5 / §6 | **Partial, and diverged from plan.** Jira is real via a direct REST adapter, not MCP (§9). No trigger bus, no `triggers` table, `automatic` mode unwired (§2.6, §6). Monday/Sheets not started. |
 | M6 | Proof | Audit log UI, org-wide pause, **second runtime adapter** | The SDK abstraction actually holds | **Not started.** |
 
