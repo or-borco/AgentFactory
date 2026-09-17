@@ -23,7 +23,7 @@ export interface SimilarMemoryMatch {
   weight: number;
 }
 
-// Mirrors searchTeamContextChunks' transaction/relaxed_order shape (context-chunks.ts) — the same
+// Mirrors searchTeamContextChunks' transaction/relaxed_order shape (context-chunks.ts). The same
 // "HNSW yields ~ef_search candidates globally, then filters" failure mode applies here even at
 // this table's much smaller per-agent scale, so the fix is reused rather than skipped as
 // premature. Top-1 only: memory dedup only ever needs to know about the single closest entry.
@@ -100,7 +100,7 @@ export async function reinforceMemoryEntry(id: number, provenance: MemoryProvena
     .where(eq(agentMemoryEntries.id, id));
 }
 
-// Ordered by weight desc then recency desc — the same priority buildAgentMemorySegment
+// Ordered by weight desc then recency desc, the same priority buildAgentMemorySegment
 // (prompt-composition.ts) fills the prompt budget in. Throws (does not swallow) on a decrypt
 // failure, matching readConnectionSecret's documented contract: a key mismatch or tamper must
 // surface as an error, not be indistinguishable from "no such row".
@@ -116,7 +116,7 @@ export async function readAgentMemoryEntries(
   return rows.map((row) => ({ ...toEntry(row), content: decryptSecret(row.ciphertext).content }));
 }
 
-// Re-encrypts content only — does NOT recompute the embedding. See this task's own note in the
+// Re-encrypts content only. Does NOT recompute the embedding. See this task's own note in the
 // plan for why: packages/db has no embedder (that lives in apps/worker), and introducing a new
 // queue/job for this rarely-used edit path isn't worth the complexity. A future dedup match
 // against the pre-edit embedding is a minor quality tradeoff, not a correctness break.

@@ -18,7 +18,7 @@ const DIMENSIONS = 384;
 const EMBEDDING_MODEL = "Xenova/bge-small-en-v1.5";
 
 // Unit vectors in the plane spanned by the first two axes, same construction as
-// context-chunks-search.test.ts's planeVector — cosine distance is exactly the angle between two
+// context-chunks-search.test.ts's planeVector. Cosine distance is exactly the angle between two
 // such vectors, so "how similar" is a property the test controls precisely without a real model.
 function planeVector(angleRad: number): number[] {
   const v = new Array<number>(DIMENSIONS).fill(0);
