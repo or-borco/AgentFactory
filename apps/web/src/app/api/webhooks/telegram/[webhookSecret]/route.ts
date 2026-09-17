@@ -84,17 +84,44 @@ async function handleInbound(
 ) {
   const { externalUserId } = inbound;
   const session = await findSessionByExternalThread(orgId, "telegram", externalUserId);
+  // Authorization is checked before the session/no-session split, not inside each arm, because
+  // admission has to work identically either way. An existing session must never let an
+  // unauthorized chat through, and — just as importantly — must never block a fresh invite code
+  // from being redeemed: `authorizeExternalUser` has no other caller and there's no admin UI to
+  // re-authorize a chat, so a session branch that short-circuited before redemption would leave
+  // every pre-existing chat permanently locked out after a routine disconnect/reconnect.
+  const status = await getAuthorizationStatus(connection.id, externalUserId);
 
-  if (session) {
-    // Fail closed on anything that isn't an explicit, live authorization. "unknown" is not a
-    // benign state here: channel_authorized_users cascade-deletes with the connection while
-    // sessions do not, so every previously-bound chat lands in "unknown" the moment an admin
-    // disconnects the bot — which is exactly the action taken to cut off access after a leak.
-    const status = await getAuthorizationStatus(connection.id, externalUserId);
-    if (status !== "authorized") {
+  if (status !== "authorized") {
+    if (inbound.isStartCommand && !inbound.startPayload) {
+      await adapter.send(externalUserId, WELCOME_MESSAGE(connection.label));
+      return;
+    }
+
+    // Only text actually shaped like a code counts as a redemption attempt. Treating every
+    // message as one meant a newcomer typing "hi" spent one of their five attempts and could be
+    // locked out without ever being told what to send. Upper-cased because the alphabet is
+    // uppercase-only and `code` is a case-sensitive text column — a hand-typed lowercase code is a
+    // real attempt at a real code, not a different code, so it shouldn't fail for casing alone.
+    const candidateCode = (inbound.startPayload ?? inbound.text?.trim())?.toUpperCase();
+    if (!candidateCode || !looksLikeInviteCode(candidateCode)) {
       await adapter.send(externalUserId, status === "revoked" ? REVOKED_MESSAGE : ASK_FOR_CODE_MESSAGE);
       return;
     }
+    if (!(await attemptRedemption(adapter, connection, externalUserId, candidateCode))) return;
+
+    // Authorized now — but the message that got them here was the code itself, not something to
+    // run. A chat that still has its session just gets it back; a new one picks an agent.
+    const boundAgent = session ? await getAgent(session.agentId) : undefined;
+    if (boundAgent) {
+      await adapter.send(externalUserId, `You're now talking to ${boundAgent.name}.`);
+      return;
+    }
+    await sendAgentMenu(adapter, orgId, externalUserId);
+    return;
+  }
+
+  if (session) {
     if (!inbound.text) return; // a stray callback on an already-bound session — nothing to do
 
     const userMessage = await createMessage(session.id, "user", inbound.text);
@@ -111,44 +138,6 @@ async function handleInbound(
       log.warn("Failed to send Telegram typing indicator", { connectionId: connection.id, err });
     }
     await enqueueRunJob(run.id);
-    return;
-  }
-
-  const authStatus = await getAuthorizationStatus(connection.id, externalUserId);
-  if (authStatus !== "authorized") {
-    if (inbound.isStartCommand && !inbound.startPayload) {
-      await adapter.send(externalUserId, WELCOME_MESSAGE(connection.label));
-      return;
-    }
-
-    // Only text actually shaped like a code counts as a redemption attempt. Treating every
-    // message as one meant a newcomer typing "hi" spent one of their five attempts and could be
-    // locked out without ever being told what to send.
-    const candidateCode = inbound.startPayload ?? inbound.text?.trim();
-    if (candidateCode && looksLikeInviteCode(candidateCode)) {
-      if (await isInCooldown(connection.id, externalUserId)) {
-        await adapter.send(externalUserId, COOLDOWN_MESSAGE);
-        return;
-      }
-      const redeemed = await redeemInviteCode(candidateCode, externalUserId);
-      // redeemInviteCode matches purely on the globally-unique code column — it has no notion of
-      // which bot the message came in on. A code minted for a different org's connection (leaked,
-      // or pasted into the wrong bot) still redeems successfully here, so it must be rejected
-      // exactly like an invalid code rather than authorizing against the WRONG connection. The
-      // code is already burned by the atomic UPDATE at this point — that's an accepted tradeoff
-      // (re-issuing it would reintroduce the race redeemInviteCode's atomicity exists to avoid).
-      if (!redeemed || redeemed.connectionId !== connection.id) {
-        await recordFailedRedemption(connection.id, externalUserId);
-        await adapter.send(externalUserId, INVALID_CODE_MESSAGE);
-        return;
-      }
-      await clearRedemptionAttempts(connection.id, externalUserId);
-      await authorizeExternalUser(connection.id, externalUserId);
-      await sendAgentMenu(adapter, orgId, externalUserId);
-      return;
-    }
-
-    await adapter.send(externalUserId, ASK_FOR_CODE_MESSAGE);
     return;
   }
 
@@ -172,6 +161,39 @@ async function handleInbound(
   }
 
   await sendAgentMenu(adapter, orgId, externalUserId);
+}
+
+/**
+ * Runs one invite-code redemption for a chat that isn't currently authorized, replying with the
+ * cooldown/invalid message on failure. Returns whether the chat came out of it authorized. Shared
+ * by the has-a-session and no-session paths: whether a session exists changes what happens *after*
+ * admission, never how admission itself works.
+ */
+async function attemptRedemption(
+  adapter: ChannelAdapter,
+  connection: Connection,
+  externalUserId: string,
+  candidateCode: string,
+): Promise<boolean> {
+  if (await isInCooldown(connection.id, externalUserId)) {
+    await adapter.send(externalUserId, COOLDOWN_MESSAGE);
+    return false;
+  }
+  const redeemed = await redeemInviteCode(candidateCode, externalUserId);
+  // redeemInviteCode matches purely on the globally-unique code column — it has no notion of
+  // which bot the message came in on. A code minted for a different org's connection (leaked,
+  // or pasted into the wrong bot) still redeems successfully here, so it must be rejected
+  // exactly like an invalid code rather than authorizing against the WRONG connection. The
+  // code is already burned by the atomic UPDATE at this point — that's an accepted tradeoff
+  // (re-issuing it would reintroduce the race redeemInviteCode's atomicity exists to avoid).
+  if (!redeemed || redeemed.connectionId !== connection.id) {
+    await recordFailedRedemption(connection.id, externalUserId);
+    await adapter.send(externalUserId, INVALID_CODE_MESSAGE);
+    return false;
+  }
+  await clearRedemptionAttempts(connection.id, externalUserId);
+  await authorizeExternalUser(connection.id, externalUserId);
+  return true;
 }
 
 /**

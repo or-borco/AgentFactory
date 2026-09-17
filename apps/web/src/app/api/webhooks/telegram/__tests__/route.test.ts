@@ -320,6 +320,86 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
     expect(enqueueRunJob).not.toHaveBeenCalled();
   });
 
+  // The flip side of failing closed on "unknown": redemption has to stay reachable for a chat that
+  // still has a session, or a routine disconnect/reconnect locks those chats out forever — there's
+  // no other caller of authorizeExternalUser and no admin UI to re-authorize a chat.
+  it("lets a bound-but-unauthorized chat redeem a fresh code and resume its session", async () => {
+    const { org, user, connection } = await setupOrgWithBot();
+    const agent = await insertAgent(org.id, { name: "Backend Bot" });
+    const session = await createSession(org.id, agent.id, "Telegram — Backend Bot", {
+      origin: "telegram",
+      externalThreadRef: "520",
+    });
+    await expect(getAuthorizationStatus(connection.id, "520")).resolves.toBe("unknown");
+    const invite = await generateInviteCode(org.id, connection.id, user.id);
+    mockSend.mockClear();
+
+    const res = await POST(webhookRequest("wh-secret-1", 520, invite.code), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    await expect(getAuthorizationStatus(connection.id, "520")).resolves.toBe("authorized");
+    // Told they're back in, on the session they already had — not sent to pick an agent again.
+    expect(mockSend).toHaveBeenCalledWith("520", expect.stringContaining("Backend Bot"));
+    // The code itself isn't a prompt, so it must not have started a run...
+    await expect(getRunsForSession(session.id)).resolves.toHaveLength(0);
+
+    // ...but the next real message runs on that same session.
+    await POST(webhookRequest("wh-secret-1", 520, "are you there?"), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    await expect(getRunsForSession(session.id)).resolves.toHaveLength(1);
+    const messages = await listMessages(session.id);
+    expect(messages.some((m) => m.content === "are you there?")).toBe(true);
+    expect(messages.some((m) => m.content === invite.code)).toBe(false);
+    await expect(findSessionByExternalThread(org.id, "telegram", "520")).resolves.toMatchObject({ id: session.id });
+  });
+
+  it("lets a revoked chat with a session redeem a fresh code", async () => {
+    const { org, user, connection } = await setupOrgWithBot();
+    const agent = await insertAgent(org.id, { name: "Backend Bot" });
+    const firstInvite = await generateInviteCode(org.id, connection.id, user.id);
+
+    await POST(webhookRequest("wh-secret-1", 530, `/start ${firstInvite.code}`), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    await POST(webhookRequest("wh-secret-1", 530, undefined, `agent:${agent.id}`), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    const authorized = await authorizeExternalUser(connection.id, "530");
+    await revokeAuthorizedUser(connection.id, authorized.id);
+    await expect(getAuthorizationStatus(connection.id, "530")).resolves.toBe("revoked");
+
+    const secondInvite = await generateInviteCode(org.id, connection.id, user.id);
+    await POST(webhookRequest("wh-secret-1", 530, secondInvite.code), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    await expect(getAuthorizationStatus(connection.id, "530")).resolves.toBe("authorized");
+    const session = await findSessionByExternalThread(org.id, "telegram", "530");
+    await POST(webhookRequest("wh-secret-1", 530, "back again"), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    await expect(getRunsForSession(session!.id)).resolves.toHaveLength(1);
+  });
+
+  it("redeems a code typed in lowercase", async () => {
+    const { org, user, connection } = await setupOrgWithBot();
+    await insertAgent(org.id, { name: "Backend Bot" });
+    const invite = await generateInviteCode(org.id, connection.id, user.id);
+    const recordSpy = vi.spyOn(db, "recordFailedRedemption");
+
+    const res = await POST(webhookRequest("wh-secret-1", 540, invite.code.toLowerCase()), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    await expect(getAuthorizationStatus(connection.id, "540")).resolves.toBe("authorized");
+    expect(recordSpy).not.toHaveBeenCalled();
+    recordSpy.mockRestore();
+  });
+
   // sendTyping is cosmetic; it sits between createRun and enqueueRunJob, so a throw there used to
   // strand a `queued` run with no job behind the handler's always-200 catch.
   it("still enqueues the run when sendTyping fails", async () => {
@@ -365,9 +445,11 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
       .spyOn(db, "createSession")
       .mockImplementationOnce(async (...args: Parameters<typeof db.createSession>) => {
         await realCreateSession(...args);
-        const err = new Error('duplicate key value violates unique constraint "sessions_org_origin_external_thread_idx"');
-        (err as Error & { code: string }).code = "23505";
-        throw err;
+        // Shaped like what Drizzle actually throws: SQLSTATE lives on the wrapped `cause`, never
+        // on the top-level error — so this also pins isUniqueViolation's cause-walking.
+        const pgError = new Error('duplicate key value violates unique constraint "sessions_org_origin_external_thread_idx"');
+        (pgError as Error & { code: string }).code = "23505";
+        throw new Error("Failed query: insert into \"sessions\"", { cause: pgError });
       });
     mockSend.mockClear();
 
