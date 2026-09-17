@@ -10,7 +10,7 @@ import { StatusMenu } from "@/components/StatusMenu";
 import { AssigneeSelect } from "@/components/AssigneeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { TaskStaleDialog } from "@/components/TaskStaleDialog";
-import { CheckIcon, TrashIcon, EditIcon, RunIcon, XIcon } from "@/lib/icons";
+import { CheckIcon, TrashIcon, EditIcon, RunIcon, StopIcon, XIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
 import { RunContextPanel } from "@/components/RunContextPanel";
@@ -998,6 +998,11 @@ export default function TaskDetailPage() {
                   disabled={starting}
                 >
                   <RunIcon size={15} />
+                </ToolbarIconButton>
+              )}
+              {task.sessionId && !DESTRUCTIVE_STATUSES.includes(task.status) && (
+                <ToolbarIconButton label={t("taskDetail.stopAgent")} onClick={() => {}}>
+                  <StopIcon size={15} />
                 </ToolbarIconButton>
               )}
               {task.status !== "done" && (
