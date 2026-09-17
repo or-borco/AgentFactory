@@ -42,10 +42,11 @@ function renderActions(taskOverrides: Partial<Task> = {}) {
 }
 
 describe("TaskRowActions", () => {
-  it("renders all four actions", () => {
+  it("renders all five actions", () => {
     renderActions();
     expect(screen.getByRole("button", { name: "Edit task" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run agent" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Mark as done" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete task" })).toBeInTheDocument();
   });
@@ -82,6 +83,21 @@ describe("TaskRowActions", () => {
     renderActions({ status: "assigned", assigneeAgentId: 7, sessionId: 99 });
     const runButton = screen.getByRole("button", { name: "Already started" });
     expect(runButton).toBeDisabled();
+  });
+
+  it("enables stop once a session exists on a non-terminal task", () => {
+    renderActions({ status: "in_progress", sessionId: 99 });
+    expect(screen.getByRole("button", { name: "Stop agent" })).not.toBeDisabled();
+  });
+
+  it("disables stop when there is no session", () => {
+    renderActions({ sessionId: undefined });
+    expect(screen.getByRole("button", { name: "Stop agent" })).toBeDisabled();
+  });
+
+  it("disables stop once the task reaches a terminal status", () => {
+    renderActions({ status: "done", sessionId: 99 });
+    expect(screen.getByRole("button", { name: "Stop agent" })).toBeDisabled();
   });
 
   it("calls onMarkDone when clicked on a non-done task", async () => {

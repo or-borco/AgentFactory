@@ -25,6 +25,7 @@ export {
   Buildings as OrgIcon,
   GithubLogo as GithubIcon,
   Play as RunIcon,
+  Stop as StopIcon,
 } from "@phosphor-icons/react";
 
 // Google brand icon kept as custom SVG

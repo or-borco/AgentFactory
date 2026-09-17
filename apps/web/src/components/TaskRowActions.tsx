@@ -6,7 +6,7 @@ import type { Task } from "@agentfactory/core";
 import { TooltipBubble } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { EditIcon, RunIcon, CheckIcon, TrashIcon } from "@/lib/icons";
+import { EditIcon, RunIcon, StopIcon, CheckIcon, TrashIcon } from "@/lib/icons";
 
 interface TaskRowActionsProps {
   task: Task;
@@ -74,6 +74,7 @@ export function TaskRowActions({ task, onRun, onMarkDone, onDelete }: TaskRowAct
 
   const canEdit = !task.sessionId;
   const canRun = task.status === "assigned" && !task.sessionId && !!task.assigneeAgentId;
+  const canStop = !!task.sessionId && !["done", "failed", "cancelled"].includes(task.status);
   const isDone = task.status === "done";
 
   const editLabel = canEdit ? t("tasks.rowActions.edit") : t("tasks.rowActions.editDisabledStarted");
@@ -137,6 +138,13 @@ export function TaskRowActions({ task, onRun, onMarkDone, onDelete }: TaskRowAct
           label={runLabel}
           onClick={handleRun}
           disabled={!canRun || running}
+        />
+
+        <ActionButton
+          icon={<StopIcon size={15} />}
+          label={t("tasks.rowActions.stop")}
+          onClick={() => {}}
+          disabled={!canStop}
         />
 
         <ActionButton
