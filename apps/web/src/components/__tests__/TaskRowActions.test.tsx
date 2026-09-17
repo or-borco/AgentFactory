@@ -111,4 +111,13 @@ describe("TaskRowActions", () => {
     expect(screen.queryByText("Delete 'Wire up run cancellation'?")).not.toBeInTheDocument();
     expect(onDelete).not.toHaveBeenCalled();
   });
+
+  it("renders the confirm dialog outside the fading action cluster wrapper", () => {
+    renderActions();
+    fireEvent.click(screen.getByRole("button", { name: "Delete task" }));
+    const dialogHeading = screen.getByText("Delete 'Wire up run cancellation'?");
+    const fadingWrapper = screen.getByRole("button", { name: "Edit task" }).closest("div.opacity-0");
+    expect(fadingWrapper).not.toBeNull();
+    expect(fadingWrapper).not.toContainElement(dialogHeading);
+  });
 });

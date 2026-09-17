@@ -584,6 +584,7 @@ const en = {
     taskMarkedDone: "Task marked as done",
     taskAssigneeUpdated: "Assignee updated",
     taskStatusUpdated: "Status updated",
+    taskRunNeedsRefresh: "The linked issue changed — open the task to review and run",
     taskContextUploadFailed: "Couldn't attach {names} to the new task — add them again from its Context tab.",
   },
   relativeTime: {

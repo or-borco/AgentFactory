@@ -118,40 +118,42 @@ export function TaskRowActions({ task, onRun, onMarkDone, onDelete }: TaskRowAct
   };
 
   return (
-    <div
-      className={
-        "inline-flex items-center gap-1 opacity-0 pointer-events-none transition-opacity duration-100 " +
-        "group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
-      }
-    >
-      <ActionButton
-        icon={<EditIcon size={15} />}
-        label={editLabel}
-        onClick={() => router.push(`/tasks/${task.id}/edit`)}
-        disabled={!canEdit}
-      />
+    <>
+      <div
+        className={
+          "inline-flex items-center gap-1 opacity-0 pointer-events-none transition-opacity duration-100 " +
+          "group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto"
+        }
+      >
+        <ActionButton
+          icon={<EditIcon size={15} />}
+          label={editLabel}
+          onClick={() => router.push(`/tasks/${task.id}/edit`)}
+          disabled={!canEdit}
+        />
 
-      <ActionButton
-        icon={<RunIcon size={15} />}
-        label={runLabel}
-        onClick={handleRun}
-        disabled={!canRun || running}
-      />
+        <ActionButton
+          icon={<RunIcon size={15} />}
+          label={runLabel}
+          onClick={handleRun}
+          disabled={!canRun || running}
+        />
 
-      <ActionButton
-        icon={<CheckIcon size={15} />}
-        label={t("tasks.rowActions.markDone")}
-        onClick={handleMarkDone}
-        disabled={isDone || markingDone}
-        disabledOpacity={0.2}
-      />
+        <ActionButton
+          icon={<CheckIcon size={15} />}
+          label={t("tasks.rowActions.markDone")}
+          onClick={handleMarkDone}
+          disabled={isDone || markingDone}
+          disabledOpacity={0.2}
+        />
 
-      <ActionButton
-        icon={<TrashIcon size={15} />}
-        label={t("tasks.rowActions.delete")}
-        onClick={() => setConfirmingDelete(true)}
-        destructive
-      />
+        <ActionButton
+          icon={<TrashIcon size={15} />}
+          label={t("tasks.rowActions.delete")}
+          onClick={() => setConfirmingDelete(true)}
+          destructive
+        />
+      </div>
 
       {confirmingDelete && (
         <ConfirmDialog
@@ -163,6 +165,6 @@ export function TaskRowActions({ task, onRun, onMarkDone, onDelete }: TaskRowAct
           onConfirm={handleConfirmDelete}
         />
       )}
-    </div>
+    </>
   );
 }

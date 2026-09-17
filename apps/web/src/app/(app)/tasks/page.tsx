@@ -165,7 +165,8 @@ export default function TasksPage() {
                     <TaskRowActions
                       task={task}
                       onRun={async () => {
-                        await runTask(task.id);
+                        const result = await runTask(task.id);
+                        if (result.stale) notify("toast.taskRunNeedsRefresh");
                         router.push(`/tasks/${task.id}`);
                       }}
                       onMarkDone={async () => {
