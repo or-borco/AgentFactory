@@ -264,7 +264,7 @@ export interface Task {
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────────
-export type SessionOrigin = "web" | "slack" | "github" | "jira" | "cron";
+export type SessionOrigin = "web" | "slack" | "github" | "jira" | "cron" | "telegram";
 
 export interface Session {
   id: ID;
