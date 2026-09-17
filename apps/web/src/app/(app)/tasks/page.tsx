@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button, EmptyState, PageHeader, TooltipBubble } from "@agentfactory/shared";
 import { useAppData } from "@/lib/app-data/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { StatusPill } from "@/components/StatusPill";
+import { TaskRowActions } from "@/components/TaskRowActions";
 import { TasksIcon, AlertIcon } from "@/lib/icons";
 
 export default function TasksPage() {
-  const { tasks, agents } = useAppData();
+  const { tasks, agents, runTask, updateTask, deleteTask, notify } = useAppData();
   const { t } = useTranslation();
+  const router = useRouter();
 
   const getAgentName = (agentId?: number) =>
     agentId ? (agents.find((a) => a.id === agentId)?.name ?? t("tasks.unassigned")) : t("tasks.unassigned");
@@ -50,7 +53,7 @@ export default function TasksPage() {
           >
             <thead>
               <tr style={{ borderBottom: "1px solid var(--color-divider)" }}>
-                {(["id", "task", "status", "assignee", "area"] as const).map((col) => (
+                {(["id", "task", "status", "assignee", "area", "actions"] as const).map((col) => (
                   <th
                     key={col}
                     style={{
@@ -155,6 +158,24 @@ export default function TasksPage() {
                     }}
                   >
                     {task.area ?? t("tasks.noArea")}
+                  </td>
+
+                  {/* Actions */}
+                  <td style={{ padding: "6px 12px", whiteSpace: "nowrap" }}>
+                    <TaskRowActions
+                      task={task}
+                      onRun={async () => {
+                        await runTask(task.id);
+                        router.push(`/tasks/${task.id}`);
+                      }}
+                      onMarkDone={async () => {
+                        await updateTask(task.id, { status: "done" });
+                        notify("toast.taskMarkedDone");
+                      }}
+                      onDelete={async () => {
+                        await deleteTask(task.id);
+                      }}
+                    />
                   </td>
                 </tr>
               ))}
