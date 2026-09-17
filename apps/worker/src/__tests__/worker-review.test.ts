@@ -45,6 +45,7 @@ vi.mock("@agentfactory/queue", () => ({
   SANDBOX_REAP_QUEUE_NAME: "sandbox-reap",
   REPO_MAP_WARM_QUEUE_NAME: "repo-map-warm",
   EVAL_QUEUE_NAME: "evals",
+  MEMORY_RETROSPECTIVE_QUEUE_NAME: "memory-retrospective",
   TEAM_CONTEXT_INGEST_QUEUE_NAME: "team-context-ingest",
   TASK_CONTEXT_INGEST_QUEUE_NAME: "task-context-ingest",
   queueConnection: {},
@@ -132,6 +133,7 @@ vi.mock("../context-ingest-wait", () => ({ waitForPendingContextIngest: vi.fn(as
 vi.mock("../task-documents", () => ({ materialiseTaskDocuments: vi.fn(async () => ({ written: [], omitted: [] })) }));
 vi.mock("../skills-materialize", () => ({ materialiseSkills: vi.fn(async () => []) }));
 vi.mock("../eval-runner", () => ({ processEvalJob: vi.fn() }));
+vi.mock("../memory-retrospective", () => ({ processMemoryRetrospectiveJob: vi.fn() }));
 vi.mock("../context-ingest", () => ({ ingestTaskContextItem: vi.fn(), ingestTeamContextItem: vi.fn() }));
 vi.mock("../task-notify", () => ({ notifyIssueOfPullRequest: vi.fn() }));
 vi.mock("../sandbox-reap", () => ({ SANDBOX_REAP_INTERVAL_MS: 60_000, scanForIdleSandboxes: vi.fn() }));

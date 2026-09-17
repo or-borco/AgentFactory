@@ -4,6 +4,7 @@ import {
   TASK_CONTEXT_INGEST_QUEUE_NAME,
   TEAM_CONTEXT_INGEST_QUEUE_NAME,
   EVAL_QUEUE_NAME,
+  MEMORY_RETROSPECTIVE_QUEUE_NAME,
   RUN_QUEUE_NAME,
   REPO_MAP_WARM_QUEUE_NAME,
   SANDBOX_REAP_QUEUE_NAME,
@@ -11,6 +12,7 @@ import {
   queueConnection,
   type ContextIngestJobData,
   type EvalJobData,
+  type MemoryRetrospectiveJobData,
   type RepoMapWarmJobData,
   type RunJobData,
   type SandboxTeardownJobData,
@@ -95,6 +97,7 @@ import { waitForPendingContextIngest } from "./context-ingest-wait";
 import { materialiseTaskDocuments, type MaterialisedTaskDocuments } from "./task-documents";
 import { materialiseSkills } from "./skills-materialize";
 import { processEvalJob } from "./eval-runner";
+import { processMemoryRetrospectiveJob } from "./memory-retrospective";
 import { ingestTaskContextItem, ingestTeamContextItem } from "./context-ingest";
 import { notifyIssueOfPullRequest } from "./task-notify";
 import { createLogger } from "@agentfactory/logger";
@@ -877,6 +880,22 @@ evalWorker.on("failed", (job, err) => {
   log.error("Eval job failed", { jobId: job?.id, err });
 });
 
+// Triggered by any task reaching a terminal status (apps/web's PATCH /api/tasks/[taskId] route),
+// extracts general lessons from the session's transcript. Never touches run/message history;
+// failures are logged inside processMemoryRetrospectiveJob itself, not surfaced anywhere else.
+const memoryRetrospectiveWorker = new Worker<MemoryRetrospectiveJobData>(
+  MEMORY_RETROSPECTIVE_QUEUE_NAME,
+  async (job) => {
+    const { orgId, agentId, sessionId } = job.data;
+    await processMemoryRetrospectiveJob(orgId, agentId, sessionId);
+  },
+  { connection: queueConnection },
+);
+
+memoryRetrospectiveWorker.on("failed", (job, err) => {
+  log.error("Memory retrospective job failed", { jobId: job?.id, err });
+});
+
 // Triggered by a document upload (apps/web's /api/teams/[teamId]/context-items route) —
 // extracts, chunks and embeds the file so PR 5's retrieval can reach it. Own queue for the
 // same reason the eval queue is its own: an upload's feedback loop is a status badge the
@@ -921,5 +940,6 @@ log.info("apps/worker listening", {
     EVAL_QUEUE_NAME,
     TEAM_CONTEXT_INGEST_QUEUE_NAME,
     TASK_CONTEXT_INGEST_QUEUE_NAME,
+    MEMORY_RETROSPECTIVE_QUEUE_NAME,
   ],
 });
