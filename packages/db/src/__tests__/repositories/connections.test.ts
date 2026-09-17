@@ -66,6 +66,23 @@ describe("connections repository", () => {
     expect(connection.config).toEqual(config);
   });
 
+  it("strips webhookSecret out of the returned config, on both create and read", async () => {
+    const org = await insertOrg();
+    const connection = await createConnection(org.id, {
+      provider: "telegram",
+      kind: "channel",
+      label: "@test_bot",
+      config: { botUsername: "test_bot", webhookSecret: "should-not-leak" },
+    });
+
+    expect(connection.config).not.toHaveProperty("webhookSecret");
+    expect(connection.config).toMatchObject({ botUsername: "test_bot" });
+
+    const fetched = await getConnection(org.id, connection.id);
+    expect(fetched?.config).not.toHaveProperty("webhookSecret");
+    expect(fetched?.config).toMatchObject({ botUsername: "test_bot" });
+  });
+
   it("deletes a connection", async () => {
     const org = await insertOrg();
     const connection = await createConnection(org.id, { provider: "github", kind: "scm", label: "acme-org/platform", config: {} });

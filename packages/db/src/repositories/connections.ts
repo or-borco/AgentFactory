@@ -10,6 +10,11 @@ import { db } from "../client";
 import { connections } from "../schema";
 
 function toConnection(row: typeof connections.$inferSelect): Connection {
+  // webhookSecret (used by the Telegram channel adapter's webhook auth) is a real secret despite
+  // living in the generic `config` jsonb column — Connection.config is returned verbatim to the
+  // browser by GET /api/connections, so it must never surface here. The raw DB row still carries
+  // it; only the materialized Connection object hides it.
+  const { webhookSecret: _webhookSecret, ...safeConfig } = (row.config ?? {}) as Record<string, unknown>;
   return {
     id: row.id,
     orgId: row.orgId,
@@ -17,7 +22,7 @@ function toConnection(row: typeof connections.$inferSelect): Connection {
     kind: row.kind,
     label: row.label,
     health: row.health,
-    config: row.config,
+    config: safeConfig,
     auth: row.auth,
     createdAt: row.createdAt.toISOString(),
   };
