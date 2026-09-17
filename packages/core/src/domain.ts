@@ -551,8 +551,8 @@ export type MemorySource = "manual" | "retrospective";
 
 // A `remember` call or a retrospective lesson should be a concise nudge, not a transcript dump.
 // Lives here (not apps/worker/src/memory-write.ts, which re-exports it for its existing
-// importers) so every write path that can mutate an entry's content -- the sandbox capture
-// pipelines in apps/worker, and apps/web's PATCH .../memory/[entryId] route -- enforces the same
+// importers) so every write path that can mutate an entry's content, the sandbox capture
+// pipelines in apps/worker, and apps/web's PATCH .../memory/[entryId] route, enforces the same
 // cap, even though apps/web cannot import from apps/worker.
 export const MAX_MEMORY_CONTENT_CHARS = 2000;
 

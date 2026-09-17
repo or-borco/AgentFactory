@@ -220,7 +220,7 @@ describe("buildAgentMemorySegment", () => {
   });
 
   // An oversized entry (sorted first, by weight) must not `break` the loop and silently drop
-  // every remaining, smaller entry behind it -- entries are sorted weight-desc, but that doesn't
+  // every remaining, smaller entry behind it. Entries are sorted weight-desc, but that doesn't
   // mean a later entry is also too big to fit. Regression test for that bug: skip (continue) the
   // oversized entry and keep trying subsequent ones.
   it("skips an oversized entry rather than dropping every smaller entry that follows it", () => {
