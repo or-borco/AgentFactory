@@ -5,6 +5,7 @@ import { db } from "../../client.js";
 import { agents } from "../../schema.js";
 import {
   createSession,
+  findSessionByExternalThread,
   getSession,
   listSessions,
   setSessionSandboxId,
@@ -80,5 +81,34 @@ describe("sessions repository", () => {
     await db.delete(agents).where(eq(agents.id, agent.id));
 
     await expect(getSession(session.id)).resolves.toBeUndefined();
+  });
+
+  it("creates a session with a non-web origin and externalThreadRef when opts are passed", async () => {
+    const org = await insertOrg();
+    const agent = await insertAgent(org.id);
+
+    const session = await createSession(org.id, agent.id, "Telegram — Test Agent", {
+      origin: "telegram",
+      externalThreadRef: "123456789",
+    });
+
+    expect(session.origin).toBe("telegram");
+    expect(session.externalThreadRef).toBe("123456789");
+  });
+
+  it("finds a session by org, origin, and externalThreadRef", async () => {
+    const org = await insertOrg();
+    const agent = await insertAgent(org.id);
+    const created = await createSession(org.id, agent.id, "Telegram — Test Agent", {
+      origin: "telegram",
+      externalThreadRef: "123456789",
+    });
+
+    await expect(findSessionByExternalThread(org.id, "telegram", "123456789")).resolves.toEqual(created);
+  });
+
+  it("returns undefined from findSessionByExternalThread when no session matches", async () => {
+    const org = await insertOrg();
+    await expect(findSessionByExternalThread(org.id, "telegram", "does-not-exist")).resolves.toBeUndefined();
   });
 });

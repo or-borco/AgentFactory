@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { and, eq, inArray, isNotNull, lt, notExists } from "drizzle-orm";
-import type { Session } from "@agentfactory/core";
+import type { Session, SessionOrigin } from "@agentfactory/core";
 import { db } from "../client";
 import { runs, sessions } from "../schema";
 import { NON_TERMINAL_RUN_STATUSES } from "./runs";
@@ -32,20 +32,43 @@ export async function getSession(id: number): Promise<Session | undefined> {
   return row ? toSession(row) : undefined;
 }
 
-export async function createSession(orgId: number, agentId: number, title: string): Promise<Session> {
+export interface CreateSessionOptions {
+  origin?: SessionOrigin;
+  externalThreadRef?: string;
+}
+
+export async function createSession(
+  orgId: number,
+  agentId: number,
+  title: string,
+  opts: CreateSessionOptions = {},
+): Promise<Session> {
   const [row] = await db
     .insert(sessions)
     .values({
       orgId,
       agentId,
       title,
-      origin: "web",
+      origin: opts.origin ?? "web",
+      externalThreadRef: opts.externalThreadRef,
       // See Session.branchToken in @agentfactory/core for why this needs to be unique beyond
       // just this row's own id.
       branchToken: randomBytes(4).toString("hex"),
     })
     .returning();
   return toSession(row);
+}
+
+export async function findSessionByExternalThread(
+  orgId: number,
+  origin: SessionOrigin,
+  externalThreadRef: string,
+): Promise<Session | undefined> {
+  const [row] = await db
+    .select()
+    .from(sessions)
+    .where(and(eq(sessions.orgId, orgId), eq(sessions.origin, origin), eq(sessions.externalThreadRef, externalThreadRef)));
+  return row ? toSession(row) : undefined;
 }
 
 export async function touchSessionActivity(id: number): Promise<void> {
