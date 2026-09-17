@@ -20,7 +20,7 @@ export interface ThinkingDeltaRuntimeEvent {
 }
 
 // Emitted by the sandbox's `remember` SDK tool (run-turn-claude.ts) the moment a lesson is
-// dictated, mid-turn — worker.ts's onEvent handler special-cases this type to call
+// dictated mid-turn. Worker.ts's onEvent handler special-cases this type to call
 // writeMemoryEntry and persist a content-free MemoryWriteEvent, rather than the generic
 // `createEvent(runId, seq++, event.type, { ...event })` every other runtime event goes through
 // (which would otherwise leak the plaintext lesson into the unencrypted events.data column).
