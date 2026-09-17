@@ -21,6 +21,7 @@ const LAYER_LABEL_KEYS: Record<string, TranslationKey> = {
   repo_map: "taskDetail.contextLayerRepoMap",
   [RETRIEVED_CONTEXT_ID]: "taskDetail.contextLayerRetrievedContext",
   agent_system_prompt: "taskDetail.contextLayerAgentSystemPrompt",
+  agent_memory: "taskDetail.contextLayerAgentMemory",
 };
 
 const OMISSION_LABEL_KEYS: Record<string, TranslationKey> = {
@@ -32,6 +33,7 @@ const OMISSION_LABEL_KEYS: Record<string, TranslationKey> = {
   no_relevant_chunks: "taskDetail.contextOmittedNoRelevantChunks",
   retrieval_failed: "taskDetail.contextOmittedRetrievalFailed",
   no_context_sources: "taskDetail.contextOmittedNoContextSources",
+  no_memory_entries: "taskDetail.contextOmittedNoMemoryEntries",
 };
 
 // A run only gets its segments written in the same statement that flips it to `running`, so a
