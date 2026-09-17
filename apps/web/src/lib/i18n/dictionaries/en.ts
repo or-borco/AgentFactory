@@ -202,6 +202,7 @@ const en = {
       status: "Status",
       assignee: "Assignee",
       area: "Area",
+      actions: "Actions",
     },
     status: {
       open: "Open",
@@ -213,6 +214,15 @@ const en = {
       done: "Done",
       failed: "Failed",
       cancelled: "Cancelled",
+    },
+    rowActions: {
+      edit: "Edit task",
+      editDisabledStarted: "Can't edit after a run has started",
+      run: "Run agent",
+      runDisabledNoAgent: "Assign an agent before running",
+      runDisabledStarted: "Already started",
+      markDone: "Mark as done",
+      delete: "Delete task",
     },
     unassigned: "Unassigned",
     noArea: "—",
