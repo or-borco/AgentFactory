@@ -7,6 +7,7 @@ import { orgs } from "../../schema.js";
 import {
   createConnection,
   deleteConnection,
+  findChannelConnectionByWebhookSecret,
   getConnection,
   listConnections,
   setConnectionHealth,
@@ -151,6 +152,24 @@ describe("connections repository", () => {
       expect(result).toBeUndefined();
       await expect(getConnection(org1.id, connection.id)).resolves.toMatchObject({ label: "Acme Jira" });
     });
+  });
+
+  it("finds a channel connection by its webhookSecret across orgs", async () => {
+    const org = await insertOrg();
+    const connection = await createConnection(org.id, {
+      provider: "telegram",
+      kind: "channel",
+      label: "Telegram",
+      config: { botUsername: "test_bot", webhookSecret: "unique-secret-abc" },
+    });
+
+    const found = await findChannelConnectionByWebhookSecret("unique-secret-abc");
+    expect(found?.connection).toEqual(connection);
+    expect(found?.orgId).toBe(org.id);
+  });
+
+  it("returns undefined for an unknown webhookSecret", async () => {
+    await expect(findChannelConnectionByWebhookSecret("no-such-secret")).resolves.toBeUndefined();
   });
 
   describe("setConnectionHealth", () => {

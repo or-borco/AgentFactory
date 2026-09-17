@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type {
   Connection,
   ConnectionAuthKind,
@@ -111,4 +111,20 @@ export async function getConnectionCredentialRef(orgId: number, id: number): Pro
     .from(connections)
     .where(and(eq(connections.orgId, orgId), eq(connections.id, id)));
   return row?.credentialRef;
+}
+
+/**
+ * Cross-org lookup by a channel connection's own webhook secret, for an inbound webhook that
+ * arrives with no org context. `config->>'webhookSecret'` is a jsonb text lookup — no dedicated
+ * index today; fine at current scale (a handful of orgs, one Telegram connection each), revisit
+ * with a dedicated column/index if that stops being true.
+ */
+export async function findChannelConnectionByWebhookSecret(
+  webhookSecret: string,
+): Promise<{ connection: Connection; orgId: number } | undefined> {
+  const [row] = await db
+    .select()
+    .from(connections)
+    .where(and(eq(connections.kind, "channel"), sql`${connections.config}->>'webhookSecret' = ${webhookSecret}`));
+  return row ? { connection: toConnection(row), orgId: row.orgId } : undefined;
 }
