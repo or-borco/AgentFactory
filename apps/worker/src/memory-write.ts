@@ -1,15 +1,16 @@
-import type { MemorySource } from "@agentfactory/core";
+import { MAX_MEMORY_CONTENT_CHARS, type MemorySource } from "@agentfactory/core";
 import { findSimilarMemoryEntry, insertMemoryEntry, reinforceMemoryEntry } from "@agentfactory/db";
 import { getEmbedder, type Embedder } from "./embedder";
 
 // A much higher bar than SIMILARITY_FLOOR (0.6, document retrieval): a false-positive merge here
 // silently discards a distinct new lesson rather than merely missing a relevant excerpt. Tunable,
-// not user-facing -- revisit with real data the same way the retrieval floor was.
+// not user-facing, revisit with real data the same way the retrieval floor was.
 export const MEMORY_SIMILARITY_FLOOR = 0.85;
 
-// A `remember` call or a retrospective lesson should be a concise nudge, not a transcript dump.
-// Enforced once, here, rather than as a convention duplicated at each of the two call sites.
-export const MAX_MEMORY_CONTENT_CHARS = 2000;
+// Re-exported for this module's existing importers (e.g. memory-write.test.ts). The value now
+// lives in @agentfactory/core so apps/web's PATCH .../memory/[entryId] route can enforce the same
+// cap without depending on apps/worker.
+export { MAX_MEMORY_CONTENT_CHARS };
 
 export interface MemoryProvenance {
   runId?: number;
@@ -17,7 +18,7 @@ export interface MemoryProvenance {
 }
 
 // Narrow function types rather than typeof imports so unit tests can stub each seam with a plain
-// vi.fn() -- the production defaults are structurally compatible. Same shape as IngestDeps
+// vi.fn(); the production defaults are structurally compatible. Same shape as IngestDeps
 // (context-ingest.ts) and EvalRunnerDeps (eval-runner.ts).
 export interface MemoryWriteDeps {
   findSimilarMemoryEntry: typeof findSimilarMemoryEntry;
@@ -37,7 +38,7 @@ function capContent(content: string): string {
 }
 
 // The shared write path both capture pipelines (the `remember` SDK tool, via worker.ts's onEvent
-// handler, and the memory-retrospective job) call. Embeds via embedDocuments -- not embedQuery --
+// handler, and the memory-retrospective job) call. Embeds via embedDocuments, not embedQuery,
 // because both sides of the similarity comparison are the same kind of text (a stored lesson vs.
 // a candidate lesson), unlike the asymmetric query-against-documents case context-retrieval.ts
 // handles; bge-*'s query instruction prefix would be wrong here.

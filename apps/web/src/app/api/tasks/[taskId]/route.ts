@@ -32,7 +32,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ taskId
     await enqueueSandboxTeardownJob(task.sessionId);
   }
 
-  // A completed task is at least as valuable a lesson as a successful one -- fires on all three
+  // A completed task is at least as valuable a lesson as a successful one, fires on all three
   // terminal statuses (done, failed, cancelled), unlike the repo-map-warm job below which only
   // fires on "done". Fire-and-forget, same style as the repo-map-warm call: the task update is
   // already committed, so a transient queue failure here must not turn a successful PATCH into

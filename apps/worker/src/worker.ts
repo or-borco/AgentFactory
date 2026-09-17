@@ -402,7 +402,16 @@ const runWorker = new Worker<RunJobData>(
       // run's prompt still includes the agent's own accumulated lessons, since those are agent-
       // specific behavior, not task-specific business context). A brand-new agent with zero
       // entries is the common case and just means an omitted segment, not an error.
-      const memoryEntries = await readAgentMemoryEntries(agent.orgId, agent.id);
+      // readAgentMemoryEntries throws on a decrypt failure (a corrupt/tampered ciphertext row or
+      // a key-rotation mismatch), and that must not brick every future run for this agent - fall
+      // back to treating memory as unavailable for this run rather than failing before the model
+      // is ever called.
+      let memoryEntries: Awaited<ReturnType<typeof readAgentMemoryEntries>> = [];
+      try {
+        memoryEntries = await readAgentMemoryEntries(agent.orgId, agent.id);
+      } catch (err) {
+        log.error("Failed to read agent memory entries", { runId, agentId: agent.id, err });
+      }
       const agentMemorySegment = buildAgentMemorySegment(
         memoryEntries.map((entry) => ({
           content: entry.content,
@@ -558,6 +567,9 @@ const runWorker = new Worker<RunJobData>(
               resumeSessionRef,
               skillNames,
               outputSchema: review ? REVIEW_OUTPUT_SCHEMA : undefined,
+              // Gates the `remember` MCP tool off inside the sandbox for review turns - see
+              // RunInput.isReviewTurn.
+              isReviewTurn: Boolean(review),
             },
             {
               sandboxProvider,
@@ -568,10 +580,20 @@ const runWorker = new Worker<RunJobData>(
                 // the whole point of encrypting agent_memory_entries.ciphertext. writeMemoryEntry
                 // is the only place the content is persisted, and only there, encrypted.
                 if (event.type === "memory_write") {
-                  const { reinforced } = await writeMemoryEntry(agent.orgId, agent.id, event.content, "manual", {
-                    runId,
-                    sessionId: session.id,
-                  });
+                  // Non-throwing, like every other writeMemoryEntry call site (the retrospective
+                  // job, the tasks route's fire-and-forget enqueue). onEvent is awaited inside the
+                  // turn's read loop, so letting this reject would fail an otherwise-successful
+                  // run over e.g. a transient embedder or Postgres error.
+                  let reinforced = false;
+                  try {
+                    ({ reinforced } = await writeMemoryEntry(agent.orgId, agent.id, event.content, "manual", {
+                      runId,
+                      sessionId: session.id,
+                    }));
+                  } catch (err) {
+                    // Never log event.content itself - only the error and enough context to debug.
+                    log.error("Failed to write memory entry", { runId, agentId: agent.id, err });
+                  }
                   await createEvent(runId, seq++, "memory_write", { reinforced });
                   return;
                 }

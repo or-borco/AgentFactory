@@ -362,7 +362,10 @@ export function buildAgentMemorySegment(entries: MemorySegmentEntry[]): PromptSe
   for (const entry of sorted) {
     const line = entry.weight > 1 ? `- [reinforced ${entry.weight}x] ${entry.content}\n` : `- ${entry.content}\n`;
     const lineBytes = Buffer.byteLength(line, "utf8");
-    if (bytes + lineBytes > MEMORY_SEGMENT_BUDGET_BYTES - footerBytes) break;
+    // continue, not break: entries are sorted weight-desc, but one oversized entry earlier in
+    // that order doesn't mean every later (smaller) entry is also too big - skipping it lets the
+    // loop keep trying subsequent entries instead of silently dropping the whole remainder.
+    if (bytes + lineBytes > MEMORY_SEGMENT_BUDGET_BYTES - footerBytes) continue;
     lines.push(line);
     bytes += lineBytes;
   }

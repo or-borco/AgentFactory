@@ -78,6 +78,22 @@ describe("readAgentTurnOutput", () => {
     });
   });
 
+  it("redacts __EVENT__ line content from the no-result-line error message", async () => {
+    const onEvent = vi.fn().mockResolvedValue(undefined);
+    const secretLesson = "Don't touch migration files directly.";
+    const output = chunks([
+      {
+        stream: "stdout",
+        data: `__EVENT__${JSON.stringify({ type: "memory_write", content: secretLesson })}\n`,
+      },
+    ]);
+    const result = readAgentTurnOutput(output, onEvent);
+    await expect(result).rejects.toThrow(/produced no result line/);
+    await expect(result).rejects.not.toThrow(new RegExp(secretLesson.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+    // The event is still forwarded to onEvent — only the error-message buffer redacts it.
+    expect(onEvent).toHaveBeenCalledWith({ type: "memory_write", content: secretLesson });
+  });
+
   it("ignores malformed (non-JSON) __EVENT__ lines", async () => {
     const onEvent = vi.fn().mockResolvedValue(undefined);
     const output = chunks([

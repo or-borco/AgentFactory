@@ -38,7 +38,7 @@ beforeEach(() => {
   enqueueMemoryRetrospectiveJob.mockReset().mockResolvedValue(undefined);
 });
 
-describe("PATCH /api/tasks/[taskId] — memory retrospective", () => {
+describe("PATCH /api/tasks/[taskId], memory retrospective", () => {
   it.each(["done", "failed", "cancelled"] as const)(
     "enqueues a retrospective job when status becomes %s and the task has a session and an assignee",
     async (status) => {

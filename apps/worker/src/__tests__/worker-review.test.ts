@@ -370,6 +370,12 @@ describe("review run detection gate", () => {
       1,
       expect.objectContaining({ repoFullName: "acme/app", prNumber: 7, verdict: "comment" }),
     );
+    // isReviewTurn: true is what drives run-turn-claude.ts to omit the `remember` MCP tool for
+    // review turns (see claude-code-runtime.test.ts for the env-var wiring this feeds into).
+    expect(h.runTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ isReviewTurn: true }),
+      expect.anything(),
+    );
   });
 
   it("runs a PR-link-free task as an ordinary run", async () => {
@@ -388,6 +394,9 @@ describe("review run detection gate", () => {
     expect(checkoutPullRequest).not.toHaveBeenCalled();
     expect(postReview).not.toHaveBeenCalled();
     expect(createPendingPrReview).not.toHaveBeenCalled();
-    expect(h.runTurn).toHaveBeenCalled();
+    expect(h.runTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ isReviewTurn: false }),
+      expect.anything(),
+    );
   });
 });

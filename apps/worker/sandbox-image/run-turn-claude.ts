@@ -45,6 +45,13 @@ async function main(): Promise<void> {
   const outputFormat = outputSchemaEnv
     ? ({ type: "json_schema", schema: JSON.parse(outputSchemaEnv) } as const)
     : undefined;
+  // Set by worker.ts (via claude-code-runtime.ts's AGENT_TURN_KIND env var) only for PR-review
+  // turns. Review prompts embed PR title/body/existing comments/diff text - content this codebase
+  // already treats elsewhere as untrusted and attacker-influenced - so the `remember` tool must
+  // not be reachable on this path: a crafted PR body could otherwise induce the agent to persist
+  // attacker-chosen "lessons" that get injected into every future run's system prompt for this
+  // agent, including non-review coding runs.
+  const isReviewTurn = process.env.AGENT_TURN_KIND === "review";
 
   let resultText: string | undefined;
   let sessionId: string | undefined;
@@ -68,7 +75,13 @@ async function main(): Promise<void> {
         // skills on its own (see skills-materialize.ts for how the pinned ones land in
         // .claude/skills before this runs).
         skills,
-        mcpServers: { memory: memoryMcpServer },
+        // `remember` (the memory MCP server) is omitted entirely on a review turn - see
+        // isReviewTurn above. Not testable in-process (this script executes the real SDK query()
+        // top-level on import, and this package - apps/worker/sandbox-image - has no test runner
+        // of its own and isn't in the unit vitest project's include glob); the AGENT_TURN_KIND
+        // env-var wiring that drives this flag is covered by
+        // apps/worker/src/__tests__/claude-code-runtime.test.ts instead.
+        mcpServers: isReviewTurn ? {} : { memory: memoryMcpServer },
         // `display` defaults to "omitted" on Sonnet 5 / Opus 5 and the 4.7+ family, which streams
         // thinking blocks with empty text — the run then shows nothing at all until the final
         // answer lands. "summarized" returns a readable summary of the reasoning instead. Thinking

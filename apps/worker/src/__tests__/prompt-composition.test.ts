@@ -218,6 +218,27 @@ describe("buildAgentMemorySegment", () => {
     expect(textBytes).toBeLessThanOrEqual(16 * 1024);
     expect(textBytes).toBeGreaterThan(16 * 1024 - 10);
   });
+
+  // An oversized entry (sorted first, by weight) must not `break` the loop and silently drop
+  // every remaining, smaller entry behind it -- entries are sorted weight-desc, but that doesn't
+  // mean a later entry is also too big to fit. Regression test for that bug: skip (continue) the
+  // oversized entry and keep trying subsequent ones.
+  it("skips an oversized entry rather than dropping every smaller entry that follows it", () => {
+    const oversizedEntry = {
+      content: "x".repeat(20 * 1024),
+      weight: 5,
+      lastReinforcedAt: "2026-09-02T00:00:00.000Z",
+    };
+    const smallEntry = {
+      content: "A small, valid lesson that easily fits.",
+      weight: 1,
+      lastReinforcedAt: "2026-09-01T00:00:00.000Z",
+    };
+    const segment = buildAgentMemorySegment([oversizedEntry, smallEntry]);
+    expect(segment.omittedReason).toBeUndefined();
+    expect(segment.text).toContain("A small, valid lesson that easily fits.");
+    expect(segment.text).not.toContain("x".repeat(20 * 1024));
+  });
 });
 
 describe("segment builders", () => {

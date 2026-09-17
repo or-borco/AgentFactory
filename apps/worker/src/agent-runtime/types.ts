@@ -46,6 +46,11 @@ export interface RunInput {
   resumeSessionRef?: string;
   skillNames?: string[];
   outputSchema?: Record<string, unknown>;
+  // True for a PR-review turn. Review prompts embed PR title/body/existing comments/diff text,
+  // which is attacker-influenced content, so run-turn-claude.ts uses this to gate out the
+  // `remember` MCP tool for review turns - otherwise a crafted PR body could induce the agent to
+  // persist attacker-chosen "lessons" that later get injected into every future run's prompt.
+  isReviewTurn?: boolean;
 }
 
 export interface AgentRuntime {

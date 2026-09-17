@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { MAX_MEMORY_CONTENT_CHARS } from "@agentfactory/core";
 
 const requireAuthContext = vi.fn();
 const getAgent = vi.fn();
@@ -60,6 +61,24 @@ describe("PATCH /api/agents/[agentId]/memory/[entryId]", () => {
 
     expect(res.status).toBe(400);
     expect(updateMemoryEntryContent).not.toHaveBeenCalled();
+  });
+
+  it("400s when content exceeds MAX_MEMORY_CONTENT_CHARS", async () => {
+    getAgent.mockResolvedValue({ id: 5, orgId: 3 });
+
+    const res = await patch("5", "1", { content: "x".repeat(MAX_MEMORY_CONTENT_CHARS + 1) });
+
+    expect(res.status).toBe(400);
+    expect(updateMemoryEntryContent).not.toHaveBeenCalled();
+  });
+
+  it("accepts content exactly at MAX_MEMORY_CONTENT_CHARS", async () => {
+    getAgent.mockResolvedValue({ id: 5, orgId: 3 });
+
+    const res = await patch("5", "1", { content: "x".repeat(MAX_MEMORY_CONTENT_CHARS) });
+
+    expect(res.status).toBe(204);
+    expect(updateMemoryEntryContent).toHaveBeenCalledExactlyOnceWith(3, 1, "x".repeat(MAX_MEMORY_CONTENT_CHARS));
   });
 
   it("updates the entry's content, org-scoped", async () => {

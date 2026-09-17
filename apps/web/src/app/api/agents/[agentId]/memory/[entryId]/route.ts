@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { MAX_MEMORY_CONTENT_CHARS } from "@agentfactory/core";
 import { deleteMemoryEntry, getAgent, updateMemoryEntryContent } from "@agentfactory/db";
 import { requireAuthContext } from "@/server/auth";
 
@@ -15,6 +16,12 @@ export async function PATCH(
 
   if (typeof body.content !== "string" || body.content.trim() === "") {
     return NextResponse.json({ error: "content is required" }, { status: 400 });
+  }
+  if (body.content.length > MAX_MEMORY_CONTENT_CHARS) {
+    return NextResponse.json(
+      { error: `content must be at most ${MAX_MEMORY_CONTENT_CHARS} characters` },
+      { status: 400 },
+    );
   }
 
   await updateMemoryEntryContent(ctx.orgId, Number(entryId), body.content);
