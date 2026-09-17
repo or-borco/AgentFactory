@@ -223,6 +223,11 @@ export const channelAuthorizedUsers = pgTable(
     externalUserId: text("external_user_id").notNull(),
     authorizedAt: timestamp("authorized_at", { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    // The chat's current focus — derived-state design (see the Telegram task-integration spec's
+    // "Data model"): everything else about what the bot says next comes from reading this task's
+    // own fields, not a separate state machine. Survives a revoke/re-authorize cycle untouched,
+    // since authorizeExternalUser's upsert only ever writes revokedAt.
+    activeTaskId: integer("active_task_id").references((): AnyPgColumn => tasks.id, { onDelete: "set null" }),
   },
   (table) => [uniqueIndex("channel_authorized_users_connection_external_user_idx").on(table.connectionId, table.externalUserId)],
 );
@@ -280,15 +285,6 @@ export const sessions = pgTable(
   (table) => [
     // Agent detail pages list sessions WHERE agent_id = ? — without this, a seq scan.
     index("sessions_agent_id_idx").on(table.agentId),
-    // One session per external chat thread. Without this, two concurrent inbound deliveries for
-    // the same chat (a double-tap on the agent menu) both miss findSessionByExternalThread and
-    // both insert, after which the conversation splits non-deterministically across two sessions
-    // and two sandboxes. Partial so it only constrains channel sessions: web sessions all carry a
-    // NULL external_thread_ref, and while Postgres already treats NULLs as distinct in a unique
-    // index, saying so explicitly keeps the index small and its intent legible.
-    uniqueIndex("sessions_org_origin_external_thread_idx")
-      .on(table.orgId, table.origin, table.externalThreadRef)
-      .where(sql`external_thread_ref IS NOT NULL`),
   ],
 );
 
