@@ -16,6 +16,11 @@ export const TEAM_CONTEXT_INGEST_QUEUE_NAME = "context-ingest";
 // TEAM_CONTEXT_INGEST_QUEUE_NAME's. apps/worker/src/worker.ts registers a processor for this
 // queue alongside the team one.
 export const TASK_CONTEXT_INGEST_QUEUE_NAME = "task-context-ingest";
+// Fires when a task the agent owns reaches a terminal status (done, failed, or cancelled - see
+// apps/web's tasks/[taskId] PATCH handler). Not jobId-deduplicated like repo-map-warm: unlike a
+// warm request, a redelivered or duplicate retrospective pass is safe on its own merits (the
+// write path's weight-reinforcement dedup), not because the queue collapsed it.
+export const MEMORY_RETROSPECTIVE_QUEUE_NAME = "memory-retrospective";
 
 export interface RunJobData {
   runId: number;
@@ -44,6 +49,12 @@ export interface TaskContextIngestJobData {
   itemId: number;
 }
 
+export interface MemoryRetrospectiveJobData {
+  orgId: number;
+  agentId: number;
+  sessionId: number;
+}
+
 const redisUrl = process.env.REDIS_URL;
 if (!redisUrl) {
   throw new Error("REDIS_URL is not set");
@@ -61,6 +72,9 @@ const contextIngestQueue = new Queue<ContextIngestJobData>(TEAM_CONTEXT_INGEST_Q
   connection: queueConnection,
 });
 const taskContextIngestQueue = new Queue<TaskContextIngestJobData>(TASK_CONTEXT_INGEST_QUEUE_NAME, {
+  connection: queueConnection,
+});
+const memoryRetrospectiveQueue = new Queue<MemoryRetrospectiveJobData>(MEMORY_RETROSPECTIVE_QUEUE_NAME, {
   connection: queueConnection,
 });
 
@@ -131,4 +145,8 @@ export async function enqueueTaskContextIngestJob(itemId: number): Promise<void>
       removeOnFail: { count: 100 },
     },
   );
+}
+
+export async function enqueueMemoryRetrospectiveJob(orgId: number, agentId: number, sessionId: number): Promise<void> {
+  await memoryRetrospectiveQueue.add("process-memory-retrospective", { orgId, agentId, sessionId });
 }
