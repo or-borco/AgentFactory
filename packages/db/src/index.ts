@@ -10,6 +10,7 @@ export * from "./repositories/teams";
 export * from "./repositories/agents";
 export * from "./repositories/connections";
 export * from "./repositories/channel-invite-codes";
+export * from "./repositories/channel-authorized-users";
 export * from "./repositories/connection-secrets";
 export * from "./repositories/sessions";
 export * from "./repositories/messages";
