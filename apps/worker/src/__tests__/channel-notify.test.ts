@@ -1,7 +1,8 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { Session } from "@agentfactory/core";
 
 const mockSend = vi.fn();
+const mockSendTyping = vi.fn(async () => {});
 vi.mock("@agentfactory/db", () => ({
   listConnections: vi.fn(async () => [{ id: 1, orgId: 9, kind: "channel", provider: "telegram", config: {}, credentialRef: 5 }]),
   getConnectionCredentialRef: vi.fn(async () => 5),
@@ -9,10 +10,10 @@ vi.mock("@agentfactory/db", () => ({
   setConnectionHealth: vi.fn(),
 }));
 vi.mock("@agentfactory/integrations", () => ({
-  createChannelAdapter: () => ({ send: mockSend, sendTyping: vi.fn() }),
+  createChannelAdapter: () => ({ send: mockSend, sendTyping: mockSendTyping }),
 }));
 
-import { notifySessionOfReply } from "../channel-notify";
+import { notifySessionOfReply, startTypingIndicator } from "../channel-notify";
 
 function webSession(): Session {
   return { id: 1, agentId: 1, title: "t", origin: "web", createdAt: "", lastActivityAt: "" };
@@ -41,5 +42,42 @@ describe("notifySessionOfReply", () => {
     const emitEvent = vi.fn();
     await expect(notifySessionOfReply(9, telegramSession(), "hello", emitEvent)).resolves.toBeUndefined();
     expect(emitEvent).toHaveBeenCalledWith("error", expect.objectContaining({ message: expect.stringContaining("Telegram is down") }));
+  });
+});
+
+describe("startTypingIndicator", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.useRealTimers());
+
+  it("is a no-op for a web-origin session", () => {
+    const stop = startTypingIndicator(9, webSession());
+    expect(typeof stop).toBe("function");
+    expect(mockSendTyping).not.toHaveBeenCalled();
+  });
+
+  it("sends via the adapter for a telegram-origin session, and re-sends on the interval", async () => {
+    vi.useFakeTimers();
+    const stop = startTypingIndicator(9, telegramSession());
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockSendTyping).toHaveBeenCalledTimes(1);
+    expect(mockSendTyping).toHaveBeenCalledWith("42");
+
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(mockSendTyping).toHaveBeenCalledTimes(2);
+
+    stop();
+  });
+
+  it("stop function halts further sends", async () => {
+    vi.useFakeTimers();
+    const stop = startTypingIndicator(9, telegramSession());
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(mockSendTyping).toHaveBeenCalledTimes(1);
+
+    stop();
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(mockSendTyping).toHaveBeenCalledTimes(1);
   });
 });
