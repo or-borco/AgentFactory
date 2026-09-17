@@ -20,6 +20,9 @@ import {
 import { createChannelAdapter, type ChannelAdapter } from "@agentfactory/integrations";
 import { enqueueRunJob } from "@agentfactory/queue";
 import type { Connection } from "@agentfactory/core";
+import { createLogger } from "@agentfactory/logger";
+
+const log = createLogger("webhooks:telegram");
 
 const WELCOME_MESSAGE = (orgLabel: string) =>
   `This connects you to ${orgLabel}'s agents on AgentFactory. Send the invite code your admin gave you to get started.`;
@@ -57,7 +60,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ web
     return new NextResponse(null, { status: 200 }); // unrecognized update shape — ack and ignore
   }
 
-  await handleInbound(adapter, orgId, connection, inbound);
+  try {
+    await handleInbound(adapter, orgId, connection, inbound);
+  } catch (err) {
+    // Never let an internal error surface as a non-200 to Telegram — a 5xx here triggers
+    // Telegram's own retry-storm behavior, exactly what this design exists to avoid. A transient
+    // Postgres/Redis blip just means this update is dropped; Telegram doesn't get a signal to
+    // resend it, but that's preferable to a retry storm hammering an already-struggling backend.
+    log.error("Failed to handle inbound Telegram update", { connectionId: connection.id, err });
+  }
   return new NextResponse(null, { status: 200 });
 }
 
@@ -100,7 +111,13 @@ async function handleInbound(
         return;
       }
       const redeemed = await redeemInviteCode(candidateCode, externalUserId);
-      if (!redeemed) {
+      // redeemInviteCode matches purely on the globally-unique code column — it has no notion of
+      // which bot the message came in on. A code minted for a different org's connection (leaked,
+      // or pasted into the wrong bot) still redeems successfully here, so it must be rejected
+      // exactly like an invalid code rather than authorizing against the WRONG connection. The
+      // code is already burned by the atomic UPDATE at this point — that's an accepted tradeoff
+      // (re-issuing it would reintroduce the race redeemInviteCode's atomicity exists to avoid).
+      if (!redeemed || redeemed.connectionId !== connection.id) {
         await recordFailedRedemption(connection.id, externalUserId);
         await adapter.send(externalUserId, INVALID_CODE_MESSAGE);
         return;
@@ -118,7 +135,9 @@ async function handleInbound(
   // Authorized, no session yet: expect a menu button tap.
   if (inbound.callbackData?.startsWith("agent:")) {
     const agentId = Number(inbound.callbackData.slice("agent:".length));
-    const agent = await getAgent(agentId);
+    // A tampered or malformed callback_data (e.g. "agent:xyz") parses to NaN — Number.isFinite
+    // catches that before it ever reaches getAgent, same fallback as a stale/deleted agent id.
+    const agent = Number.isFinite(agentId) ? await getAgent(agentId) : undefined;
     // The agent named in a stale callback (deleted since the menu was sent, or a tampered
     // callback_data) no longer exists — fall back to re-showing a fresh menu rather than creating
     // a session pointed at nothing.

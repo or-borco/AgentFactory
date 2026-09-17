@@ -12,6 +12,12 @@ import {
   findSessionByExternalThread,
   getRunsForSession,
 } from "@agentfactory/db";
+// Namespace import alongside the named one above so individual repository functions can be
+// spied on for the "an internal error must never surface as a non-200" regression test — this
+// route test deliberately runs against the real @agentfactory/db (see the file-level note in
+// task-10-brief.md), so simulating a transient failure means stubbing one real export, not
+// swapping in a mock module.
+import * as db from "@agentfactory/db";
 import { POST } from "../[webhookSecret]/route";
 
 // The adapter's own send()/sendMenu()/sendTyping() hit the real Telegram API — stubbed here so
@@ -197,5 +203,74 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
     expect(res.status).toBe(200);
     expect(mockSend).toHaveBeenCalledWith("600", expect.stringContaining("No agents"));
     await expect(findSessionByExternalThread(org.id, "telegram", "600")).resolves.toBeUndefined();
+  });
+
+  it("still returns 200 when a repository call inside handleInbound throws", async () => {
+    const { org, user, connection } = await setupOrgWithBot();
+    const agent = await insertAgent(org.id, { name: "Backend Bot" });
+    const invite = await generateInviteCode(org.id, connection.id, user.id);
+
+    await POST(webhookRequest("wh-secret-1", 800, `/start ${invite.code}`), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    await POST(webhookRequest("wh-secret-1", 800, undefined, `agent:${agent.id}`), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    const createMessageSpy = vi.spyOn(db, "createMessage").mockRejectedValueOnce(new Error("connection reset"));
+    const res = await POST(webhookRequest("wh-secret-1", 800, "hi there"), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    createMessageSpy.mockRestore();
+  });
+
+  it("falls back to the agent menu instead of crashing on a malformed callback_data agent id", async () => {
+    const { org, user, connection } = await setupOrgWithBot();
+    await insertAgent(org.id, { name: "Backend Bot" });
+    const invite = await generateInviteCode(org.id, connection.id, user.id);
+
+    await POST(webhookRequest("wh-secret-1", 900, `/start ${invite.code}`), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    mockSendMenu.mockClear();
+
+    const res = await POST(webhookRequest("wh-secret-1", 900, undefined, "agent:xyz"), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockSendMenu).toHaveBeenCalled();
+    await expect(findSessionByExternalThread(org.id, "telegram", "900")).resolves.toBeUndefined();
+  });
+
+  it("rejects an invite code redeemed against a different connection's org", async () => {
+    const { connection: connectionA } = await setupOrgWithBot();
+    const orgB = await insertOrg();
+    const userB = await insertUser();
+    await insertMembership(orgB.id, userB.id, "admin");
+    const credentialRefB = await createConnectionSecret(orgB.id, { botToken: "test-token-b" });
+    const connectionB = await createConnection(orgB.id, {
+      provider: "telegram",
+      kind: "channel",
+      label: "Telegram B",
+      auth: "api_token",
+      credentialRef: credentialRefB,
+      config: { botUsername: "test_bot_b", webhookSecret: "wh-secret-b" },
+    });
+    const inviteForB = await generateInviteCode(orgB.id, connectionB.id, userB.id);
+
+    // The code was minted for connection B's org, but arrives on connection A's webhook.
+    const res = await POST(webhookRequest("wh-secret-1", 1000, `/start ${inviteForB.code}`), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockSend).toHaveBeenCalledWith("1000", expect.stringContaining("isn't valid"));
+    await expect(getAuthorizationStatus(connectionA.id, "1000")).resolves.toBe("unknown");
+    // The code is burned by the atomic UPDATE regardless — but nobody ends up authorized
+    // anywhere, on either connection.
+    await expect(getAuthorizationStatus(connectionB.id, "1000")).resolves.toBe("unknown");
   });
 });
