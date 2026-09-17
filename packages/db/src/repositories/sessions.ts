@@ -5,7 +5,7 @@ import { db } from "../client";
 import { runs, sessions } from "../schema";
 import { NON_TERMINAL_RUN_STATUSES } from "./runs";
 
-function toSession(row: typeof sessions.$inferSelect): Session {
+export function toSession(row: typeof sessions.$inferSelect): Session {
   return {
     id: row.id,
     agentId: row.agentId,

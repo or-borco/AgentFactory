@@ -1,7 +1,14 @@
 import type { TaskExternalRef } from "@agentfactory/core";
 import { describe, expect, it } from "vitest";
 import "../setup.js";
-import { attachTaskSession, createTask, getTaskBySessionId, updateTask } from "../../repositories/tasks.js";
+import {
+  attachTaskSession,
+  createTask,
+  getTaskBySessionId,
+  startTaskSession,
+  toTask,
+  updateTask,
+} from "../../repositories/tasks.js";
 import { insertAgent, insertOrg, insertSession, insertTask, insertUser } from "../fixtures.js";
 
 describe("getTaskBySessionId", () => {
@@ -86,5 +93,85 @@ describe("externalRef", () => {
     const updated = await updateTask(task.id, { externalRef: ref });
 
     expect(updated.externalRef).toEqual(ref);
+  });
+});
+
+describe("startTaskSession", () => {
+  it("creates a session and the first user message, and updates the task in one write", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+    const agent = await insertAgent(org.id);
+    const task = await insertTask(org.id, user.id, { title: "Fix the thing" });
+
+    const result = await startTaskSession(task.id, org.id, agent.id, task.title, "Fix the thing please", {
+      origin: "telegram",
+      externalThreadRef: "42",
+    });
+
+    expect(result.started).toBe(true);
+    if (!result.started) throw new Error("expected started: true");
+    expect(result.session.agentId).toBe(agent.id);
+    expect(result.session.origin).toBe("telegram");
+    expect(result.session.externalThreadRef).toBe("42");
+    expect(result.task.sessionId).toBe(result.session.id);
+    expect(result.task.assigneeAgentId).toBe(agent.id);
+    expect(result.task.status).toBe("in_progress");
+
+    const { listMessages } = await import("../../repositories/messages.js");
+    const messages = await listMessages(result.session.id);
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe("Fix the thing please");
+    expect(messages[0].id).toBe(result.userMessageId);
+  });
+
+  it("bumps the task's updatedAt", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+    const agent = await insertAgent(org.id);
+    const task = await insertTask(org.id, user.id);
+    const before = task.updatedAt;
+
+    await new Promise((r) => setTimeout(r, 5));
+    const result = await startTaskSession(task.id, org.id, agent.id, task.title, "brief", { origin: "telegram" });
+
+    if (!result.started) throw new Error("expected started: true");
+    expect(new Date(result.task.updatedAt).getTime()).toBeGreaterThan(new Date(before).getTime());
+  });
+
+  it("returns started: false without creating a session when the task already has one", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+    const agent = await insertAgent(org.id);
+    const task = await insertTask(org.id, user.id);
+    const first = await startTaskSession(task.id, org.id, agent.id, task.title, "brief", { origin: "telegram" });
+    if (!first.started) throw new Error("expected first call to start");
+
+    const second = await startTaskSession(task.id, org.id, agent.id, task.title, "a different brief", { origin: "telegram" });
+
+    expect(second.started).toBe(false);
+    if (second.started) throw new Error("expected started: false");
+    expect(second.task.sessionId).toBe(first.session.id);
+    expect(second.task.assigneeAgentId).toBe(agent.id);
+  });
+
+  it("throws when the task belongs to a different org", async () => {
+    const org = await insertOrg();
+    const otherOrg = await insertOrg();
+    const user = await insertUser();
+    const agent = await insertAgent(otherOrg.id);
+    const task = await insertTask(org.id, user.id);
+
+    await expect(
+      startTaskSession(task.id, otherOrg.id, agent.id, task.title, "brief", { origin: "telegram" }),
+    ).rejects.toThrow(/does not belong to org/);
+  });
+
+  it("throws when the task does not exist", async () => {
+    const org = await insertOrg();
+    const agent = await insertAgent(org.id);
+
+    await expect(
+      startTaskSession(999_999, org.id, agent.id, "title", "brief", { origin: "telegram" }),
+    ).rejects.toThrow(/not found/);
   });
 });
