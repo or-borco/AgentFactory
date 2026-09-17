@@ -201,6 +201,23 @@ describe("buildAgentMemorySegment", () => {
     expect(Buffer.byteLength(segment.text, "utf8")).toBeLessThanOrEqual(16 * 1024);
     expect(segment.omittedReason).toBeUndefined();
   });
+
+  // Boundary case for the trailing "\n---\n\n" footer appended after the loop: fine-grained 4-byte
+  // lines ("- x\n") let the loop land within a few bytes of the cap, so the footer's own bytes must
+  // be reserved ahead of time rather than added on top. Without that reservation the loop fills up
+  // to (budget) bytes of header+lines, then the 6-byte footer pushes the total a few bytes over
+  // 16 KB. The lower bound proves the fix isn't stopping comfortably early to dodge the bug.
+  it("stays within the byte budget after the footer, even at the exact boundary", () => {
+    const tinyEntries = Array.from({ length: 5000 }, () => ({
+      content: "x",
+      weight: 1,
+      lastReinforcedAt: "2026-09-01T00:00:00.000Z",
+    }));
+    const segment = buildAgentMemorySegment(tinyEntries);
+    const textBytes = Buffer.byteLength(segment.text, "utf8");
+    expect(textBytes).toBeLessThanOrEqual(16 * 1024);
+    expect(textBytes).toBeGreaterThan(16 * 1024 - 10);
+  });
 });
 
 describe("segment builders", () => {

@@ -356,11 +356,13 @@ export function buildAgentMemorySegment(entries: MemorySegmentEntry[]): PromptSe
   const lines: string[] = [];
   let bytes = 0;
   const header = "## What You've Learned (your own accumulated lessons from prior sessions)\n\n";
+  const footer = "\n---\n\n";
+  const footerBytes = Buffer.byteLength(footer, "utf8");
   bytes += Buffer.byteLength(header, "utf8");
   for (const entry of sorted) {
     const line = entry.weight > 1 ? `- [reinforced ${entry.weight}x] ${entry.content}\n` : `- ${entry.content}\n`;
     const lineBytes = Buffer.byteLength(line, "utf8");
-    if (bytes + lineBytes > MEMORY_SEGMENT_BUDGET_BYTES) break;
+    if (bytes + lineBytes > MEMORY_SEGMENT_BUDGET_BYTES - footerBytes) break;
     lines.push(line);
     bytes += lineBytes;
   }
@@ -369,7 +371,7 @@ export function buildAgentMemorySegment(entries: MemorySegmentEntry[]): PromptSe
     return { id: "agent_memory", text: "", omittedReason: "no_memory_entries" };
   }
 
-  return { id: "agent_memory", text: `${header}${lines.join("")}\n---\n\n` };
+  return { id: "agent_memory", text: `${header}${lines.join("")}${footer}` };
 }
 
 // Order per ARCHITECTURE.md §3, narrowed to this repo's actual scope. Skills are not a prompt
