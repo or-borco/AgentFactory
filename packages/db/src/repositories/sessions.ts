@@ -59,24 +59,6 @@ export async function createSession(
   return toSession(row);
 }
 
-export async function findSessionByExternalThread(
-  orgId: number,
-  origin: SessionOrigin,
-  externalThreadRef: string,
-): Promise<Session | undefined> {
-  const [row] = await db
-    .select()
-    .from(sessions)
-    .where(and(eq(sessions.orgId, orgId), eq(sessions.origin, origin), eq(sessions.externalThreadRef, externalThreadRef)))
-    // sessions_org_origin_external_thread_idx already makes at most one row possible; the explicit
-    // ordering is belt-and-braces so a pre-index duplicate (or a future relaxation of the index)
-    // still resolves to the same, oldest session on every lookup instead of whichever row the
-    // planner happens to return first.
-    .orderBy(sessions.id)
-    .limit(1);
-  return row ? toSession(row) : undefined;
-}
-
 export async function touchSessionActivity(id: number): Promise<void> {
   await db.update(sessions).set({ lastActivityAt: new Date() }).where(eq(sessions.id, id));
 }
