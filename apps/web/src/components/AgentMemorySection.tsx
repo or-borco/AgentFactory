@@ -104,55 +104,150 @@ export function AgentMemorySection({ agentId }: { agentId: number }) {
       ) : (
         <div className="space-y-2">
           {entries.map((entry) => (
-            <Card key={entry.id} className="px-5 py-4">
-              <div className="mb-2 flex items-center gap-2">
-                <Badge>{t(entry.source === "manual" ? "agentMemory.sourceManual" : "agentMemory.sourceRetrospective")}</Badge>
-                {entry.weight > 1 && (
-                  <Badge tone="success">{t("agentMemory.reinforcedLabel", { count: entry.weight })}</Badge>
-                )}
-              </div>
-              {editingId === entry.id ? (
-                <div>
-                  <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} rows={3} />
-                  <div className="mt-2 flex gap-2">
-                    <Button disabled={busyIds.has(entry.id)} onClick={() => saveEdit(entry.id)}>
-                      {t("agentMemory.saveButton")}
-                    </Button>
-                    <Button variant="secondary" onClick={() => setEditingId(null)}>
-                      {t("agentMemory.cancelButton")}
-                    </Button>
-                  </div>
-                </div>
-              ) : confirmDeleteId === entry.id ? (
-                <div>
-                  <p className="mb-2 text-sm text-[var(--color-text)]">{t("agentMemory.confirmDeleteTitle")}</p>
-                  <p className="mb-3 text-xs text-[var(--color-neutral-500)]">{t("agentMemory.confirmDeleteMessage")}</p>
-                  <div className="flex gap-2">
-                    <Button disabled={busyIds.has(entry.id)} onClick={() => confirmDelete(entry.id)}>
-                      {t("agentMemory.confirmDeleteButton")}
-                    </Button>
-                    <Button variant="secondary" onClick={() => setConfirmDeleteId(null)}>
-                      {t("agentMemory.cancelButton")}
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <p className="text-sm text-[var(--color-text)]">{entry.content}</p>
-                  <div className="mt-2 flex gap-2">
-                    <Button variant="secondary" onClick={() => startEdit(entry)}>
-                      {t("agentMemory.editButton")}
-                    </Button>
-                    <Button variant="secondary" onClick={() => setConfirmDeleteId(entry.id)}>
-                      {t("agentMemory.deleteButton")}
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </Card>
+            <MemoryEntryCard
+              key={entry.id}
+              entry={entry}
+              isEditing={editingId === entry.id}
+              isConfirmingDelete={confirmDeleteId === entry.id}
+              isBusy={busyIds.has(entry.id)}
+              draft={draft}
+              onStartEdit={() => startEdit(entry)}
+              onDraftChange={setDraft}
+              onSaveEdit={() => saveEdit(entry.id)}
+              onCancelEdit={() => setEditingId(null)}
+              onStartDelete={() => setConfirmDeleteId(entry.id)}
+              onConfirmDelete={() => confirmDelete(entry.id)}
+              onCancelDelete={() => setConfirmDeleteId(null)}
+            />
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+interface MemoryEntryCardProps {
+  entry: MemoryEntry;
+  isEditing: boolean;
+  isConfirmingDelete: boolean;
+  isBusy: boolean;
+  draft: string;
+  onStartEdit: () => void;
+  onDraftChange: (value: string) => void;
+  onSaveEdit: () => void;
+  onCancelEdit: () => void;
+  onStartDelete: () => void;
+  onConfirmDelete: () => void;
+  onCancelDelete: () => void;
+}
+
+function MemoryEntryCard({
+  entry,
+  isEditing,
+  isConfirmingDelete,
+  isBusy,
+  draft,
+  onStartEdit,
+  onDraftChange,
+  onSaveEdit,
+  onCancelEdit,
+  onStartDelete,
+  onConfirmDelete,
+  onCancelDelete,
+}: MemoryEntryCardProps) {
+  const { t } = useTranslation();
+
+  return (
+    <Card className="px-5 py-4">
+      <div className="mb-2 flex items-center gap-2">
+        <Badge>{t(entry.source === "manual" ? "agentMemory.sourceManual" : "agentMemory.sourceRetrospective")}</Badge>
+        {entry.weight > 1 && <Badge tone="success">{t("agentMemory.reinforcedLabel", { count: entry.weight })}</Badge>}
+      </div>
+      {isEditing ? (
+        <MemoryEntryEditForm draft={draft} isBusy={isBusy} onDraftChange={onDraftChange} onSave={onSaveEdit} onCancel={onCancelEdit} />
+      ) : isConfirmingDelete ? (
+        <MemoryEntryDeleteConfirm isBusy={isBusy} onConfirm={onConfirmDelete} onCancel={onCancelDelete} />
+      ) : (
+        <MemoryEntryDisplay content={entry.content} onEdit={onStartEdit} onDelete={onStartDelete} />
+      )}
+    </Card>
+  );
+}
+
+interface MemoryEntryEditFormProps {
+  draft: string;
+  isBusy: boolean;
+  onDraftChange: (value: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}
+
+// The textarea is pre-filled by the caller: AgentMemorySection.startEdit sets `draft` from the
+// entry's own `content` (already decrypted server-side by GET .../memory) before switching this
+// entry into edit mode, so `draft` is never empty here unless the original lesson was.
+function MemoryEntryEditForm({ draft, isBusy, onDraftChange, onSave, onCancel }: MemoryEntryEditFormProps) {
+  const { t } = useTranslation();
+
+  return (
+    <div>
+      <Textarea value={draft} onChange={(e) => onDraftChange(e.target.value)} rows={3} />
+      <div className="mt-2 flex gap-2">
+        <Button disabled={isBusy} onClick={onSave}>
+          {t("agentMemory.saveButton")}
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>
+          {t("agentMemory.cancelButton")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+interface MemoryEntryDeleteConfirmProps {
+  isBusy: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function MemoryEntryDeleteConfirm({ isBusy, onConfirm, onCancel }: MemoryEntryDeleteConfirmProps) {
+  const { t } = useTranslation();
+
+  return (
+    <div>
+      <p className="mb-2 text-sm text-[var(--color-text)]">{t("agentMemory.confirmDeleteTitle")}</p>
+      <p className="mb-3 text-xs text-[var(--color-neutral-500)]">{t("agentMemory.confirmDeleteMessage")}</p>
+      <div className="flex gap-2">
+        <Button disabled={isBusy} onClick={onConfirm}>
+          {t("agentMemory.confirmDeleteButton")}
+        </Button>
+        <Button variant="secondary" onClick={onCancel}>
+          {t("agentMemory.cancelButton")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+interface MemoryEntryDisplayProps {
+  content: string;
+  onEdit: () => void;
+  onDelete: () => void;
+}
+
+function MemoryEntryDisplay({ content, onEdit, onDelete }: MemoryEntryDisplayProps) {
+  const { t } = useTranslation();
+
+  return (
+    <div>
+      <p className="text-sm text-[var(--color-text)]">{content}</p>
+      <div className="mt-2 flex gap-2">
+        <Button variant="secondary" onClick={onEdit}>
+          {t("agentMemory.editButton")}
+        </Button>
+        <Button variant="secondary" onClick={onDelete}>
+          {t("agentMemory.deleteButton")}
+        </Button>
+      </div>
     </div>
   );
 }

@@ -15,8 +15,8 @@ const MAX_TRANSCRIPT_CHARS = 40_000;
 const RETROSPECTIVE_MAX_TOKENS = 2_048;
 
 const RETROSPECTIVE_SYSTEM_PROMPT = [
-  "You are reviewing a completed coding agent session to extract general lessons for that same",
-  "agent's future sessions. You are given a summary of the session's tool calls, errors, and",
+  "You are reviewing a completed agent session to extract general lessons for that same agent's",
+  "future sessions. You are given a summary of the session's tool calls, errors, and",
   "model escalations, plus any compliance-eval results already recorded for it.",
   "",
   "Extract 0 to 3 concise, general lessons, things worth remembering across unrelated future",
