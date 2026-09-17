@@ -198,13 +198,16 @@ pnpm --filter @agentfactory/web exec playwright install --with-deps chromium
 ```
 
 It boots its own `next dev` instance on port 3100 (see `apps/web/playwright.config.ts`), so it
-also needs `apps/web/.env.local` configured (step 3) and Postgres running — it talks to the dev
-database, not the `agentfactory_test` one, so `test:e2e` can't run concurrently with `test:db`
-(which truncates tables between tests). Its Redis queue is pinned to db index `2`, separate from
-both the dev worker's (db 0, unset) and `test:db`/`test:queue`'s (`.env.test.local`, db 1) — every
-worktree on a machine shares one Redis instance, so without this a live `pnpm dev:worker` from
-another worktree can steal this run's ingest job and fail to find the blob it's looking for
-(wrong worktree's `BLOB_DIR`). To watch the browser instead of running headless, use:
+also needs `apps/web/.env.local` configured (step 3) and Postgres running. `scripts/test-e2e.sh`
+points it at the same scratch `agentfactory_test` database as `test:db` (creating and migrating it
+automatically if needed, via `.env.test.local` — same setup as above), so it's safe to run
+alongside `pnpm dev` without growing the dev database. It still can't run concurrently with
+`test:db` (which truncates tables between tests) since they now share that database — `pnpm test`
+already runs them one after another, not in parallel. Its Redis queue is pinned to db index `2`,
+separate from both the dev worker's (db 0, unset) and `test:db`/`test:queue`'s (`.env.test.local`,
+db 1) — every worktree on a machine shares one Redis instance, so without this a live `pnpm
+dev:worker` from another worktree can steal this run's ingest job and fail to find the blob it's
+looking for (wrong worktree's `BLOB_DIR`). To watch the browser instead of running headless, use:
 
 ```bash
 pnpm test:e2e:headed
