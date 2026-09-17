@@ -20,7 +20,7 @@ export type RunTaskResult =
 
 type DisplayMessage = ChatMessage & { streaming?: boolean; error?: boolean };
 
-interface MockState {
+interface AppDataState {
   teams: Team[];
   agents: Agent[];
   sessions: Session[];
@@ -30,7 +30,7 @@ interface MockState {
   orgMembers: OrgMember[];
 }
 
-const EMPTY_STATE: MockState = { teams: [], agents: [], sessions: [], messages: [], connections: [], tasks: [], orgMembers: [] };
+const EMPTY_STATE: AppDataState = { teams: [], agents: [], sessions: [], messages: [], connections: [], tasks: [], orgMembers: [] };
 
 interface NewAgentInput {
   name: string;
@@ -61,7 +61,7 @@ interface NewTaskInput {
   attachments?: ExternalAttachment[];
 }
 
-interface MockBackendValue extends MockState {
+interface AppDataContextValue extends AppDataState {
   toast: { key: TranslationKey; vars?: TranslationVars } | null;
   notify: (key: TranslationKey, vars?: TranslationVars) => void;
   getAgent: (id: number) => Agent | undefined;
@@ -120,11 +120,11 @@ async function fetchRunErrorCode(sessionId: number, runId: number): Promise<stri
   }
 }
 
-const MockBackendContext = createContext<MockBackendValue | null>(null);
+const AppDataContext = createContext<AppDataContextValue | null>(null);
 
-export function MockBackendProvider({ children }: { children: React.ReactNode }) {
+export function AppDataProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
-  const [state, setState] = useState<MockState>(EMPTY_STATE);
+  const [state, setState] = useState<AppDataState>(EMPTY_STATE);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ key: TranslationKey; vars?: TranslationVars } | null>(null);
@@ -433,7 +433,7 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     );
   }
 
-  const value: MockBackendValue = {
+  const value: AppDataContextValue = {
     ...state,
     toast,
     notify: showToast,
@@ -464,11 +464,11 @@ export function MockBackendProvider({ children }: { children: React.ReactNode })
     addConnection,
   };
 
-  return <MockBackendContext.Provider value={value}>{children}</MockBackendContext.Provider>;
+  return <AppDataContext.Provider value={value}>{children}</AppDataContext.Provider>;
 }
 
-export function useMockBackend() {
-  const ctx = useContext(MockBackendContext);
-  if (!ctx) throw new Error("useMockBackend must be used within MockBackendProvider");
+export function useAppData() {
+  const ctx = useContext(AppDataContext);
+  if (!ctx) throw new Error("useAppData must be used within AppDataProvider");
   return ctx;
 }

@@ -4,12 +4,12 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "@/lib/i18n/context";
 import { ActivityIcon, BotIcon, LogOutIcon, SettingsIcon, SparklesIcon, TasksIcon, UsersIcon } from "@/lib/icons";
-import { useMockBackend } from "@/lib/mock/context";
+import { useAppData } from "@/lib/app-data/context";
 import { useAuth } from "@/lib/auth/context";
 
 export function LeftPane({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { toast } = useMockBackend();
+  const { toast } = useAppData();
   const { t } = useTranslation();
   const { user, logout } = useAuth();
 

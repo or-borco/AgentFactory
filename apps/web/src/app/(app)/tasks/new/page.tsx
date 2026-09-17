@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button, Breadcrumb, GroupedSelect, PageHeader, Select, TextInput, Textarea, TooltipBubble } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
-import { useMockBackend } from "@/lib/mock/context";
+import { useAppData } from "@/lib/app-data/context";
 import { useTranslation } from "@/lib/i18n/context";
 import {
   DEFAULT_MODEL_ID,
@@ -37,7 +37,7 @@ const CONTEXT_ACCEPT = [
 
 export default function NewTaskPage() {
   const router = useRouter();
-  const { agents, connections, createTask, notify } = useMockBackend();
+  const { agents, connections, createTask, notify } = useAppData();
   const { t } = useTranslation();
 
   const [title, setTitle] = useState("");
@@ -77,7 +77,7 @@ export default function NewTaskPage() {
 
   // The From-issue field is provider-neutral (Design decision 14 in the Jira integration spec):
   // it enables and labels itself from whichever `kind: "tasks"` connection the org has, never a
-  // hardcoded "Jira" string. No extra fetch — `connections` is already in useMockBackend()'s state.
+  // hardcoded "Jira" string. No extra fetch — `connections` is already in useAppData()'s state.
   const tasksConnection = connections.find((c) => c.kind === "tasks");
 
   async function handleFetchIssue() {
@@ -201,7 +201,7 @@ export default function NewTaskPage() {
       // Staged files are POSTed one at a time only now that a real taskId exists. A failed
       // upload must never block navigation — the task itself already exists — so failures are
       // just collected and surfaced as a toast that survives the navigation below (the toast
-      // lives in MockBackendProvider, above this page in the (app) layout).
+      // lives in AppDataProvider, above this page in the (app) layout).
       const failedNames: string[] = [];
       for (const staged of stagedFiles) {
         let mime = staged.file.type;

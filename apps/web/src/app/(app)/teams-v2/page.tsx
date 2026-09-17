@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Badge, Button, EmptyState, GroupedSelect, PageHeader, Select, Tabs, TextInput, Textarea } from "@agentfactory/shared";
-import { useMockBackend } from "@/lib/mock/context";
+import { useAppData } from "@/lib/app-data/context";
 import { useTranslation } from "@/lib/i18n/context";
 import type { Agent, OverflowPolicy, Team } from "@agentfactory/core";
 import { DEFAULT_MODEL_ID, MODEL_CATALOG } from "@agentfactory/core";
@@ -19,7 +19,7 @@ const SHARED_CONTEXT_MAX = 65536; // 64 KB
 
 function MembersTab({ team }: { team: Team }) {
   const { t } = useTranslation();
-  const { orgMembers, updateTeamSharedContext } = useMockBackend();
+  const { orgMembers, updateTeamSharedContext } = useAppData();
 
   const usedBytes = new TextEncoder().encode(team.sharedContext).length;
 
@@ -86,7 +86,7 @@ function NewTeamPanel({ onCreated, onCancel }: {
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
-  const { createTeam } = useMockBackend();
+  const { createTeam } = useAppData();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [defaultCodebase, setDefaultCodebase] = useState("");
@@ -208,7 +208,7 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
-  const { createAgent } = useMockBackend();
+  const { createAgent } = useAppData();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -342,7 +342,7 @@ function NewAgentPanel({ teamId, onCreated, onCancel }: {
 
 function AgentDetailPanel({ agent }: { agent: Agent }) {
   const { t } = useTranslation();
-  const { teams, updateAgent, deleteAgent, duplicateAgent, notify } = useMockBackend();
+  const { teams, updateAgent, deleteAgent, duplicateAgent, notify } = useAppData();
 
   const [systemPrompt, setSystemPrompt] = useState(agent.systemPrompt);
   const [defaultCodebase, setDefaultCodebase] = useState(agent.defaultCodebase ?? "");
@@ -535,7 +535,7 @@ function AgentDetailPanel({ agent }: { agent: Agent }) {
 
 function AgentsTab({ team }: { team: Team }) {
   const { t } = useTranslation();
-  const { agentsForTeam } = useMockBackend();
+  const { agentsForTeam } = useAppData();
   const agents = agentsForTeam(team.id);
   const [selectedId, setSelectedId] = useState<number | null>(agents[0]?.id ?? null);
   const [creating, setCreating] = useState(false);
@@ -623,7 +623,7 @@ function AgentsTab({ team }: { team: Team }) {
 
 export default function TeamsV2Page() {
   const { t } = useTranslation();
-  const { teams } = useMockBackend();
+  const { teams } = useAppData();
   const [activeTab, setActiveTab] = useState<string>("members");
   const [activeTeamId, setActiveTeamId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
