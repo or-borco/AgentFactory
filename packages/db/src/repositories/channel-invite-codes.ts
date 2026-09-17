@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 import { db } from "../client";
 import { channelInviteCodes } from "../schema";
 
@@ -94,6 +94,24 @@ export async function redeemInviteCode(code: string, externalUserId: string): Pr
     .where(and(eq(channelInviteCodes.code, code), isNull(channelInviteCodes.redeemedAt), gt(channelInviteCodes.expiresAt, sql`now()`)))
     .returning();
   return row ? toInviteCode(row) : undefined;
+}
+
+// Looks up which admin's invite code this chat most recently redeemed on this connection — used
+// only as the createdBy attribution for a task the chat creates via Telegram (Task.createdBy is
+// NOT NULL and has no natural Telegram-side user account to point at instead). Ordered by
+// redeemedAt so a chat that was revoked and re-invited under a different admin's code attributes
+// to whichever redemption actually authorized it most recently, not the first one ever.
+export async function getInviteCodeRedeemer(
+  connectionId: number,
+  externalUserId: string,
+): Promise<{ createdBy: number } | undefined> {
+  const [row] = await db
+    .select({ createdBy: channelInviteCodes.createdBy })
+    .from(channelInviteCodes)
+    .where(and(eq(channelInviteCodes.connectionId, connectionId), eq(channelInviteCodes.redeemedByExternalUserId, externalUserId)))
+    .orderBy(desc(channelInviteCodes.redeemedAt))
+    .limit(1);
+  return row;
 }
 
 export async function listInviteCodes(connectionId: number): Promise<InviteCode[]> {

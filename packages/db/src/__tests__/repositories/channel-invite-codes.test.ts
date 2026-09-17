@@ -4,6 +4,7 @@ import { insertOrg, insertUser, insertMembership } from "../fixtures.js";
 import { createConnection } from "../../repositories/connections.js";
 import {
   generateInviteCode,
+  getInviteCodeRedeemer,
   listInviteCodes,
   looksLikeInviteCode,
   redeemInviteCode,
@@ -94,5 +95,58 @@ describe("channel-invite-codes repository", () => {
     expect(new Date(listed.expiresAt).getTime()).toBeLessThanOrEqual(Date.now());
 
     await expect(redeemInviteCode(invite.code, "chat-1")).resolves.toBeUndefined();
+  });
+});
+
+describe("getInviteCodeRedeemer", () => {
+  it("returns undefined when this chat has never redeemed a code on this connection", async () => {
+    const org = await insertOrg();
+    const connection = await createConnection(org.id, {
+      provider: "telegram",
+      kind: "channel",
+      label: "Telegram",
+      auth: "api_token",
+      config: {},
+    });
+    await expect(getInviteCodeRedeemer(connection.id, "42")).resolves.toBeUndefined();
+  });
+
+  it("returns the createdBy of the code this chat redeemed", async () => {
+    const org = await insertOrg();
+    const admin = await insertUser();
+    const connection = await createConnection(org.id, {
+      provider: "telegram",
+      kind: "channel",
+      label: "Telegram",
+      auth: "api_token",
+      config: {},
+    });
+    const invite = await generateInviteCode(org.id, connection.id, admin.id);
+    await redeemInviteCode(invite.code, "42");
+
+    const redeemer = await getInviteCodeRedeemer(connection.id, "42");
+
+    expect(redeemer?.createdBy).toBe(admin.id);
+  });
+
+  it("picks the most recently redeemed code when a chat has redeemed more than one", async () => {
+    const org = await insertOrg();
+    const admin1 = await insertUser();
+    const admin2 = await insertUser();
+    const connection = await createConnection(org.id, {
+      provider: "telegram",
+      kind: "channel",
+      label: "Telegram",
+      auth: "api_token",
+      config: {},
+    });
+    const invite1 = await generateInviteCode(org.id, connection.id, admin1.id);
+    await redeemInviteCode(invite1.code, "42");
+    const invite2 = await generateInviteCode(org.id, connection.id, admin2.id);
+    await redeemInviteCode(invite2.code, "42");
+
+    const redeemer = await getInviteCodeRedeemer(connection.id, "42");
+
+    expect(redeemer?.createdBy).toBe(admin2.id);
   });
 });
