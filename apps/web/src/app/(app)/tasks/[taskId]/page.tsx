@@ -10,7 +10,7 @@ import { StatusMenu } from "@/components/StatusMenu";
 import { AssigneeSelect } from "@/components/AssigneeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { TaskStaleDialog } from "@/components/TaskStaleDialog";
-import { CheckIcon, TrashIcon, EditIcon, XIcon } from "@/lib/icons";
+import { CheckIcon, TrashIcon, EditIcon, RunIcon, XIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
 import { RunContextPanel } from "@/components/RunContextPanel";
@@ -822,16 +822,8 @@ export default function TaskDetailPage() {
               </section>
             )}
 
-            {task.status === "assigned" && !task.sessionId && task.assigneeAgentId && (
-              <div style={{ marginTop: 20 }}>
-                <Button variant="primary" disabled={starting} onClick={handleRun}>
-                  {starting ? "Starting…" : "Run agent"}
-                </Button>
-              </div>
-            )}
-
             {/* Status / lifecycle actions */}
-            <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
+            <div style={{ marginTop: 20, display: "flex", flexWrap: "wrap", gap: 10 }}>
               {!task.sessionId && (
                 <Link href={`/tasks/${task.id}/edit`}>
                   <Button variant="secondary">
@@ -839,6 +831,12 @@ export default function TaskDetailPage() {
                     {t("taskDetail.editTask")}
                   </Button>
                 </Link>
+              )}
+              {task.status === "assigned" && !task.sessionId && task.assigneeAgentId && (
+                <Button variant="secondary" disabled={starting} onClick={handleRun}>
+                  <RunIcon size={14} />
+                  {starting ? t("taskDetail.startingRun") : t("taskDetail.runAgent")}
+                </Button>
               )}
               {task.status !== "done" && (
                 <Button variant="secondary" disabled={markingDone} onClick={handleMarkDone}>

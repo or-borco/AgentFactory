@@ -323,6 +323,8 @@ const en = {
     unassigned: "Unassigned",
     viewPr: "View PR",
     metaLabel: "Details",
+    runAgent: "Run agent",
+    startingRun: "Starting…",
     markDone: "Mark as done",
     markingDone: "Marking done…",
     deleteTask: "Delete task",
