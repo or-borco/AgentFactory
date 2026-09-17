@@ -24,6 +24,7 @@ export {
   PencilSimple as EditIcon,
   Buildings as OrgIcon,
   GithubLogo as GithubIcon,
+  Play as RunIcon,
 } from "@phosphor-icons/react";
 
 // Google brand icon kept as custom SVG

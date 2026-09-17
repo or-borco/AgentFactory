@@ -3,14 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { Badge, Button, TooltipBubble } from "@agentfactory/shared";
+import { Badge, TooltipBubble } from "@agentfactory/shared";
 import { useAppData } from "@/lib/app-data/context";
 import { useTranslation } from "@/lib/i18n/context";
 import { StatusMenu } from "@/components/StatusMenu";
 import { AssigneeSelect } from "@/components/AssigneeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { TaskStaleDialog } from "@/components/TaskStaleDialog";
-import { CheckIcon, TrashIcon, EditIcon, XIcon } from "@/lib/icons";
+import { CheckIcon, TrashIcon, EditIcon, RunIcon, XIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
 import { RunContextPanel } from "@/components/RunContextPanel";
@@ -821,14 +821,6 @@ export default function TaskDetailPage() {
                 </ul>
               </section>
             )}
-
-            {task.status === "assigned" && !task.sessionId && task.assigneeAgentId && (
-              <div style={{ marginTop: 20 }}>
-                <Button variant="primary" disabled={starting} onClick={handleRun}>
-                  {starting ? "Starting…" : "Run agent"}
-                </Button>
-              </div>
-            )}
           </div>
         </div>
 
@@ -997,6 +989,15 @@ export default function TaskDetailPage() {
               {!task.sessionId && (
                 <ToolbarIconButton label={t("taskDetail.editTask")} href={`/tasks/${task.id}/edit`}>
                   <EditIcon size={15} />
+                </ToolbarIconButton>
+              )}
+              {task.status === "assigned" && !task.sessionId && task.assigneeAgentId && (
+                <ToolbarIconButton
+                  label={starting ? t("taskDetail.startingRun") : t("taskDetail.runAgent")}
+                  onClick={handleRun}
+                  disabled={starting}
+                >
+                  <RunIcon size={15} />
                 </ToolbarIconButton>
               )}
               {task.status !== "done" && (
