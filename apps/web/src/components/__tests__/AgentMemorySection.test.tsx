@@ -99,5 +99,6 @@ describe("AgentMemorySection", () => {
     renderSection();
 
     expect(await screen.findByText(/Couldn't load this agent's memory/)).toBeInTheDocument();
+    expect(screen.queryByText("Loading…")).not.toBeInTheDocument();
   });
 });
