@@ -14,9 +14,15 @@ export async function readAgentTurnOutput(
   let lineBuffer = "";
   let stdout = "";
   let stderr = "";
+  // Mirrors `stdout` but with __EVENT__ lines redacted, so the shape of the stream stays visible
+  // for debugging. __EVENT__ payloads (e.g. memory_write) can carry plaintext lesson content that
+  // is already forwarded to onEvent separately — it must never land in the no-result-line error
+  // message below, which worker.ts persists into the unencrypted events.data column and logs.
+  let stdoutForError = "";
 
   const handleLine = async (line: string) => {
     stdout += line + "\n";
+    stdoutForError += (line.startsWith(EVENT_MARKER) ? `${EVENT_MARKER}<redacted>` : line) + "\n";
     if (onEvent && line.startsWith(EVENT_MARKER)) {
       let payload: RuntimeEvent | undefined;
       try {
@@ -56,7 +62,7 @@ export async function readAgentTurnOutput(
       if (errorPayload?.code === "prompt_too_long") throw new PromptTooLongError();
       if (errorPayload?.code === "insufficient_credit") throw new InsufficientCreditError();
     }
-    throw new Error(`Sandbox run produced no result line. stdout: ${stdout}\nstderr: ${stderr}`);
+    throw new Error(`Sandbox run produced no result line. stdout: ${stdoutForError}\nstderr: ${stderr}`);
   }
   return JSON.parse(resultLine.slice(RESULT_MARKER.length)) as AgentTurnResult;
 }

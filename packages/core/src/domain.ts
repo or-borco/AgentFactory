@@ -352,7 +352,10 @@ export type PromptOmissionReason =
   | "resume_valid"
   // Prior-conversation segment only: resume wasn't valid, but this is the session's first-ever
   // run (or no run has ever recorded a ref), so there's no message history yet to reconstruct.
-  | "no_prior_conversation";
+  | "no_prior_conversation"
+  // Agent-memory segment only: this agent has no memory entries at all (a brand-new agent, or
+  // one that has never had a `remember` call or a completed retrospective).
+  | "no_memory_entries";
 
 // One layer of a run's composed system prompt. Invariant (tested in
 // prompt-composition.test.ts): joining segment texts in order reproduces the
@@ -537,4 +540,43 @@ export interface ChatMessage {
   content: string;
   runId?: ID;
   createdAt: ISODateTime;
+}
+
+// "manual": a human told the agent to remember something mid-conversation, or the agent decided
+// to on its own, via the `remember` tool. "retrospective": an end-of-task judge pass extracted it
+// from the session's transcript. A third source (lessons extracted from code review comments) is
+// explicitly out of scope for this feature and would be a fourth additive value here, not a
+// schema change.
+export type MemorySource = "manual" | "retrospective";
+
+// A `remember` call or a retrospective lesson should be a concise nudge, not a transcript dump.
+// Lives here (not apps/worker/src/memory-write.ts, which re-exports it for its existing
+// importers) so every write path that can mutate an entry's content, the sandbox capture
+// pipelines in apps/worker, and apps/web's PATCH .../memory/[entryId] route, enforces the same
+// cap, even though apps/web cannot import from apps/worker.
+export const MAX_MEMORY_CONTENT_CHARS = 2000;
+
+// One lesson an agent has learned, injected into every future run's prompt (see
+// buildAgentMemorySegment in apps/worker/src/prompt-composition.ts). Deliberately has NO
+// `content` field: the plaintext only ever exists as a repository-local return shape
+// (`AgentMemoryEntry & { content: string }` from readAgentMemoryEntries), the same pattern
+// readConnectionSecret already uses for connection_secrets so nothing outside
+// packages/db/src/repositories/agent-memory.ts can hold decrypted content without asking for it
+// explicitly.
+//
+// `weight` counts reinforcements: a near-duplicate lesson recurring (embedding similarity above
+// MEMORY_SIMILARITY_FLOOR) increments the existing row's weight instead of inserting a new one,
+// so memory grows by reinforcement rather than unboundedly. `lastReinforcedAt` is stamped on
+// every insert and every reinforcement; `lastSourceRunId`/`lastSourceSessionId` record the most
+// recent run/session that wrote or reinforced this entry.
+export interface AgentMemoryEntry {
+  id: ID;
+  agentId: ID;
+  orgId: ID;
+  source: MemorySource;
+  weight: number;
+  createdAt: ISODateTime;
+  lastReinforcedAt: ISODateTime;
+  lastSourceRunId?: ID;
+  lastSourceSessionId?: ID;
 }

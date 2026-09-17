@@ -27,3 +27,4 @@ export * from "./repositories/content-blobs";
 export * from "./repositories/skills";
 export * from "./repositories/skill-versions";
 export * from "./repositories/agent-skills";
+export * from "./repositories/agent-memory";
