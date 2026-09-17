@@ -7,6 +7,7 @@ export interface InboundMessage {
   callbackData?: string;
   isStartCommand: boolean;
   startPayload?: string;
+  isTasksCommand: boolean;
 }
 
 export interface MenuOption {

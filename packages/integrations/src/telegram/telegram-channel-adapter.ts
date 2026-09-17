@@ -21,6 +21,10 @@ function parseStartCommand(text: string): { isStartCommand: boolean; startPayloa
   return { isStartCommand: true, startPayload: match[1] };
 }
 
+function isTasksCommand(text: string): boolean {
+  return /^\/tasks(?:@\w+)?$/.test(text.trim());
+}
+
 // Thin wrapper over the Telegram Bot API (https://core.telegram.org/bots/api) — plain HTTPS/JSON,
 // no vendor SDK, matching the "direct REST" choice already made for Jira (ARCHITECTURE.md §9).
 export class TelegramChannelAdapter implements ChannelAdapter {
@@ -53,6 +57,7 @@ export class TelegramChannelAdapter implements ChannelAdapter {
         externalUserId: String(chatId),
         callbackData: update.callback_query.data,
         isStartCommand: false,
+        isTasksCommand: false,
       };
     }
 
@@ -63,6 +68,7 @@ export class TelegramChannelAdapter implements ChannelAdapter {
         externalUserId: String(update.message.chat.id),
         text,
         ...start,
+        isTasksCommand: text !== undefined ? isTasksCommand(text) : false,
       };
     }
 

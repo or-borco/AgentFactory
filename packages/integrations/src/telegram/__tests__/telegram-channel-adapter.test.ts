@@ -13,6 +13,7 @@ describe("TelegramChannelAdapter", () => {
         callbackData: undefined,
         isStartCommand: false,
         startPayload: undefined,
+        isTasksCommand: false,
       });
     });
 
@@ -38,11 +39,39 @@ describe("TelegramChannelAdapter", () => {
         callbackData: "agent:7",
         isStartCommand: false,
         startPayload: undefined,
+        isTasksCommand: false,
       });
     });
 
     it("throws on an unrecognized update shape", () => {
       expect(() => adapter.receive({ some_other_update: {} })).toThrow();
+    });
+
+    describe("isTasksCommand", () => {
+      it("recognizes /tasks", () => {
+        const inbound = adapter.receive({ message: { chat: { id: 1 }, text: "/tasks" } });
+        expect(inbound.isTasksCommand).toBe(true);
+      });
+
+      it("recognizes /tasks@botname", () => {
+        const inbound = adapter.receive({ message: { chat: { id: 1 }, text: "/tasks@my_bot" } });
+        expect(inbound.isTasksCommand).toBe(true);
+      });
+
+      it("does not treat /tasksomething as the command", () => {
+        const inbound = adapter.receive({ message: { chat: { id: 1 }, text: "/tasksomething" } });
+        expect(inbound.isTasksCommand).toBe(false);
+      });
+
+      it("is false for ordinary text", () => {
+        const inbound = adapter.receive({ message: { chat: { id: 1 }, text: "hello" } });
+        expect(inbound.isTasksCommand).toBe(false);
+      });
+
+      it("is false for a callback_query (a tap can never itself be a text command)", () => {
+        const inbound = adapter.receive({ callback_query: { id: "1", message: { chat: { id: 1 } }, data: "newtask" } });
+        expect(inbound.isTasksCommand).toBe(false);
+      });
     });
   });
 
