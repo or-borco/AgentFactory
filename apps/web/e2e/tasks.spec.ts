@@ -155,3 +155,113 @@ test("the assignee field is read-only once a task has an active session", async 
   await expect(page.getByRole("combobox", { name: "Assignee" })).not.toBeVisible();
   await expect(page.getByText("QA bot", { exact: true })).toBeVisible();
 });
+
+// ── Lifecycle action toolbar (icon buttons in the tab bar) ──────────────────
+
+test("lifecycle actions render as icon buttons in the tab bar, each with a hover tooltip", async ({
+  page,
+  registeredUser,
+}) => {
+  const res = await page.request.post("/api/tasks", { data: { title: "Toolbar test task" } });
+  const task = await res.json();
+  await page.goto(`/tasks/${task.id}`);
+
+  const editBtn = page.getByRole("link", { name: "Edit task details" });
+  const markDoneBtn = page.getByRole("button", { name: "Mark as done" });
+  const deleteBtn = page.getByRole("button", { name: "Delete task" });
+
+  await expect(editBtn).toBeVisible();
+  await expect(markDoneBtn).toBeVisible();
+  await expect(deleteBtn).toBeVisible();
+
+  // These are icon-only controls — the label lives in aria-label/tooltip, not visible text.
+  await expect(editBtn).toHaveText("");
+  await expect(markDoneBtn).toHaveText("");
+  await expect(deleteBtn).toHaveText("");
+
+  const tooltip = page.getByRole("tooltip", { name: "Delete task" });
+  await expect(tooltip).toHaveCSS("opacity", "0");
+  await deleteBtn.hover();
+  await expect(tooltip).toHaveCSS("opacity", "1");
+});
+
+test("edit action hides once the task has an active session, but delete remains available", async ({
+  page,
+  registeredUser,
+}) => {
+  const agentRes = await page.request.post("/api/agents", {
+    data: { name: "QA bot", description: "", systemPrompt: "Do QA work.", mode: "manual" },
+  });
+  const agent = await agentRes.json();
+
+  const taskRes = await page.request.post("/api/tasks", {
+    data: { title: "Session toolbar task", assigneeAgentId: agent.id },
+  });
+  const task = await taskRes.json();
+
+  const runRes = await page.request.post(`/api/tasks/${task.id}/run`);
+  expect(runRes.ok()).toBeTruthy();
+
+  await page.goto(`/tasks/${task.id}`);
+
+  await expect(page.getByRole("link", { name: "Edit task details" })).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete task" })).toBeVisible();
+});
+
+test("mark-as-done action hides once the task is already done", async ({ page, registeredUser }) => {
+  const taskRes = await page.request.post("/api/tasks", { data: { title: "Already done toolbar task" } });
+  const task = await taskRes.json();
+  const patchRes = await page.request.patch(`/api/tasks/${task.id}`, { data: { status: "done" } });
+  expect(patchRes.ok()).toBeTruthy();
+
+  await page.goto(`/tasks/${task.id}`);
+
+  await expect(page.getByRole("button", { name: "Mark as done" })).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete task" })).toBeVisible();
+});
+
+test("clicking the mark-as-done icon marks the task done", async ({ page, registeredUser }) => {
+  const taskRes = await page.request.post("/api/tasks", { data: { title: "Mark me done via toolbar" } });
+  const task = await taskRes.json();
+
+  await page.goto(`/tasks/${task.id}`);
+
+  await page.getByRole("button", { name: "Mark as done" }).click();
+
+  await expect(page.getByText("Done", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Mark as done" })).not.toBeVisible();
+});
+
+test("clicking the delete icon opens a confirm dialog; confirming removes the task", async ({
+  page,
+  registeredUser,
+}) => {
+  const taskRes = await page.request.post("/api/tasks", { data: { title: "Delete me via toolbar" } });
+  const task = await taskRes.json();
+
+  await page.goto(`/tasks/${task.id}`);
+
+  await page.getByRole("button", { name: "Delete task" }).click();
+
+  await expect(page.getByRole("heading", { name: `Delete '${task.title}'?` })).toBeVisible();
+
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+
+  await expect(page).toHaveURL("/tasks");
+  await expect(page.getByText(task.title)).not.toBeVisible();
+});
+
+test("cancelling the delete confirm dialog leaves the task intact", async ({ page, registeredUser }) => {
+  const taskRes = await page.request.post("/api/tasks", { data: { title: "Do not delete via toolbar" } });
+  const task = await taskRes.json();
+
+  await page.goto(`/tasks/${task.id}`);
+
+  await page.getByRole("button", { name: "Delete task" }).click();
+  await expect(page.getByRole("heading", { name: `Delete '${task.title}'?` })).toBeVisible();
+
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await expect(page.getByRole("heading", { name: `Delete '${task.title}'?` })).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "Delete task" })).toBeVisible();
+});
