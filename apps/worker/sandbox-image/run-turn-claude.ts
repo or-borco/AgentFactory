@@ -1,4 +1,5 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
+import { z } from "zod";
 
 // Prefixes the one line of stdout the worker actually parses (see docker-sandbox-provider.ts /
 // agent-runtime.ts), so it's found deterministically even if the SDK or a tool call logs other
@@ -9,6 +10,29 @@ const EVENT_MARKER = "__EVENT__";
 // Prefixes a structured-error line the host worker (agent-runtime.ts) checks for before falling
 // back to its generic "no result line" failure — currently only used for context overflow.
 const ERROR_MARKER = "__ERROR__";
+
+// The first custom in-process tool in this codebase (see the design spec's ground truth: no
+// mcpServers option existed before this). Handler only writes an __EVENT__ line and returns
+// immediately. No DB call happens inside the sandbox, matching every other tool call's
+// isolation from the host's database credentials. The host worker (worker.ts's onEvent handler)
+// is what actually calls writeMemoryEntry and persists the event.
+const rememberTool = tool(
+  "remember",
+  "Save a concise lesson for your own future sessions with this agent. Use this when the user " +
+    "explicitly asks you to remember something, or when you notice something worth carrying " +
+    "forward (a correction, a recurring failure mode). Keep it general and reusable, not specific " +
+    "to this one task's business logic.",
+  { content: z.string().describe("A concise, general lesson, at most a few sentences.") },
+  async ({ content }) => {
+    process.stdout.write(`${EVENT_MARKER}${JSON.stringify({ type: "memory_write", content })}\n`);
+    return { content: [{ type: "text", text: "Noted for future sessions." }] };
+  },
+);
+
+const memoryMcpServer = createSdkMcpServer({
+  name: "memory",
+  tools: [rememberTool],
+});
 
 async function main(): Promise<void> {
   const systemPrompt = process.env.SYSTEM_PROMPT ?? "";
@@ -44,6 +68,7 @@ async function main(): Promise<void> {
         // skills on its own (see skills-materialize.ts for how the pinned ones land in
         // .claude/skills before this runs).
         skills,
+        mcpServers: { memory: memoryMcpServer },
         // `display` defaults to "omitted" on Sonnet 5 / Opus 5 and the 4.7+ family, which streams
         // thinking blocks with empty text — the run then shows nothing at all until the final
         // answer lands. "summarized" returns a readable summary of the reasoning instead. Thinking
