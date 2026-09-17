@@ -4,24 +4,32 @@ import {
   clearRedemptionAttempts,
   createMessage,
   createRun,
-  createSession,
+  createTask,
   findChannelConnectionByWebhookSecret,
-  findSessionByExternalThread,
   getAgent,
   getAuthorizationStatus,
+  getAuthorizedUser,
   getConnectionCredentialRef,
+  getInviteCodeRedeemer,
+  getOrgOwnerUserId,
+  getTask,
   isInCooldown,
   listAgents,
+  listTasks,
   looksLikeInviteCode,
   readConnectionSecret,
   recordFailedRedemption,
   redeemInviteCode,
+  setActiveTask,
+  startTaskSession,
   touchSessionActivity,
+  updateTask,
 } from "@agentfactory/db";
 import { createChannelAdapter, type ChannelAdapter } from "@agentfactory/integrations";
 import { enqueueRunJob } from "@agentfactory/queue";
-import type { Agent, Connection } from "@agentfactory/core";
+import type { Agent, Connection, Task, TaskStatus } from "@agentfactory/core";
 import { createLogger } from "@agentfactory/logger";
+import { formatTaskBrief } from "@/server/task-brief";
 
 const log = createLogger("webhooks:telegram");
 
@@ -32,7 +40,21 @@ const COOLDOWN_MESSAGE = "Too many invalid codes — try again in a bit.";
 const REVOKED_MESSAGE = "Your access was revoked — ask your admin for a new invite.";
 const NO_AGENTS_MESSAGE = "No agents are set up for this org yet — ask your admin.";
 const ASK_FOR_CODE_MESSAGE = "Send your invite code to get started.";
-const PICK_AGENT_PROMPT = "Who would you like to talk to?";
+const MAIN_MENU_PROMPT = "What would you like to do?";
+const NEW_TASK_PROMPT = "Tell me what you need done.";
+const AGENT_PICKER_PROMPT = "Who should work on this?";
+const NEW_TASK_LABEL = "Start a new task";
+const TITLE_MAX_LENGTH = 80;
+const MAIN_MENU_TASK_LIMIT = 10;
+
+const STATUS_LABELS: Partial<Record<TaskStatus, string>> = {
+  open: "open",
+  assigned: "assigned",
+  in_progress: "in progress",
+  needs_input: "needs input",
+  pr_open: "PR open",
+  review_cycle: "in review",
+};
 
 export async function POST(request: Request, { params }: { params: Promise<{ webhookSecret: string }> }) {
   const { webhookSecret } = await params;
@@ -83,13 +105,6 @@ async function handleInbound(
   inbound: ReturnType<ChannelAdapter["receive"]>,
 ) {
   const { externalUserId } = inbound;
-  const session = await findSessionByExternalThread(orgId, "telegram", externalUserId);
-  // Authorization is checked before the session/no-session split, not inside each arm, because
-  // admission has to work identically either way. An existing session must never let an
-  // unauthorized chat through, and — just as importantly — must never block a fresh invite code
-  // from being redeemed: `authorizeExternalUser` has no other caller and there's no admin UI to
-  // re-authorize a chat, so a session branch that short-circuited before redemption would leave
-  // every pre-existing chat permanently locked out after a routine disconnect/reconnect.
   const status = await getAuthorizationStatus(connection.id, externalUserId);
 
   if (status !== "authorized") {
@@ -110,28 +125,76 @@ async function handleInbound(
     }
     if (!(await attemptRedemption(adapter, connection, externalUserId, candidateCode))) return;
 
-    // Authorized now — but the message that got them here was the code itself, not something to
-    // run. A chat that still has its session just gets it back; a new one picks an agent.
-    const boundAgent = session ? await getAgent(session.agentId) : undefined;
-    if (boundAgent) {
-      await adapter.send(externalUserId, `You're now talking to ${boundAgent.name}.`);
-      return;
-    }
-    await sendAgentMenu(adapter, orgId, externalUserId);
+    // Authorized now. A re-authorized chat may already have an activeTaskId from before it was
+    // revoked — authorizeExternalUser's upsert only ever touches revokedAt, so that pointer
+    // survives untouched. Resume there instead of always starting fresh.
+    const authorizedUser = await getAuthorizedUser(connection.id, externalUserId);
+    const priorTask = authorizedUser?.activeTaskId ? await getTask(authorizedUser.activeTaskId) : undefined;
+    await sendCurrentStepPrompt(adapter, orgId, externalUserId, priorTask && priorTask.orgId === orgId ? priorTask : undefined);
     return;
   }
 
-  if (session) {
-    if (!inbound.text) return; // a stray callback on an already-bound session — nothing to do
+  // Step 1 — commands and menu taps, checked before anything else, so they always work regardless
+  // of what this chat's activeTaskId currently points at.
+  if ((inbound.isStartCommand && !inbound.startPayload) || inbound.isTasksCommand) {
+    await showMainMenu(adapter, orgId, externalUserId);
+    return;
+  }
 
-    const userMessage = await createMessage(session.id, "user", inbound.text);
-    await touchSessionActivity(session.id);
-    const run = await createRun(session.id, userMessage.id);
-    // Cosmetic, and never worth stranding a run over: the whole handler runs inside an
-    // always-200 try/catch, so a throw here (429, a user who blocked the bot, a transient 5xx)
-    // would be swallowed *after* the runs row exists but *before* the job is enqueued, leaving a
-    // permanently `queued` run with nothing to pick it up. Same treatment as
-    // startTypingIndicator in apps/worker/src/channel-notify.ts.
+  if (inbound.callbackData === "newtask") {
+    const createdBy = await inviterUserIdFor(connection.id, externalUserId, orgId);
+    const task = await createTask(orgId, createdBy, { title: "New task", description: "", acceptanceCriteria: [] });
+    await setActiveTask(connection.id, externalUserId, task.id);
+    await adapter.send(externalUserId, NEW_TASK_PROMPT);
+    return;
+  }
+
+  if (inbound.callbackData?.startsWith("task:")) {
+    const taskId = parseIntOrNull(inbound.callbackData.slice("task:".length));
+    const task = taskId !== null ? await getTask(taskId) : undefined;
+    if (!task || task.orgId !== orgId) {
+      // Tampered, stale, or cross-org callback — never trust the id blindly (mirrors the
+      // existing agent: handler's own NaN/orgId guards).
+      await showMainMenu(adapter, orgId, externalUserId);
+      return;
+    }
+    await setActiveTask(connection.id, externalUserId, task.id);
+    // Routes through sendCurrentStepPrompt, never the Step 3 forwarding logic below: a tap
+    // carries no inbound.text, and Step 3's running-task branch returns early with nothing sent
+    // whenever inbound.text is absent — falling through there on a tap would silently no-op on
+    // exactly the headline case this feature exists to fix (tapping a running task from the menu).
+    await sendCurrentStepPrompt(adapter, orgId, externalUserId, task);
+    return;
+  }
+
+  // Step 2 — none of the above matched; resolve the chat's remembered task.
+  const authorizedUser = await getAuthorizedUser(connection.id, externalUserId);
+  const activeTaskId = authorizedUser?.activeTaskId;
+  if (!activeTaskId) {
+    await showMainMenu(adapter, orgId, externalUserId); // unrecognized input, nothing focused
+    return;
+  }
+
+  const activeTask = await getTask(activeTaskId);
+  if (!activeTask || activeTask.orgId !== orgId) {
+    // Shouldn't happen — activeTaskId is only ever set from a task already checked against this
+    // orgId — but never trust a stored pointer over a fresh check.
+    await setActiveTask(connection.id, externalUserId, null);
+    await showMainMenu(adapter, orgId, externalUserId);
+    return;
+  }
+
+  // Step 3 — act on activeTask (reached only by falling through Step 2 — a fresh task: tap never
+  // reaches here; it's handled entirely in Step 1 via sendCurrentStepPrompt).
+  if (activeTask.sessionId) {
+    // Running — forward, mirroring the web message route exactly, including its failed-task reset.
+    if (!inbound.text) return; // a stray callback on a running task — nothing to do
+    if (activeTask.status === "failed") {
+      await updateTask(activeTask.id, { status: "in_progress" });
+    }
+    const userMessage = await createMessage(activeTask.sessionId, "user", inbound.text);
+    await touchSessionActivity(activeTask.sessionId);
+    const run = await createRun(activeTask.sessionId, userMessage.id);
     try {
       await adapter.sendTyping(externalUserId);
     } catch (err) {
@@ -141,26 +204,42 @@ async function handleInbound(
     return;
   }
 
-  // Authorized, no session yet: expect a menu button tap.
-  if (inbound.callbackData?.startsWith("agent:")) {
-    const agentId = Number(inbound.callbackData.slice("agent:".length));
-    // A tampered or malformed callback_data (e.g. "agent:xyz") parses to NaN — Number.isFinite
-    // catches that before it ever reaches getAgent, same fallback as a stale/deleted agent id.
-    const agent = Number.isFinite(agentId) ? await getAgent(agentId) : undefined;
-    // The agent named in a stale callback (deleted since the menu was sent, or a tampered
-    // callback_data) no longer exists — fall back to re-showing a fresh menu rather than creating
-    // a session pointed at nothing.
-    if (!agent || agent.orgId !== orgId) {
-      await sendAgentMenu(adapter, orgId, externalUserId);
+  if (activeTask.title === "New task" && activeTask.description === "") {
+    // Draft sentinel: only our own placeholder, not any web-created task with a blank
+    // description, counts as "awaiting a description".
+    if (!inbound.text) {
+      await adapter.send(externalUserId, NEW_TASK_PROMPT);
       return;
     }
-
-    const bound = await bindSession(orgId, agent, externalUserId);
-    await adapter.send(externalUserId, `You're now talking to ${bound.name}.`);
+    const title = firstLine(inbound.text).slice(0, TITLE_MAX_LENGTH);
+    await updateTask(activeTask.id, { title, description: inbound.text });
+    await sendAgentPickerMenu(adapter, orgId, externalUserId);
     return;
   }
 
-  await sendAgentMenu(adapter, orgId, externalUserId);
+  if (!activeTask.assigneeAgentId) {
+    if (inbound.callbackData?.startsWith("agent:")) {
+      const agentId = parseIntOrNull(inbound.callbackData.slice("agent:".length));
+      const agent = agentId !== null ? await getAgent(agentId) : undefined;
+      if (!agent || agent.orgId !== orgId) {
+        await sendAgentPickerMenu(adapter, orgId, externalUserId);
+        return;
+      }
+      await startTask(adapter, orgId, externalUserId, activeTask, agent);
+    } else {
+      await sendAgentPickerMenu(adapter, orgId, externalUserId); // re-prompt on stray text or stale callback
+    }
+    return;
+  }
+
+  // Description set, agent already set, no session yet — e.g. a task fully configured via the web
+  // UI, then picked from the Telegram resume list, or reached here by typing instead of tapping.
+  // Just start it, using the agent it already has. inbound.text (if any) is folded into the brief
+  // rather than silently discarded.
+  // assigneeAgentId is set (checked above), and ON DELETE SET NULL means the referenced agent row
+  // still exists whenever the column is non-null — the assertion below reflects that invariant.
+  const agent = (await getAgent(activeTask.assigneeAgentId))!;
+  await startTask(adapter, orgId, externalUserId, activeTask, agent, inbound.text);
 }
 
 /**
@@ -196,40 +275,31 @@ async function attemptRedemption(
   return true;
 }
 
-/**
- * Creates this chat's session, or adopts the one a concurrent duplicate delivery just created.
- * sessions_org_origin_external_thread_idx turns the double-tap race into a 23505 instead of a
- * second session row; swallowing it and re-reading keeps the outcome identical for the user
- * rather than turning a race into an error. Returns the agent the surviving session is bound to,
- * which is the loser's agent if two different menu buttons raced.
- */
-async function bindSession(orgId: number, agent: Agent, externalUserId: string): Promise<Agent> {
-  try {
-    await createSession(orgId, agent.id, `Telegram — ${agent.name}`, {
-      origin: "telegram",
-      externalThreadRef: externalUserId,
-    });
-    return agent;
-  } catch (err) {
-    if (!isUniqueViolation(err)) throw err;
-    const existing = await findSessionByExternalThread(orgId, "telegram", externalUserId);
-    if (!existing) throw err;
-    if (existing.agentId === agent.id) return agent;
-    return (await getAgent(existing.agentId)) ?? agent;
-  }
+function parseIntOrNull(value: string): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
-// Drizzle wraps driver errors in a DrizzleQueryError and hangs the original PostgresError (which
-// is where SQLSTATE lives) off `cause`, so the check has to walk the chain rather than read
-// `err.code` off the top-level error.
-function isUniqueViolation(err: unknown): boolean {
-  for (let current = err; current instanceof Error; current = (current as { cause?: unknown }).cause) {
-    if ((current as { code?: unknown }).code === "23505") return true;
-  }
-  return false;
+function firstLine(text: string): string {
+  return text.split("\n")[0].trim();
 }
 
-async function sendAgentMenu(adapter: ChannelAdapter, orgId: number, externalUserId: string): Promise<void> {
+async function showMainMenu(adapter: ChannelAdapter, orgId: number, externalUserId: string): Promise<void> {
+  const openTasks = (await listTasks(orgId))
+    .filter((t) => t.status !== "done" && t.status !== "failed" && t.status !== "cancelled")
+    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)) // updatedAt descending
+    .slice(0, MAIN_MENU_TASK_LIMIT);
+
+  await adapter.sendMenu(externalUserId, MAIN_MENU_PROMPT, [
+    { label: NEW_TASK_LABEL, value: "newtask" },
+    ...openTasks.map((t) => ({
+      label: `${t.ref} · ${t.title} · ${STATUS_LABELS[t.status] ?? t.status}`,
+      value: `task:${t.id}`,
+    })),
+  ]);
+}
+
+async function sendAgentPickerMenu(adapter: ChannelAdapter, orgId: number, externalUserId: string): Promise<void> {
   const agents = await listAgents(orgId);
   if (agents.length === 0) {
     await adapter.send(externalUserId, NO_AGENTS_MESSAGE);
@@ -237,7 +307,83 @@ async function sendAgentMenu(adapter: ChannelAdapter, orgId: number, externalUse
   }
   await adapter.sendMenu(
     externalUserId,
-    PICK_AGENT_PROMPT,
+    AGENT_PICKER_PROMPT,
     agents.map((agent) => ({ label: agent.name, value: `agent:${agent.id}` })),
   );
+}
+
+// Implements the task-attribution design decision: a Telegram-created task is attributed to
+// whichever admin generated the invite code this chat redeemed, falling back to the org's owner
+// if (unreachably, in practice) no redeemer row can be found. Every org gets an "owner" membership
+// at registration and authorization only ever follows a real redemption, so at least one of the
+// two lookups below always resolves — the throw exists to surface a violation of that invariant
+// loudly rather than silently persist a wrong createdBy value.
+async function inviterUserIdFor(connectionId: number, externalUserId: string, orgId: number): Promise<number> {
+  const redeemer = await getInviteCodeRedeemer(connectionId, externalUserId);
+  if (redeemer) return redeemer.createdBy;
+  const owner = await getOrgOwnerUserId(orgId);
+  if (owner) return owner;
+  throw new Error(`No task-creator attribution available for org ${orgId}`);
+}
+
+async function startTask(
+  adapter: ChannelAdapter,
+  orgId: number,
+  externalUserId: string,
+  task: Task,
+  agent: Agent,
+  extraText?: string,
+): Promise<void> {
+  const brief = extraText ? `${formatTaskBrief(task)}\n\n${extraText}` : formatTaskBrief(task);
+  const result = await startTaskSession(task.id, orgId, agent.id, task.title, brief, {
+    origin: "telegram",
+    externalThreadRef: externalUserId,
+  });
+  if (!result.started) {
+    const winner = result.task.assigneeAgentId ? await getAgent(result.task.assigneeAgentId) : undefined;
+    await adapter.send(externalUserId, `Already started — talking to ${winner?.name ?? agent.name}.`);
+    return;
+  }
+  const run = await createRun(result.session.id, result.userMessageId);
+  await enqueueRunJob(run.id);
+  await adapter.send(externalUserId, `Starting "${task.title}" with ${agent.name}...`);
+}
+
+// Called after a successful invite-code redemption, and from Step 1's task: tap — never from
+// Step 3's forwarding logic, which would treat a just-redeemed code (or a tap's absent text) as a
+// real chat message. Both entry points share this one definition of "what to say about this
+// task's current state".
+async function sendCurrentStepPrompt(
+  adapter: ChannelAdapter,
+  orgId: number,
+  externalUserId: string,
+  activeTask: Task | undefined,
+): Promise<void> {
+  if (!activeTask) {
+    await showMainMenu(adapter, orgId, externalUserId);
+    return;
+  }
+  if (activeTask.sessionId) {
+    const agent = activeTask.assigneeAgentId ? await getAgent(activeTask.assigneeAgentId) : undefined;
+    await adapter.send(
+      externalUserId,
+      `Welcome back — "${activeTask.title}" is running with ${agent?.name ?? "your agent"}. Send a message to continue, or /tasks to switch.`,
+    );
+    return;
+  }
+  if (activeTask.title === "New task" && activeTask.description === "") {
+    await adapter.send(externalUserId, NEW_TASK_PROMPT);
+    return;
+  }
+  if (!activeTask.assigneeAgentId) {
+    await sendAgentPickerMenu(adapter, orgId, externalUserId);
+    return;
+  }
+  // Description set, agent set, no session: fully configured but not yet running (e.g. tapped
+  // from the resume list, or re-authorized mid-configuration). Auto-start immediately, matching
+  // Step 3's own version of this state, rather than re-asking a question the task already has an
+  // answer to. No extraText here — neither a tap nor a redemption carries real chat text to fold
+  // in.
+  const agent = (await getAgent(activeTask.assigneeAgentId))!;
+  await startTask(adapter, orgId, externalUserId, activeTask, agent);
 }
