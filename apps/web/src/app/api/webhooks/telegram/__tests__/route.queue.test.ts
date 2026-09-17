@@ -68,10 +68,16 @@ describe("POST /api/webhooks/telegram/[webhookSecret] — real queue", () => {
     await POST(webhookRequest("wh-secret-queue", 700, `/start ${invite.code}`), {
       params: Promise.resolve({ webhookSecret: "wh-secret-queue" }),
     });
-    await POST(webhookRequest("wh-secret-queue", 700, undefined, `agent:${agent.id}`), {
+    // A bare agent: tap right after authorization, with no activeTaskId set yet, falls through to
+    // the main menu instead of binding anything under the new Task-centric flow — so driving the
+    // real path means going through newtask + description first, same as a real user would.
+    await POST(webhookRequest("wh-secret-queue", 700, undefined, "newtask"), {
       params: Promise.resolve({ webhookSecret: "wh-secret-queue" }),
     });
-    await POST(webhookRequest("wh-secret-queue", 700, "hi there"), {
+    await POST(webhookRequest("wh-secret-queue", 700, "fix the thing"), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-queue" }),
+    });
+    await POST(webhookRequest("wh-secret-queue", 700, undefined, `agent:${agent.id}`), {
       params: Promise.resolve({ webhookSecret: "wh-secret-queue" }),
     });
 

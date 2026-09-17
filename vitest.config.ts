@@ -30,6 +30,11 @@ export default defineConfig({
         },
       },
       {
+        resolve: {
+          alias: {
+            "@": path.resolve(__dirname, "apps/web/src"),
+          },
+        },
         test: {
           name: "db-integration",
           environment: "node",
@@ -43,6 +48,11 @@ export default defineConfig({
         },
       },
       {
+        resolve: {
+          alias: {
+            "@": path.resolve(__dirname, "apps/web/src"),
+          },
+        },
         test: {
           name: "queue-integration",
           environment: "node",
