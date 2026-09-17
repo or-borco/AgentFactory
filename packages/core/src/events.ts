@@ -86,6 +86,16 @@ export interface RepoSyncEvent extends RunEventBase {
   conflictingFiles?: string[];
 }
 
+// Deliberately no `content` field (see AgentMemoryEntry's comment in domain.ts). `events.data` is
+// plaintext (unlike agent_memory_entries.ciphertext), so echoing the lesson text here would leak
+// the exact sensitive content the encrypted column exists to protect, right back out through the
+// run transcript UI. `reinforced` is the only signal the transcript shows: whether this write
+// created a new lesson or reinforced an existing one.
+export interface MemoryWriteEvent extends RunEventBase {
+  type: "memory_write";
+  reinforced: boolean;
+}
+
 export interface DoneEvent extends RunEventBase {
   type: "done";
   reason: "completed" | "cancelled" | "budget_exceeded" | "error";
@@ -103,4 +113,5 @@ export type RunEvent =
   | ErrorEvent
   | ContextIncludedEvent
   | RepoSyncEvent
+  | MemoryWriteEvent
   | DoneEvent;
