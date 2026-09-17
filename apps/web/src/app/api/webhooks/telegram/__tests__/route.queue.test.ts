@@ -22,6 +22,10 @@ vi.mock("@agentfactory/integrations", async (importOriginal) => {
   };
 });
 
+// The path segment and the header value are two independently-generated secrets (see the
+// connect route) — kept distinct here so the route's header check is exercised for real.
+const SECRET_TOKEN = "tg-token-queue";
+
 const inspectQueue = new Queue(RUN_QUEUE_NAME, { connection: queueConnection });
 
 afterEach(async () => {
@@ -39,7 +43,7 @@ function webhookRequest(webhookSecret: string, chatId: number, text?: string, ca
     : { message: { chat: { id: chatId }, text } };
   return new Request(`http://test/api/webhooks/telegram/${webhookSecret}`, {
     method: "POST",
-    headers: { "X-Telegram-Bot-Api-Secret-Token": webhookSecret },
+    headers: { "X-Telegram-Bot-Api-Secret-Token": SECRET_TOKEN },
     body: JSON.stringify(update),
   });
 }
@@ -56,7 +60,7 @@ describe("POST /api/webhooks/telegram/[webhookSecret] — real queue", () => {
       label: "Telegram",
       auth: "api_token",
       credentialRef,
-      config: { botUsername: "test_bot", webhookSecret: "wh-secret-queue" },
+      config: { botUsername: "test_bot", webhookSecret: "wh-secret-queue", telegramSecretToken: SECRET_TOKEN },
     });
     const agent = await insertAgent(org.id, { name: "Backend Bot" });
     const invite = await generateInviteCode(org.id, connection.id, user.id);

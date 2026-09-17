@@ -8,6 +8,7 @@ import {
   getAuthorizationStatus,
   authorizeExternalUser,
   revokeAuthorizedUser,
+  createSession,
   listMessages,
   findSessionByExternalThread,
   getRunsForSession,
@@ -26,10 +27,13 @@ import { POST } from "../[webhookSecret]/route";
 // update-shape parsing in these tests is exercised for real, not re-mocked. The three send mocks
 // are hoisted to module scope (not created fresh inside the factory) so tests can assert on what
 // was actually sent back to the chat, not just on side effects in the database.
+// They resolve rather than returning undefined because the real ChannelAdapter methods are
+// declared Promise-returning and the route awaits them — a bare vi.fn() would make `await` on a
+// non-thenable pass by accident where the real thing would not.
 const { mockSend, mockSendMenu, mockSendTyping } = vi.hoisted(() => ({
-  mockSend: vi.fn(),
-  mockSendMenu: vi.fn(),
-  mockSendTyping: vi.fn(),
+  mockSend: vi.fn().mockResolvedValue(undefined),
+  mockSendMenu: vi.fn().mockResolvedValue(undefined),
+  mockSendTyping: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@agentfactory/integrations", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@agentfactory/integrations")>();
@@ -47,6 +51,14 @@ vi.mock("@agentfactory/integrations", async (importOriginal) => {
 
 vi.mock("@agentfactory/queue", () => ({ enqueueRunJob: vi.fn() }));
 
+// The URL path segment and the header value are two independently-generated secrets (see the
+// connect route) — these fixtures keep them distinct so a test that confuses them fails.
+const SECRET_TOKEN = "tg-token-1";
+// Shaped like a real code (8 chars from the Crockford-ish alphabet generateInviteCode uses) but
+// never minted, so it reaches redeemInviteCode and fails there rather than being filtered out as
+// "not a code attempt".
+const WRONG_CODE = "ABCDEFGH";
+
 async function setupOrgWithBot() {
   const org = await insertOrg();
   const user = await insertUser();
@@ -58,7 +70,7 @@ async function setupOrgWithBot() {
     label: "Telegram",
     auth: "api_token",
     credentialRef,
-    config: { botUsername: "test_bot", webhookSecret: "wh-secret-1" },
+    config: { botUsername: "test_bot", webhookSecret: "wh-secret-1", telegramSecretToken: SECRET_TOKEN },
   });
   return { org, user, connection };
 }
@@ -66,13 +78,19 @@ async function setupOrgWithBot() {
 // Telegram's real webhook request always carries this header once secret_token is registered
 // (see the connect route in Task 8) — every request built in these tests includes it, matching
 // what the live route actually receives.
-function webhookRequest(webhookSecret: string, chatId: number, text?: string, callbackData?: string) {
+function webhookRequest(
+  webhookSecret: string,
+  chatId: number,
+  text?: string,
+  callbackData?: string,
+  secretToken: string = SECRET_TOKEN,
+) {
   const update = callbackData
     ? { callback_query: { id: "cbq-1", message: { chat: { id: chatId } }, data: callbackData } }
     : { message: { chat: { id: chatId }, text } };
   return new Request(`http://test/api/webhooks/telegram/${webhookSecret}`, {
     method: "POST",
-    headers: { "X-Telegram-Bot-Api-Secret-Token": webhookSecret },
+    headers: { "X-Telegram-Bot-Api-Secret-Token": secretToken },
     body: JSON.stringify(update),
   });
 }
@@ -87,7 +105,7 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
     expect(res.status).toBe(404);
   });
 
-  it("returns 404 when the secret header doesn't match the path secret", async () => {
+  it("returns 404 when the secret header doesn't match the stored secret token", async () => {
     await setupOrgWithBot();
     const req = new Request("http://test/api/webhooks/telegram/wh-secret-1", {
       method: "POST",
@@ -95,6 +113,46 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
       body: JSON.stringify({ message: { chat: { id: 1 }, text: "/start" } }),
     });
     const res = await POST(req, { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
+    expect(res.status).toBe(404);
+  });
+
+  // The whole point of the two layers: whoever scrapes the path secret out of an access log still
+  // can't forge an update, because the header is a separately-generated value.
+  it("returns 404 when the header carries the path secret instead of the stored secret token", async () => {
+    await setupOrgWithBot();
+    const req = new Request("http://test/api/webhooks/telegram/wh-secret-1", {
+      method: "POST",
+      headers: { "X-Telegram-Bot-Api-Secret-Token": "wh-secret-1" },
+      body: JSON.stringify({ message: { chat: { id: 1 }, text: "/start" } }),
+    });
+    const res = await POST(req, { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
+    expect(res.status).toBe(404);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("accepts a request carrying the stored secret token in the header", async () => {
+    await setupOrgWithBot();
+    const res = await POST(webhookRequest("wh-secret-1", 1, "/start", undefined, SECRET_TOKEN), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    expect(res.status).toBe(200);
+    expect(mockSend).toHaveBeenCalledWith("1", expect.stringContaining("invite code"));
+  });
+
+  it("returns 404 when the connection has no stored secret token at all", async () => {
+    const org = await insertOrg();
+    const credentialRef = await createConnectionSecret(org.id, { botToken: "test-token" });
+    await createConnection(org.id, {
+      provider: "telegram",
+      kind: "channel",
+      label: "Legacy Telegram",
+      auth: "api_token",
+      credentialRef,
+      config: { botUsername: "legacy_bot", webhookSecret: "wh-secret-legacy" },
+    });
+    const res = await POST(webhookRequest("wh-secret-legacy", 2, "/start", undefined, "wh-secret-legacy"), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-legacy" }),
+    });
     expect(res.status).toBe(404);
   });
 
@@ -148,17 +206,61 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
   it("rejects a redemption attempt with an invalid code and locks out after 5 failures", async () => {
     const { connection } = await setupOrgWithBot();
     for (let i = 0; i < 5; i++) {
-      await POST(webhookRequest("wh-secret-1", 400, "WRONGCODE"), {
+      await POST(webhookRequest("wh-secret-1", 400, WRONG_CODE), {
         params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
       });
     }
     await expect(getAuthorizationStatus(connection.id, "400")).resolves.toBe("unknown");
     // A 6th attempt should short-circuit on cooldown before ever calling redeemInviteCode again —
     // verified indirectly: the route still returns 200 (never errors) and status stays "unknown".
-    const res = await POST(webhookRequest("wh-secret-1", 400, "WRONGCODE"), {
+    const res = await POST(webhookRequest("wh-secret-1", 400, WRONG_CODE), {
       params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
     });
     expect(res.status).toBe(200);
+    expect(mockSend).toHaveBeenLastCalledWith("400", expect.stringContaining("Too many"));
+  });
+
+  it("treats free text that isn't code-shaped as a question, not a redemption attempt", async () => {
+    const { connection } = await setupOrgWithBot();
+    const redeemSpy = vi.spyOn(db, "redeemInviteCode");
+    const recordSpy = vi.spyOn(db, "recordFailedRedemption");
+
+    for (const text of ["hi", "hello there", "what is this?"]) {
+      const res = await POST(webhookRequest("wh-secret-1", 410, text), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+      expect(res.status).toBe(200);
+      expect(mockSend).toHaveBeenLastCalledWith("410", expect.stringContaining("Send your invite code"));
+    }
+
+    expect(redeemSpy).not.toHaveBeenCalled();
+    expect(recordSpy).not.toHaveBeenCalled();
+    await expect(getAuthorizationStatus(connection.id, "410")).resolves.toBe("unknown");
+    redeemSpy.mockRestore();
+    recordSpy.mockRestore();
+  });
+
+  it("requires five genuine wrong codes to lock out — chatter in between doesn't count", async () => {
+    await setupOrgWithBot();
+    for (let i = 0; i < 4; i++) {
+      await POST(webhookRequest("wh-secret-1", 420, WRONG_CODE), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+    }
+    // Four real attempts plus small talk: still one short of the five-attempt cooldown.
+    await POST(webhookRequest("wh-secret-1", 420, "hi"), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    await POST(webhookRequest("wh-secret-1", 420, WRONG_CODE), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    expect(mockSend).toHaveBeenLastCalledWith("420", expect.stringContaining("isn't valid"));
+
+    // The fifth wrong code is the one that trips it, so the next code attempt hits the cooldown.
+    await POST(webhookRequest("wh-secret-1", 420, WRONG_CODE), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    expect(mockSend).toHaveBeenLastCalledWith("420", expect.stringContaining("Too many"));
   });
 
   it("blocks a message from a revoked user, sends the revocation reply, and creates no run", async () => {
@@ -189,6 +291,101 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
     // The button tap only creates the session, never a run — so a revoked user's message
     // producing zero runs here is what proves the revocation check actually short-circuited.
     await expect(getRunsForSession(session!.id)).resolves.toHaveLength(0);
+  });
+
+  // The bound-session branch must fail closed on "unknown" exactly as it does on "revoked":
+  // channel_authorized_users cascade-deletes with the connection but sessions don't, so a
+  // disconnect/reconnect leaves every previously-bound chat in "unknown".
+  it("blocks a message on a bound session whose authorization row no longer exists", async () => {
+    const { org, connection } = await setupOrgWithBot();
+    const agent = await insertAgent(org.id, { name: "Backend Bot" });
+
+    // Exactly the post-disconnect/reconnect shape: a telegram session row for this chat, and no
+    // channel_authorized_users row anywhere (the old one cascade-deleted with the old connection).
+    const session = await createSession(org.id, agent.id, "Telegram — Backend Bot", {
+      origin: "telegram",
+      externalThreadRef: "510",
+    });
+    await expect(getAuthorizationStatus(connection.id, "510")).resolves.toBe("unknown");
+    mockSend.mockClear();
+
+    const res = await POST(webhookRequest("wh-secret-1", 510, "are you there?"), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockSend).toHaveBeenCalledWith("510", expect.stringContaining("Send your invite code"));
+    await expect(getRunsForSession(session.id)).resolves.toHaveLength(0);
+    const { enqueueRunJob } = await import("@agentfactory/queue");
+    expect(enqueueRunJob).not.toHaveBeenCalled();
+  });
+
+  // sendTyping is cosmetic; it sits between createRun and enqueueRunJob, so a throw there used to
+  // strand a `queued` run with no job behind the handler's always-200 catch.
+  it("still enqueues the run when sendTyping fails", async () => {
+    const { org, user, connection } = await setupOrgWithBot();
+    const agent = await insertAgent(org.id, { name: "Backend Bot" });
+    const invite = await generateInviteCode(org.id, connection.id, user.id);
+
+    await POST(webhookRequest("wh-secret-1", 810, `/start ${invite.code}`), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    await POST(webhookRequest("wh-secret-1", 810, undefined, `agent:${agent.id}`), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    const session = await findSessionByExternalThread(org.id, "telegram", "810");
+    mockSendTyping.mockRejectedValueOnce(new Error("429 Too Many Requests"));
+
+    const res = await POST(webhookRequest("wh-secret-1", 810, "hi there"), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    const runs = await getRunsForSession(session!.id);
+    expect(runs).toHaveLength(1);
+    const { enqueueRunJob } = await import("@agentfactory/queue");
+    expect(enqueueRunJob).toHaveBeenCalledWith(runs[0].id);
+  });
+
+  // The unique index turns a double-tap into a 23505 on the losing insert; the route has to adopt
+  // the session that won rather than letting the error reach the always-200 catch.
+  it("adopts the existing session when a concurrent tap already created one", async () => {
+    const { org, user, connection } = await setupOrgWithBot();
+    const agent = await insertAgent(org.id, { name: "Backend Bot" });
+    const invite = await generateInviteCode(org.id, connection.id, user.id);
+
+    await POST(webhookRequest("wh-secret-1", 820, `/start ${invite.code}`), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    // Stands in for the racing delivery: the row really does get written, then this caller sees
+    // the unique violation its own insert would have raised.
+    const realCreateSession = db.createSession;
+    const createSessionSpy = vi
+      .spyOn(db, "createSession")
+      .mockImplementationOnce(async (...args: Parameters<typeof db.createSession>) => {
+        await realCreateSession(...args);
+        const err = new Error('duplicate key value violates unique constraint "sessions_org_origin_external_thread_idx"');
+        (err as Error & { code: string }).code = "23505";
+        throw err;
+      });
+    mockSend.mockClear();
+
+    const res = await POST(webhookRequest("wh-secret-1", 820, undefined, `agent:${agent.id}`), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockSend).toHaveBeenCalledWith("820", expect.stringContaining("Backend Bot"));
+    createSessionSpy.mockRestore();
+
+    const session = await findSessionByExternalThread(org.id, "telegram", "820");
+    expect(session?.agentId).toBe(agent.id);
+    // And the adopted session is a working one: the next message starts a run on it.
+    await POST(webhookRequest("wh-secret-1", 820, "hi there"), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+    await expect(getRunsForSession(session!.id)).resolves.toHaveLength(1);
   });
 
   it("shows a 'no agents set up' fallback when the org has zero agents, and creates no session", async () => {

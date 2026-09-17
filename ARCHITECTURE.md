@@ -477,8 +477,10 @@ Lumping these together is the classic mistake; they behave differently.
    Port: `ChannelAdapter { receive(raw) → InboundMessage, send(outbound) }` (`packages/integrations/src/channel-provider.ts`).
    **A channel thread maps 1:1 to a Session** — the same session the web UI shows. **Telegram is real** —
    `TelegramChannelAdapter` (`packages/integrations/src/telegram/`), an unauthenticated webhook route
-   (`apps/web/src/app/api/webhooks/telegram/[webhookSecret]/route.ts`) secured by a per-connection secret
-   plus Telegram's own `secret_token` header, single-use invite-code admission
+   (`apps/web/src/app/api/webhooks/telegram/[webhookSecret]/route.ts`) secured by two independently-generated
+   per-connection secrets — one in the URL path, one registered as Telegram's `secret_token` and echoed back in
+   the `X-Telegram-Bot-Api-Secret-Token` header, so a path secret scraped from an access log is not by itself
+   enough to forge an update — single-use invite-code admission
    (`channel_invite_codes`/`channel_authorized_users` tables), and outbound delivery hooked into
    `apps/worker/src/worker.ts` via `channel-notify.ts` (mirrors `task-notify.ts`'s best-effort,
    never-fails-the-run isolation). Slack (#269), Discord, and WhatsApp remain unbuilt adapter

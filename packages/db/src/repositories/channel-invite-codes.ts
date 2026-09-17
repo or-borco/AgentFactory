@@ -7,12 +7,25 @@ const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 // Crockford base32 (no 0/O/1/I) so a spoken-aloud or misread code doesn't collide with a
 // visually-similar character.
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const CODE_LENGTH = 8;
 
 function generateCode(): string {
-  const bytes = randomBytes(8);
+  const bytes = randomBytes(CODE_LENGTH);
   let code = "";
   for (const byte of bytes) code += CODE_ALPHABET[byte % CODE_ALPHABET.length];
   return code;
+}
+
+const CODE_SHAPE = new RegExp(`^[${CODE_ALPHABET}]{${CODE_LENGTH}}$`, "i");
+
+/**
+ * Whether a string could plausibly be a code this module mints. Callers use it to tell "the user
+ * is trying a code" apart from "the user is just talking", so that ordinary chatter never burns a
+ * failed-redemption attempt against the cooldown. Case-insensitive because a human retyping a
+ * code by hand may not match the minted casing — that's a redemption miss, not a non-attempt.
+ */
+export function looksLikeInviteCode(candidate: string): boolean {
+  return CODE_SHAPE.test(candidate);
 }
 
 export interface InviteCode {

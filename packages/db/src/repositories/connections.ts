@@ -10,11 +10,16 @@ import { db } from "../client";
 import { connections } from "../schema";
 
 function toConnection(row: typeof connections.$inferSelect): Connection {
-  // webhookSecret (used by the Telegram channel adapter's webhook auth) is a real secret despite
-  // living in the generic `config` jsonb column — Connection.config is returned verbatim to the
-  // browser by GET /api/connections, so it must never surface here. The raw DB row still carries
-  // it; only the materialized Connection object hides it.
-  const { webhookSecret: _webhookSecret, ...safeConfig } = (row.config ?? {}) as Record<string, unknown>;
+  // webhookSecret (the URL path segment) and telegramSecretToken (the value Telegram echoes in
+  // X-Telegram-Bot-Api-Secret-Token) are both real secrets despite living in the generic `config`
+  // jsonb column — Connection.config is returned verbatim to the browser by GET /api/connections,
+  // so neither may surface here. The raw DB row still carries them; only the materialized
+  // Connection object hides them.
+  const {
+    webhookSecret: _webhookSecret,
+    telegramSecretToken: _telegramSecretToken,
+    ...safeConfig
+  } = (row.config ?? {}) as Record<string, unknown>;
   return {
     id: row.id,
     orgId: row.orgId,
@@ -118,13 +123,23 @@ export async function getConnectionCredentialRef(orgId: number, id: number): Pro
  * arrives with no org context. `config->>'webhookSecret'` is a jsonb text lookup — no dedicated
  * index today; fine at current scale (a handful of orgs, one Telegram connection each), revisit
  * with a dedicated column/index if that stops being true.
+ *
+ * `secretToken` is handed back alongside the (stripped) Connection precisely because
+ * `toConnection` hides it: the webhook route has to compare it against the request header, and
+ * this is the server-side path that lets it, without widening the browser-facing shape.
  */
 export async function findChannelConnectionByWebhookSecret(
   webhookSecret: string,
-): Promise<{ connection: Connection; orgId: number } | undefined> {
+): Promise<{ connection: Connection; orgId: number; secretToken?: string } | undefined> {
   const [row] = await db
     .select()
     .from(connections)
     .where(and(eq(connections.kind, "channel"), sql`${connections.config}->>'webhookSecret' = ${webhookSecret}`));
-  return row ? { connection: toConnection(row), orgId: row.orgId } : undefined;
+  if (!row) return undefined;
+  const rawSecretToken = (row.config as Record<string, unknown> | null)?.telegramSecretToken;
+  return {
+    connection: toConnection(row),
+    orgId: row.orgId,
+    secretToken: typeof rawSecretToken === "string" ? rawSecretToken : undefined,
+  };
 }

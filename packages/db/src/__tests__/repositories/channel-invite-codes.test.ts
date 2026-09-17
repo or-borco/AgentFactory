@@ -5,6 +5,7 @@ import { createConnection } from "../../repositories/connections.js";
 import {
   generateInviteCode,
   listInviteCodes,
+  looksLikeInviteCode,
   redeemInviteCode,
   revokeInviteCode,
 } from "../../repositories/channel-invite-codes.js";
@@ -56,6 +57,32 @@ describe("channel-invite-codes repository", () => {
     ]);
     const successes = [first, second].filter((r) => r !== undefined);
     expect(successes).toHaveLength(1);
+  });
+
+  describe("looksLikeInviteCode", () => {
+    it("accepts a freshly minted code, in either case", async () => {
+      const { org, user, connection } = await setup();
+      const invite = await generateInviteCode(org.id, connection.id, user.id);
+
+      expect(looksLikeInviteCode(invite.code)).toBe(true);
+      expect(looksLikeInviteCode(invite.code.toLowerCase())).toBe(true);
+    });
+
+    it("rejects ordinary chatter and near-misses", () => {
+      for (const candidate of [
+        "hi",
+        "hello there",
+        "what is this?",
+        "ABCDEFG", // one char short
+        "ABCDEFGHI", // one char long
+        "ABCDEF0H", // 0 and 1 are deliberately not in the alphabet
+        "ABCDEF1H",
+        "ABCDEF-H",
+        "",
+      ]) {
+        expect(looksLikeInviteCode(candidate)).toBe(false);
+      }
+    });
   });
 
   it("lists codes for a connection and revoke expires an outstanding one", async () => {

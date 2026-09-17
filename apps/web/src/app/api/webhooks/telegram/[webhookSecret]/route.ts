@@ -12,6 +12,7 @@ import {
   getConnectionCredentialRef,
   isInCooldown,
   listAgents,
+  looksLikeInviteCode,
   readConnectionSecret,
   recordFailedRedemption,
   redeemInviteCode,
@@ -19,7 +20,7 @@ import {
 } from "@agentfactory/db";
 import { createChannelAdapter, type ChannelAdapter } from "@agentfactory/integrations";
 import { enqueueRunJob } from "@agentfactory/queue";
-import type { Connection } from "@agentfactory/core";
+import type { Agent, Connection } from "@agentfactory/core";
 import { createLogger } from "@agentfactory/logger";
 
 const log = createLogger("webhooks:telegram");
@@ -38,13 +39,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ web
 
   const resolved = await findChannelConnectionByWebhookSecret(webhookSecret);
   if (!resolved) return new NextResponse(null, { status: 404 });
-  const { connection, orgId } = resolved;
+  const { connection, orgId, secretToken } = resolved;
 
-  // Defense in depth against the path secret alone leaking (e.g. via logs): Telegram echoes back
-  // whatever secret_token was registered with setWebhook (Task 8), which is the same value as the
-  // path segment — both must agree.
+  // Defense in depth against the path secret alone leaking (e.g. via a proxy/access log): Telegram
+  // echoes back whatever secret_token was registered with setWebhook, and the connect route
+  // deliberately generates that as a *separate* random value from the path segment, so knowing the
+  // URL is not enough to satisfy this check. A connection with no stored token can't be
+  // authenticated at all — treat it as unknown rather than falling back to the path secret, which
+  // would collapse the two layers back into one.
   const secretHeader = request.headers.get("X-Telegram-Bot-Api-Secret-Token");
-  if (secretHeader !== webhookSecret) return new NextResponse(null, { status: 404 });
+  if (!secretToken || secretHeader !== secretToken) return new NextResponse(null, { status: 404 });
 
   const credentialRef = await getConnectionCredentialRef(orgId, connection.id);
   if (credentialRef == null) return new NextResponse(null, { status: 200 });
@@ -82,9 +86,13 @@ async function handleInbound(
   const session = await findSessionByExternalThread(orgId, "telegram", externalUserId);
 
   if (session) {
+    // Fail closed on anything that isn't an explicit, live authorization. "unknown" is not a
+    // benign state here: channel_authorized_users cascade-deletes with the connection while
+    // sessions do not, so every previously-bound chat lands in "unknown" the moment an admin
+    // disconnects the bot — which is exactly the action taken to cut off access after a leak.
     const status = await getAuthorizationStatus(connection.id, externalUserId);
-    if (status === "revoked") {
-      await adapter.send(externalUserId, REVOKED_MESSAGE);
+    if (status !== "authorized") {
+      await adapter.send(externalUserId, status === "revoked" ? REVOKED_MESSAGE : ASK_FOR_CODE_MESSAGE);
       return;
     }
     if (!inbound.text) return; // a stray callback on an already-bound session — nothing to do
@@ -92,7 +100,16 @@ async function handleInbound(
     const userMessage = await createMessage(session.id, "user", inbound.text);
     await touchSessionActivity(session.id);
     const run = await createRun(session.id, userMessage.id);
-    await adapter.sendTyping(externalUserId);
+    // Cosmetic, and never worth stranding a run over: the whole handler runs inside an
+    // always-200 try/catch, so a throw here (429, a user who blocked the bot, a transient 5xx)
+    // would be swallowed *after* the runs row exists but *before* the job is enqueued, leaving a
+    // permanently `queued` run with nothing to pick it up. Same treatment as
+    // startTypingIndicator in apps/worker/src/channel-notify.ts.
+    try {
+      await adapter.sendTyping(externalUserId);
+    } catch (err) {
+      log.warn("Failed to send Telegram typing indicator", { connectionId: connection.id, err });
+    }
     await enqueueRunJob(run.id);
     return;
   }
@@ -104,8 +121,11 @@ async function handleInbound(
       return;
     }
 
+    // Only text actually shaped like a code counts as a redemption attempt. Treating every
+    // message as one meant a newcomer typing "hi" spent one of their five attempts and could be
+    // locked out without ever being told what to send.
     const candidateCode = inbound.startPayload ?? inbound.text?.trim();
-    if (candidateCode) {
+    if (candidateCode && looksLikeInviteCode(candidateCode)) {
       if (await isInCooldown(connection.id, externalUserId)) {
         await adapter.send(externalUserId, COOLDOWN_MESSAGE);
         return;
@@ -146,15 +166,45 @@ async function handleInbound(
       return;
     }
 
-    await createSession(orgId, agent.id, `Telegram — ${agent.name}`, {
-      origin: "telegram",
-      externalThreadRef: externalUserId,
-    });
-    await adapter.send(externalUserId, `You're now talking to ${agent.name}.`);
+    const bound = await bindSession(orgId, agent, externalUserId);
+    await adapter.send(externalUserId, `You're now talking to ${bound.name}.`);
     return;
   }
 
   await sendAgentMenu(adapter, orgId, externalUserId);
+}
+
+/**
+ * Creates this chat's session, or adopts the one a concurrent duplicate delivery just created.
+ * sessions_org_origin_external_thread_idx turns the double-tap race into a 23505 instead of a
+ * second session row; swallowing it and re-reading keeps the outcome identical for the user
+ * rather than turning a race into an error. Returns the agent the surviving session is bound to,
+ * which is the loser's agent if two different menu buttons raced.
+ */
+async function bindSession(orgId: number, agent: Agent, externalUserId: string): Promise<Agent> {
+  try {
+    await createSession(orgId, agent.id, `Telegram — ${agent.name}`, {
+      origin: "telegram",
+      externalThreadRef: externalUserId,
+    });
+    return agent;
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    const existing = await findSessionByExternalThread(orgId, "telegram", externalUserId);
+    if (!existing) throw err;
+    if (existing.agentId === agent.id) return agent;
+    return (await getAgent(existing.agentId)) ?? agent;
+  }
+}
+
+// Drizzle wraps driver errors in a DrizzleQueryError and hangs the original PostgresError (which
+// is where SQLSTATE lives) off `cause`, so the check has to walk the chain rather than read
+// `err.code` off the top-level error.
+function isUniqueViolation(err: unknown): boolean {
+  for (let current = err; current instanceof Error; current = (current as { cause?: unknown }).cause) {
+    if ((current as { code?: unknown }).code === "23505") return true;
+  }
+  return false;
 }
 
 async function sendAgentMenu(adapter: ChannelAdapter, orgId: number, externalUserId: string): Promise<void> {

@@ -280,6 +280,15 @@ export const sessions = pgTable(
   (table) => [
     // Agent detail pages list sessions WHERE agent_id = ? — without this, a seq scan.
     index("sessions_agent_id_idx").on(table.agentId),
+    // One session per external chat thread. Without this, two concurrent inbound deliveries for
+    // the same chat (a double-tap on the agent menu) both miss findSessionByExternalThread and
+    // both insert, after which the conversation splits non-deterministically across two sessions
+    // and two sandboxes. Partial so it only constrains channel sessions: web sessions all carry a
+    // NULL external_thread_ref, and while Postgres already treats NULLs as distinct in a unique
+    // index, saying so explicitly keeps the index small and its intent legible.
+    uniqueIndex("sessions_org_origin_external_thread_idx")
+      .on(table.orgId, table.origin, table.externalThreadRef)
+      .where(sql`external_thread_ref IS NOT NULL`),
   ],
 );
 

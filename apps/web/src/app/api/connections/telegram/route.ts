@@ -42,13 +42,18 @@ export async function POST(request: Request) {
   }
   const botUsername = me.result.username;
 
+  // Two independently-generated secrets, deliberately not one value used twice: the path segment
+  // is the part that can leak through a proxy/access log or a Referer, and the secret_token — which
+  // Telegram echoes back in X-Telegram-Bot-Api-Secret-Token and never appears in a URL — is what
+  // makes that leak insufficient on its own to forge an update.
   const webhookSecret = randomBytes(16).toString("hex");
+  const telegramSecretToken = randomBytes(16).toString("hex");
   const setWebhookRes = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       url: `${baseUrl}/api/webhooks/telegram/${webhookSecret}`,
-      secret_token: webhookSecret,
+      secret_token: telegramSecretToken,
     }),
   });
   const setWebhookBody = (await setWebhookRes.json()) as { ok: boolean; description?: string };
@@ -63,7 +68,7 @@ export async function POST(request: Request) {
     label: typeof body.label === "string" && body.label.trim() ? body.label.trim() : `@${botUsername}`,
     auth: "api_token",
     credentialRef,
-    config: { botUsername, webhookSecret },
+    config: { botUsername, webhookSecret, telegramSecretToken },
   });
 
   return NextResponse.json(connection, { status: 201 });
