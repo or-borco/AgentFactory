@@ -70,5 +70,58 @@ describe("TelegramChannelAdapter", () => {
       expect(bodies[2].text).toHaveLength(808);
       expect(bodies.map((b: { text: string }) => b.text).join("")).toBe(longText);
     });
+
+    it("sends a single space for an empty message", async () => {
+      await adapter.send("42", "");
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(JSON.parse(init.body as string)).toMatchObject({ chat_id: "42", text: " " });
+    });
+
+    it("sends exactly one call for a message exactly at the 4096 limit", async () => {
+      const text = "a".repeat(4096);
+      await adapter.send("42", text);
+      expect(fetch).toHaveBeenCalledTimes(1);
+      const [, init] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+      expect(JSON.parse(init.body as string).text).toHaveLength(4096);
+    });
+
+    it("sends two calls for a message one character over the 4096 limit", async () => {
+      const text = "a".repeat(4097);
+      await adapter.send("42", text);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      const bodies = (fetch as ReturnType<typeof vi.fn>).mock.calls.map(([, init]) => JSON.parse((init as RequestInit).body as string));
+      expect(bodies[0].text).toHaveLength(4096);
+      expect(bodies[1].text).toHaveLength(1);
+    });
+
+    it("never splits a surrogate pair straddling a chunk boundary", async () => {
+      // The emoji's high surrogate lands exactly at index 4095, so a naive slice(0, 4096) would
+      // cut between its two code units.
+      const longText = "a".repeat(4095) + "\u{1F600}" + "b".repeat(10);
+      await adapter.send("42", longText);
+      expect(fetch).toHaveBeenCalledTimes(2);
+      const bodies = (fetch as ReturnType<typeof vi.fn>).mock.calls.map(([, init]) => JSON.parse((init as RequestInit).body as string));
+      for (const body of bodies) {
+        for (let i = 0; i < body.text.length; i++) {
+          const code = body.text.charCodeAt(i);
+          if (code >= 0xd800 && code <= 0xdbff) {
+            // A high surrogate must be immediately followed by its low surrogate within the same chunk.
+            expect(i + 1).toBeLessThan(body.text.length);
+            const next = body.text.charCodeAt(i + 1);
+            expect(next).toBeGreaterThanOrEqual(0xdc00);
+            expect(next).toBeLessThanOrEqual(0xdfff);
+          }
+          if (code >= 0xdc00 && code <= 0xdfff) {
+            // A low surrogate must not appear without a preceding high surrogate in the same chunk.
+            expect(i).toBeGreaterThan(0);
+            const prev = body.text.charCodeAt(i - 1);
+            expect(prev).toBeGreaterThanOrEqual(0xd800);
+            expect(prev).toBeLessThanOrEqual(0xdbff);
+          }
+        }
+      }
+      expect(bodies.map((b: { text: string }) => b.text).join("")).toBe(longText);
+    });
   });
 });

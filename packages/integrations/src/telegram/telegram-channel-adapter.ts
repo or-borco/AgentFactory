@@ -70,14 +70,26 @@ export class TelegramChannelAdapter implements ChannelAdapter {
   }
 
   async send(externalThreadRef: string, text: string): Promise<void> {
-    for (let offset = 0; offset < text.length; offset += TELEGRAM_MESSAGE_LIMIT) {
-      const chunk = text.slice(offset, offset + TELEGRAM_MESSAGE_LIMIT);
-      await this.call("sendMessage", { chat_id: externalThreadRef, text: chunk });
-    }
-    // An empty string still sends one (empty) chunk via the loop above only if text.length is 0
-    // — guard explicitly since Telegram rejects an empty text field.
+    // The loop below never runs for an empty string (0 < 0 is false), so handle it separately
+    // — Telegram rejects an empty text field.
     if (text.length === 0) {
       await this.call("sendMessage", { chat_id: externalThreadRef, text: " " });
+      return;
+    }
+    let offset = 0;
+    while (offset < text.length) {
+      let end = Math.min(offset + TELEGRAM_MESSAGE_LIMIT, text.length);
+      // text.slice() cuts on raw UTF-16 code units, so a naive boundary can land between the two
+      // code units of a surrogate pair (e.g. an emoji) and split it into two unpaired halves.
+      // Back the boundary off by one so the pair stays together in the next chunk instead.
+      if (end < text.length) {
+        const codeUnit = text.charCodeAt(end - 1);
+        if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
+          end -= 1;
+        }
+      }
+      await this.call("sendMessage", { chat_id: externalThreadRef, text: text.slice(offset, end) });
+      offset = end;
     }
   }
 
