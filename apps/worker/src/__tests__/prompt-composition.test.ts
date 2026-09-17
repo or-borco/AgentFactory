@@ -4,6 +4,7 @@ import type { ChatMessage, PromptSegment } from "@agentfactory/core";
 import {
   PLATFORM_PREAMBLE,
   REVIEW_PLATFORM_PREAMBLE,
+  buildAgentMemorySegment,
   buildPriorConversationSegment,
   buildRepoMapSegment,
   buildRetrievedContextSegment,
@@ -22,6 +23,7 @@ const teamSeg = (text: string): PromptSegment => ({ id: "team_context", text });
 const repoSeg = (text: string): PromptSegment => ({ id: "repo_map", text });
 const retrievedSeg = (text: string): PromptSegment => ({ id: "retrieved_context", text });
 const priorSeg = (text: string): PromptSegment => ({ id: "prior_conversation", text });
+const noMemory: PromptSegment = { id: "agent_memory", text: "", omittedReason: "no_memory_entries" };
 const chatMessage = (id: number, role: "user" | "assistant", content: string): ChatMessage => ({
   id,
   sessionId: 1,
@@ -45,6 +47,7 @@ describe("composeSystemPrompt", () => {
       repoSeg("## Repo Map\n\nThis is a monorepo.\n\n---\n\n"),
       retrievedSeg("## Retrieved Context\n\nPage the on-call.\n\n---\n\n"),
       "You are a reviewer.",
+      noMemory,
     );
 
     const preambleIndex = prompt.indexOf(PLATFORM_PREAMBLE);
@@ -73,6 +76,7 @@ describe("composeSystemPrompt", () => {
       repoSeg(""),
       retrievedSeg(""),
       "You are a reviewer.",
+      noMemory,
     );
     expect(prompt).toBe(PLATFORM_PREAMBLE + "You are a reviewer.");
   });
@@ -86,6 +90,7 @@ describe("composeSystemPrompt", () => {
       repoSeg(""),
       retrievedSeg(""),
       "You are a reviewer.",
+      noMemory,
     );
     expect(prompt).toBe(PLATFORM_PREAMBLE + "## Team Context\n\nUse pnpm.\n\n---\n\n" + "You are a reviewer.");
   });
@@ -102,6 +107,7 @@ describe("composeSystemPrompt", () => {
       repoSeg("## Repo Map\n\nGENERATED-BULK\n\n---\n\n"),
       retrievedSeg("## Retrieved Context\n\nRETRIEVED-BULK\n\n---\n\n"),
       "You are a reviewer.",
+      noMemory,
     );
 
     const between = prompt.slice(prompt.indexOf("Use pnpm."), prompt.indexOf("You are a reviewer."));
@@ -127,6 +133,7 @@ describe("composeSystemPrompt", () => {
         c.repo,
         c.retrieved,
         "You are a reviewer.",
+        noMemory,
       );
       expect(segments.map((s) => s.text).join("")).toBe(prompt);
       expect(segments.map((s) => s.id)).toEqual([
@@ -137,6 +144,7 @@ describe("composeSystemPrompt", () => {
         "retrieved_context",
         "team_context",
         "agent_system_prompt",
+        "agent_memory",
       ]);
     }
   });
@@ -150,6 +158,7 @@ describe("composeSystemPrompt", () => {
       { id: "repo_map", text: "", omittedReason: "no_codebase" },
       { id: "retrieved_context", text: "", omittedReason: "retrieval_failed" },
       "You are a reviewer.",
+      noMemory,
     );
     const byId = new Map(segments.map((s) => [s.id, s]));
     expect(byId.get("prior_conversation")?.omittedReason).toBe("resume_valid");
@@ -159,6 +168,38 @@ describe("composeSystemPrompt", () => {
     expect(byId.get("platform_preamble")?.omittedReason).toBeUndefined();
     expect(byId.get("environment")?.omittedReason).toBeUndefined();
     expect(byId.get("agent_system_prompt")?.omittedReason).toBeUndefined();
+  });
+});
+
+describe("buildAgentMemorySegment", () => {
+  it("returns an omitted segment with no_memory_entries when there are no entries", () => {
+    const segment = buildAgentMemorySegment([]);
+    expect(segment).toEqual({ id: "agent_memory", text: "", omittedReason: "no_memory_entries" });
+  });
+
+  it("renders entries ordered by weight desc then recency desc, marking reinforced ones", () => {
+    const segment = buildAgentMemorySegment([
+      { content: "Lesson A (weight 1)", weight: 1, lastReinforcedAt: "2026-09-01T00:00:00.000Z" },
+      { content: "Lesson B (weight 3)", weight: 3, lastReinforcedAt: "2026-09-02T00:00:00.000Z" },
+      { content: "Lesson C (weight 3, older)", weight: 3, lastReinforcedAt: "2026-09-01T00:00:00.000Z" },
+    ]);
+    const lines = segment.text.split("\n").filter((l) => l.startsWith("-"));
+    expect(lines[0]).toContain("Lesson B");
+    expect(lines[0]).toContain("[reinforced 3x]");
+    expect(lines[1]).toContain("Lesson C");
+    expect(lines[2]).toContain("Lesson A");
+    expect(lines[2]).not.toContain("[reinforced");
+  });
+
+  it("fills entries until the byte budget, then stops", () => {
+    const bigEntries = Array.from({ length: 2000 }, (_, i) => ({
+      content: `Lesson number ${i}, a moderately long sentence to burn through the byte budget quickly.`,
+      weight: 1,
+      lastReinforcedAt: "2026-09-01T00:00:00.000Z",
+    }));
+    const segment = buildAgentMemorySegment(bigEntries);
+    expect(Buffer.byteLength(segment.text, "utf8")).toBeLessThanOrEqual(16 * 1024);
+    expect(segment.omittedReason).toBeUndefined();
   });
 });
 
@@ -460,6 +501,7 @@ describe("REVIEW_PLATFORM_PREAMBLE", () => {
       repoSeg(""),
       retrievedSeg(""),
       "You are a reviewer.",
+      noMemory,
     );
     expect(prompt.startsWith(REVIEW_PLATFORM_PREAMBLE)).toBe(true);
     expect(prompt).not.toContain(PLATFORM_PREAMBLE);

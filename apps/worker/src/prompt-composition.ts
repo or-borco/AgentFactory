@@ -329,6 +329,49 @@ export function buildPriorConversationSegment(resumeIsValid: boolean, formatted:
   };
 }
 
+const MEMORY_SEGMENT_BUDGET_BYTES = 16 * 1024;
+
+export interface MemorySegmentEntry {
+  content: string;
+  weight: number;
+  lastReinforcedAt: string;
+}
+
+// Renders the agent's accumulated lessons as a bullet list, ordered by weight desc then recency
+// desc (the caller, worker.ts, already fetches entries in this order via readAgentMemoryEntries -
+// this function re-sorts defensively rather than trusting call-site ordering). Fills until the
+// byte budget, then stops - the same truncate-and-stop shape formatPriorConversationForPrompt
+// uses, except memory entries are dropped whole rather than the text being cut mid-entry, since a
+// half-rendered lesson is worse than a missing one.
+export function buildAgentMemorySegment(entries: MemorySegmentEntry[]): PromptSegment {
+  if (entries.length === 0) {
+    return { id: "agent_memory", text: "", omittedReason: "no_memory_entries" };
+  }
+
+  const sorted = [...entries].sort((a, b) => {
+    if (b.weight !== a.weight) return b.weight - a.weight;
+    return new Date(b.lastReinforcedAt).getTime() - new Date(a.lastReinforcedAt).getTime();
+  });
+
+  const lines: string[] = [];
+  let bytes = 0;
+  const header = "## What You've Learned (your own accumulated lessons from prior sessions)\n\n";
+  bytes += Buffer.byteLength(header, "utf8");
+  for (const entry of sorted) {
+    const line = entry.weight > 1 ? `- [reinforced ${entry.weight}x] ${entry.content}\n` : `- ${entry.content}\n`;
+    const lineBytes = Buffer.byteLength(line, "utf8");
+    if (bytes + lineBytes > MEMORY_SEGMENT_BUDGET_BYTES) break;
+    lines.push(line);
+    bytes += lineBytes;
+  }
+
+  if (lines.length === 0) {
+    return { id: "agent_memory", text: "", omittedReason: "no_memory_entries" };
+  }
+
+  return { id: "agent_memory", text: `${header}${lines.join("")}\n---\n\n` };
+}
+
 // Order per ARCHITECTURE.md §3, narrowed to this repo's actual scope. Skills are not a prompt
 // segment: a pinned skill is materialized into the sandbox and handed to the SDK via query()'s
 // own `skills` option (see skills-materialize.ts), so this function's segment list is unchanged
@@ -365,6 +408,13 @@ export function buildPriorConversationSegment(resumeIsValid: boolean, formatted:
 // An appended "requirements checklist" was also tried and scored worse than reordering alone,
 // so it was not adopted.
 //
+// 4. Agent memory sits last, after the agent's own system prompt. It is functionally the same
+//    kind of thing as the system prompt: agent-specific behavioral instruction, not team-
+//    authored business context. So it goes where nothing was before, maximizing the chance a
+//    corrective lesson is actually followed. This is a reasoned placement, not a measured one
+//    (unlike rule 2's A/B-tested ordering), a good candidate for that same kind of measurement
+//    later if memory doesn't seem to change behavior in practice.
+//
 // Returns the segments alongside the joined prompt so the caller can persist exactly what was
 // sent (runs.prompt_segments) — `prompt` is derived from `segments`, never built separately, so
 // the stored record cannot drift from the sent string.
@@ -376,6 +426,7 @@ export function composeSystemPrompt(
   repoMap: PromptSegment,
   retrievedContext: PromptSegment,
   agentSystemPrompt: string,
+  agentMemory: PromptSegment,
 ): ComposedPrompt {
   const segments: PromptSegment[] = [
     { id: "platform_preamble", text: preamble },
@@ -385,6 +436,7 @@ export function composeSystemPrompt(
     retrievedContext,
     teamContext,
     { id: "agent_system_prompt", text: agentSystemPrompt },
+    agentMemory,
   ];
   return { segments, prompt: segments.map((s) => s.text).join("") };
 }
