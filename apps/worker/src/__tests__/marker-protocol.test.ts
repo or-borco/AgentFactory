@@ -62,6 +62,22 @@ describe("readAgentTurnOutput", () => {
     expect(onEvent).toHaveBeenCalledWith({ type: "thinking_delta", text: "thinking..." });
   });
 
+  it("forwards a memory_write event through onEvent with its content and no runId/type collision", async () => {
+    const onEvent = vi.fn().mockResolvedValue(undefined);
+    const output = chunks([
+      {
+        stream: "stdout",
+        data: `__EVENT__${JSON.stringify({ type: "memory_write", content: "Don't touch migration files directly." })}\n`,
+      },
+      { stream: "stdout", data: `__RESULT__${JSON.stringify({ text: "done", providerSessionRef: "ref-5" })}\n` },
+    ]);
+    await readAgentTurnOutput(output, onEvent);
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "memory_write",
+      content: "Don't touch migration files directly.",
+    });
+  });
+
   it("ignores malformed (non-JSON) __EVENT__ lines", async () => {
     const onEvent = vi.fn().mockResolvedValue(undefined);
     const output = chunks([

@@ -10,7 +10,7 @@ export interface AgentTurnResult {
 // Named RuntimeEvent, not RunEvent, to avoid colliding with @agentfactory/core's RunEvent (the
 // persisted event row, with id/runId/seq/createdAt) — this is the raw shape a runtime emits
 // before worker.ts wraps it into a stored event via createEvent().
-export interface RuntimeEvent {
+export interface ThinkingDeltaRuntimeEvent {
   type: "thinking_delta";
   text: string;
   tool?: string;
@@ -18,6 +18,18 @@ export interface RuntimeEvent {
   command?: string;
   filePath?: string;
 }
+
+// Emitted by the sandbox's `remember` SDK tool (run-turn-claude.ts) the moment a lesson is
+// dictated, mid-turn — worker.ts's onEvent handler special-cases this type to call
+// writeMemoryEntry and persist a content-free MemoryWriteEvent, rather than the generic
+// `createEvent(runId, seq++, event.type, { ...event })` every other runtime event goes through
+// (which would otherwise leak the plaintext lesson into the unencrypted events.data column).
+export interface MemoryWriteRuntimeEvent {
+  type: "memory_write";
+  content: string;
+}
+
+export type RuntimeEvent = ThinkingDeltaRuntimeEvent | MemoryWriteRuntimeEvent;
 
 export interface RuntimeCapabilities {
   supportsSkills: boolean;
