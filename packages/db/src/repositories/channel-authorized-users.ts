@@ -8,6 +8,7 @@ export interface AuthorizedUser {
   externalUserId: string;
   authorizedAt: string;
   revokedAt?: string;
+  activeTaskId?: number;
 }
 
 function toAuthorizedUser(row: typeof channelAuthorizedUsers.$inferSelect): AuthorizedUser {
@@ -17,6 +18,7 @@ function toAuthorizedUser(row: typeof channelAuthorizedUsers.$inferSelect): Auth
     externalUserId: row.externalUserId,
     authorizedAt: row.authorizedAt.toISOString(),
     revokedAt: row.revokedAt?.toISOString(),
+    activeTaskId: row.activeTaskId ?? undefined,
   };
 }
 
@@ -45,6 +47,21 @@ export async function getAuthorizationStatus(
     .where(and(eq(channelAuthorizedUsers.connectionId, connectionId), eq(channelAuthorizedUsers.externalUserId, externalUserId)));
   if (!row) return "unknown";
   return row.revokedAt ? "revoked" : "authorized";
+}
+
+export async function getAuthorizedUser(connectionId: number, externalUserId: string): Promise<AuthorizedUser | undefined> {
+  const [row] = await db
+    .select()
+    .from(channelAuthorizedUsers)
+    .where(and(eq(channelAuthorizedUsers.connectionId, connectionId), eq(channelAuthorizedUsers.externalUserId, externalUserId)));
+  return row ? toAuthorizedUser(row) : undefined;
+}
+
+export async function setActiveTask(connectionId: number, externalUserId: string, taskId: number | null): Promise<void> {
+  await db
+    .update(channelAuthorizedUsers)
+    .set({ activeTaskId: taskId })
+    .where(and(eq(channelAuthorizedUsers.connectionId, connectionId), eq(channelAuthorizedUsers.externalUserId, externalUserId)));
 }
 
 export async function listAuthorizedUsers(connectionId: number): Promise<AuthorizedUser[]> {
