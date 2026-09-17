@@ -243,6 +243,7 @@ function TelegramChannelConfig({ conn, t }: { conn: Connection; t: Translate }) 
   const [users, setUsers] = useState<AuthorizedUserRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
+  const [now] = useState(() => Date.now());
 
   const refresh = async () => {
     const [codeList, userList] = await Promise.all([
@@ -286,9 +287,9 @@ function TelegramChannelConfig({ conn, t }: { conn: Connection; t: Translate }) 
     await refresh();
   };
 
-  const codeStatus = (row: InviteCodeRow): TranslationKey => {
+  const codeStatus = (row: InviteCodeRow, now: number): TranslationKey => {
     if (row.redeemedAt) return "connections.telegramChannel.statusRedeemed";
-    if (new Date(row.expiresAt).getTime() <= Date.now()) return "connections.telegramChannel.statusExpired";
+    if (new Date(row.expiresAt).getTime() <= now) return "connections.telegramChannel.statusExpired";
     return "connections.telegramChannel.statusOutstanding";
   };
 
@@ -314,8 +315,8 @@ function TelegramChannelConfig({ conn, t }: { conn: Connection; t: Translate }) 
               {codes.map((row) => (
                 <div key={row.id} className="flex items-center justify-between text-xs text-[var(--color-neutral-500)]">
                   <span className="font-mono">{row.code}</span>
-                  <span>{t(codeStatus(row))}</span>
-                  {codeStatus(row) === "connections.telegramChannel.statusOutstanding" && (
+                  <span>{t(codeStatus(row, now))}</span>
+                  {codeStatus(row, now) === "connections.telegramChannel.statusOutstanding" && (
                     <button type="button" onClick={() => revokeCode(row.id)} className="hover:text-[var(--color-status-red)]">
                       {t("connections.telegramChannel.revoke")}
                     </button>
