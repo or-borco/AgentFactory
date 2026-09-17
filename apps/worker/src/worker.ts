@@ -33,6 +33,7 @@ import {
   hasNonTerminalRun,
   insertRunContextRetrievals,
   listMessages,
+  readAgentMemoryEntries,
   setSessionSandboxId,
   touchSessionActivity,
   updateRunCommitRange,
@@ -49,6 +50,7 @@ import type { AgentTurnResult } from "./agent-runtime/types";
 import {
   PLATFORM_PREAMBLE,
   REVIEW_PLATFORM_PREAMBLE,
+  buildAgentMemorySegment,
   buildPriorConversationSegment,
   buildRepoMapSegment,
   buildRetrievedContextSegment,
@@ -63,6 +65,7 @@ import {
   hashPrompt,
   type SandboxEnvironment,
 } from "./prompt-composition";
+import { writeMemoryEntry } from "./memory-write";
 import {
   REVIEW_OUTPUT_SCHEMA,
   checkoutPullRequest,
@@ -392,6 +395,20 @@ const runWorker = new Worker<RunJobData>(
       const team = agent.teamId ? await getTeamForOrg(agent.teamId, agent.orgId) : undefined;
       const teamContextPrefix = team ? formatSharedContextForPrompt(team.sharedContext) : "";
 
+      // Fetched unconditionally (unlike team/retrieval, which both gate on `!review`; a review
+      // run's prompt still includes the agent's own accumulated lessons, since those are agent-
+      // specific behavior, not task-specific business context). A brand-new agent with zero
+      // entries is the common case and just means an omitted segment, not an error.
+      const memoryEntries = await readAgentMemoryEntries(agent.orgId, agent.id);
+      const agentMemorySegment = buildAgentMemorySegment(
+        memoryEntries.map((entry) => ({
+          content: entry.content,
+          weight: entry.weight,
+          lastReinforcedAt: entry.lastReinforcedAt,
+        })),
+      );
+      mark(memoryEntries.length > 0 ? `memory (${memoryEntries.length} entries)` : "memory (none)");
+
       // `!review` because this event is the task page's "shared context was used" indicator, and
       // a review run's prompt does NOT include the team's shared context (the review arm of the
       // composition branch below passes an empty team-context segment by design). Firing it
@@ -480,6 +497,7 @@ const runWorker = new Worker<RunJobData>(
             formatPullRequestForPrompt(review.prTitle, review.prBody) +
             review.existingComments +
             formatReviewDiffForPrompt(review.focusBaseSha, review.focusHeadSha, review.focusDiffText),
+          agentMemorySegment,
         );
       } else {
         composed = composeSystemPrompt(
@@ -490,6 +508,7 @@ const runWorker = new Worker<RunJobData>(
           buildRepoMapSegment(Boolean(task?.codebase), repoMap),
           retrievedContextSegment,
           agent.systemPrompt,
+          agentMemorySegment,
         );
       }
       const systemPrompt = composed.prompt;
@@ -541,6 +560,18 @@ const runWorker = new Worker<RunJobData>(
               sandboxProvider,
               sandboxId,
               onEvent: async (event) => {
+                // Special-cased: the generic `{ ...event }` spread below would otherwise put the
+                // plaintext lesson straight into events.data, an unencrypted column, defeating
+                // the whole point of encrypting agent_memory_entries.ciphertext. writeMemoryEntry
+                // is the only place the content is persisted, and only there, encrypted.
+                if (event.type === "memory_write") {
+                  const { reinforced } = await writeMemoryEntry(agent.orgId, agent.id, event.content, "manual", {
+                    runId,
+                    sessionId: session.id,
+                  });
+                  await createEvent(runId, seq++, "memory_write", { reinforced });
+                  return;
+                }
                 await createEvent(runId, seq++, event.type, { ...event });
               },
             },
