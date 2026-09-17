@@ -566,15 +566,6 @@ export default function TaskDetailPage() {
                 onToggle={() => setStatusMenuOpen((v) => !v)}
                 onSelect={handleStatusChange}
               />
-              {!task.sessionId && (
-                <Link
-                  href={`/tasks/${task.id}/edit`}
-                  aria-label={t("taskDetail.editTask")}
-                  style={{ display: "flex", color: "var(--color-neutral-500)" }}
-                >
-                  <EditIcon size={14} />
-                </Link>
-              )}
             </div>
 
             <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 8 }}>
@@ -841,6 +832,14 @@ export default function TaskDetailPage() {
 
             {/* Status / lifecycle actions */}
             <div style={{ marginTop: 20, display: "flex", gap: 10 }}>
+              {!task.sessionId && (
+                <Link href={`/tasks/${task.id}/edit`}>
+                  <Button variant="secondary">
+                    <EditIcon size={14} />
+                    {t("taskDetail.editTask")}
+                  </Button>
+                </Link>
+              )}
               {task.status !== "done" && (
                 <Button variant="secondary" disabled={markingDone} onClick={handleMarkDone}>
                   <CheckIcon size={14} />
