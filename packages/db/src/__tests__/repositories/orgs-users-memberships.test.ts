@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { getOrg, createOrg } from "../../repositories/orgs.js";
 import { getUserByEmail, getUserById, createUser } from "../../repositories/users.js";
-import { getPrimaryMembership, listOrgMembers } from "../../repositories/memberships.js";
+import { getPrimaryMembership, listOrgMembers, createMembership, getOrgOwnerUserId } from "../../repositories/memberships.js";
 import { hashPassword } from "../../password.js";
-import { insertMembership, insertOrg, insertUser } from "../fixtures.js";
+import { insertOrg, insertUser } from "../fixtures.js";
 
 describe("orgs repository", () => {
   it("creates and fetches an org by id", async () => {
@@ -46,8 +46,8 @@ describe("memberships repository", () => {
     const org2 = await insertOrg();
     const user = await insertUser();
 
-    await insertMembership(org1.id, user.id, "member");
-    await insertMembership(org2.id, user.id, "owner");
+    await createMembership({ orgId: org1.id, userId: user.id, role: "member" });
+    await createMembership({ orgId: org2.id, userId: user.id, role: "owner" });
 
     await expect(getPrimaryMembership(user.id)).resolves.toEqual({
       orgId: org1.id,
@@ -66,7 +66,7 @@ describe("listOrgMembers", () => {
   it("returns members with user details joined", async () => {
     const org = await insertOrg();
     const user = await insertUser({ name: "Alice", email: "alice@example.com" });
-    await insertMembership(org.id, user.id, "owner");
+    await createMembership({ orgId: org.id, userId: user.id, role: "owner" });
 
     const members = await listOrgMembers(org.id);
 
@@ -85,8 +85,8 @@ describe("listOrgMembers", () => {
     const org = await insertOrg();
     const alice = await insertUser({ name: "Alice" });
     const bob = await insertUser({ name: "Bob" });
-    await insertMembership(org.id, alice.id, "owner");
-    await insertMembership(org.id, bob.id, "member");
+    await createMembership({ orgId: org.id, userId: alice.id, role: "owner" });
+    await createMembership({ orgId: org.id, userId: bob.id, role: "member" });
 
     const members = await listOrgMembers(org.id);
 
@@ -105,12 +105,43 @@ describe("listOrgMembers", () => {
     const org2 = await insertOrg();
     const user1 = await insertUser({ name: "Org1 User" });
     const user2 = await insertUser({ name: "Org2 User" });
-    await insertMembership(org1.id, user1.id, "member");
-    await insertMembership(org2.id, user2.id, "member");
+    await createMembership({ orgId: org1.id, userId: user1.id, role: "member" });
+    await createMembership({ orgId: org2.id, userId: user2.id, role: "member" });
 
     const members = await listOrgMembers(org1.id);
 
     expect(members).toHaveLength(1);
     expect(members[0].name).toBe("Org1 User");
+  });
+});
+
+describe("getOrgOwnerUserId", () => {
+  it("returns undefined for an org with no owner membership", async () => {
+    const org = await insertOrg();
+    await expect(getOrgOwnerUserId(org.id)).resolves.toBeUndefined();
+  });
+
+  it("returns the owner's user id", async () => {
+    const org = await insertOrg();
+    const member = await insertUser();
+    const owner = await insertUser();
+    await createMembership({ orgId: org.id, userId: member.id, role: "member" });
+    await createMembership({ orgId: org.id, userId: owner.id, role: "owner" });
+
+    await expect(getOrgOwnerUserId(org.id)).resolves.toBe(owner.id);
+  });
+
+  it("returns the earliest owner when an org somehow has more than one", async () => {
+    const org = await insertOrg();
+    const firstOwner = await insertUser();
+    const secondOwner = await insertUser();
+    await createMembership({ orgId: org.id, userId: firstOwner.id, role: "owner" });
+    // memberships has no id column — its PK is (userId, orgId) — so ordering by createdAt alone
+    // is only deterministic if the two inserts land in different timestamps. A tiny delay avoids
+    // a flaky tie on a fast test run.
+    await new Promise((r) => setTimeout(r, 5));
+    await createMembership({ orgId: org.id, userId: secondOwner.id, role: "owner" });
+
+    await expect(getOrgOwnerUserId(org.id)).resolves.toBe(firstOwner.id);
   });
 });
