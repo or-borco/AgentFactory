@@ -29,6 +29,7 @@ function toConnection(row: typeof connections.$inferSelect): Connection {
     health: row.health,
     config: safeConfig,
     auth: row.auth,
+    agentId: row.agentId ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }

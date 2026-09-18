@@ -184,6 +184,11 @@ export const connections = pgTable("connections", {
   // backfill. set null (not cascade) on secret deletion: losing the credential must degrade the
   // connection to unhealthy, not silently delete the user's configuration.
   credentialRef: integer("credential_ref").references(() => connectionSecrets.id, { onDelete: "set null" }),
+  // Nullable for org-level connections (scm, tasks). Set for per-agent channel connections
+  // (telegram, future slack): the bot IS the agent, so the connection must know which one.
+  // ON DELETE SET NULL: a deleted agent leaves the connection intact but broken-and-visible,
+  // rather than silently removing it.
+  agentId: integer("agent_id").references(() => agents.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

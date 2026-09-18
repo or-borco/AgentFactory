@@ -159,6 +159,7 @@ export interface Connection {
   health: ConnectionHealth;
   config: Record<string, unknown>;
   auth: ConnectionAuthKind;
+  agentId?: number | null;
   createdAt: ISODateTime;
 }
 
