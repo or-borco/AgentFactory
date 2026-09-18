@@ -53,6 +53,7 @@ export interface NewConnectionInput {
   // credential (e.g. connecting Jira) pass both together once the secret has already been written.
   auth?: ConnectionAuthKind;
   credentialRef?: number | null;
+  agentId?: number | null;
 }
 
 export async function createConnection(orgId: number, input: NewConnectionInput): Promise<Connection> {
@@ -66,6 +67,7 @@ export async function createConnection(orgId: number, input: NewConnectionInput)
       config: input.config,
       ...(input.auth !== undefined ? { auth: input.auth } : {}),
       ...(input.credentialRef !== undefined ? { credentialRef: input.credentialRef } : {}),
+      ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
     })
     .returning();
   return toConnection(row);
@@ -131,7 +133,7 @@ export async function getConnectionCredentialRef(orgId: number, id: number): Pro
  */
 export async function findChannelConnectionByWebhookSecret(
   webhookSecret: string,
-): Promise<{ connection: Connection; orgId: number; secretToken?: string } | undefined> {
+): Promise<{ connection: Connection; orgId: number; agentId: number | null; secretToken?: string } | undefined> {
   const [row] = await db
     .select()
     .from(connections)
@@ -141,6 +143,7 @@ export async function findChannelConnectionByWebhookSecret(
   return {
     connection: toConnection(row),
     orgId: row.orgId,
+    agentId: row.agentId ?? null,
     secretToken: typeof rawSecretToken === "string" ? rawSecretToken : undefined,
   };
 }

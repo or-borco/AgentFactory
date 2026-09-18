@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse } from "next/server";
-import { createConnection, createConnectionSecret, listConnections } from "@agentfactory/db";
+import { createConnection, createConnectionSecret, getAgent } from "@agentfactory/db";
 import { requireAuthContext } from "@/server/auth";
 
 interface TelegramMeResponse {
@@ -16,18 +16,19 @@ export async function POST(request: Request) {
   const ctx = await requireAuthContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const existing = (await listConnections(ctx.orgId)).find((c) => c.kind === "channel" && c.provider === "telegram");
-  if (existing) {
-    return NextResponse.json(
-      { error: `Already connected to ${existing.label}. Disconnect it before connecting another.` },
-      { status: 409 },
-    );
-  }
-
   const body = await request.json();
   const botToken = typeof body.botToken === "string" ? body.botToken.trim() : "";
   if (!botToken) {
     return NextResponse.json({ error: "botToken is required." }, { status: 400 });
+  }
+
+  const agentIdRaw = typeof body.agentId === "number" ? body.agentId : null;
+  if (!agentIdRaw) {
+    return NextResponse.json({ error: "agentId is required." }, { status: 400 });
+  }
+  const agent = await getAgent(agentIdRaw);
+  if (!agent || agent.orgId !== ctx.orgId) {
+    return NextResponse.json({ error: "Agent not found." }, { status: 404 });
   }
 
   const baseUrl = process.env.PUBLIC_APP_URL;
@@ -69,6 +70,7 @@ export async function POST(request: Request) {
     auth: "api_token",
     credentialRef,
     config: { botUsername, webhookSecret, telegramSecretToken },
+    agentId: agentIdRaw,
   });
 
   return NextResponse.json(connection, { status: 201 });
