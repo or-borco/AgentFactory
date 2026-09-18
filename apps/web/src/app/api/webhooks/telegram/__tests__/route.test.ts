@@ -11,7 +11,6 @@ import {
   revokeAuthorizedUser,
   getTask,
   listMessages,
-  getRunsForSession,
 } from "@agentfactory/db";
 // Namespace import alongside the named one above so individual repository functions can be
 // spied on for the "an internal error must never surface as a non-200" regression test — this
@@ -329,7 +328,7 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
 
   describe("starting a new task", () => {
     it("newtask tap creates a draft task, sets activeTaskId, sends the description prompt", async () => {
-      const { org, connection } = await setupOrgWithBot();
+      const { connection } = await setupOrgWithBot();
       await authorizeExternalUser(connection.id, "1");
 
       await POST(webhookRequest("wh-secret-1", 1, undefined, "newtask"), {
@@ -499,6 +498,55 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
       // Not treated as the "New task" draft sentinel, since the title isn't the literal placeholder.
       const unchanged = await getTask(webTask.id);
       expect(unchanged?.title).toBe("Real title from the web");
+    });
+  });
+
+  describe("cross-chat / cross-origin session ownership", () => {
+    it("resuming a task whose session was started from the web says it's running elsewhere and enqueues nothing", async () => {
+      const { org, connection } = await setupOrgWithBot();
+      const agent = await insertAgent(org.id);
+      const user = await insertUser();
+      const webTask = await insertTask(org.id, user.id, { assigneeAgentId: agent.id });
+      await authorizeExternalUser(connection.id, "1");
+      const { startTaskSession } = db;
+      const started = await startTaskSession(webTask.id, org.id, agent.id, webTask.title, "brief", { origin: "web" });
+      if (!started.started) throw new Error("setup failed");
+
+      await POST(webhookRequest("wh-secret-1", 1, undefined, `task:${webTask.id}`), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+
+      expect(mockSend).toHaveBeenCalledWith("1", expect.stringContaining("already running elsewhere"));
+      const { enqueueRunJob } = await import("@agentfactory/queue");
+      expect(enqueueRunJob).not.toHaveBeenCalled();
+      const messagesAfter = await listMessages(started.session.id);
+      expect(messagesAfter).toHaveLength(1); // only the original web-side brief — nothing forwarded in
+    });
+
+    it("a second chat that points its activeTaskId at another chat's running task can't relay messages into it", async () => {
+      const { org, connection } = await setupOrgWithBot();
+      const agent = await insertAgent(org.id);
+      const user = await insertUser();
+      const task = await insertTask(org.id, user.id, { assigneeAgentId: agent.id });
+      await authorizeExternalUser(connection.id, "1"); // the chat that actually owns the session
+      await authorizeExternalUser(connection.id, "2"); // a different chat pointed at the same task
+      const { startTaskSession, setActiveTask } = db;
+      const started = await startTaskSession(task.id, org.id, agent.id, task.title, "brief", {
+        origin: "telegram",
+        externalThreadRef: "1",
+      });
+      if (!started.started) throw new Error("setup failed");
+      await setActiveTask(connection.id, "2", task.id);
+
+      await POST(webhookRequest("wh-secret-1", 2, "let me help with this"), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+
+      expect(mockSend).toHaveBeenCalledWith("2", expect.stringContaining("already running elsewhere"));
+      const { enqueueRunJob } = await import("@agentfactory/queue");
+      expect(enqueueRunJob).not.toHaveBeenCalled();
+      const messagesAfter = await listMessages(started.session.id);
+      expect(messagesAfter.map((m) => m.content)).not.toContain("let me help with this");
     });
   });
 

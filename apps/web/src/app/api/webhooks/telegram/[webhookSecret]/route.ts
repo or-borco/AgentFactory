@@ -12,6 +12,7 @@ import {
   getConnectionCredentialRef,
   getInviteCodeRedeemer,
   getOrgOwnerUserId,
+  getSession,
   getTask,
   isInCooldown,
   listAgents,
@@ -27,7 +28,7 @@ import {
 } from "@agentfactory/db";
 import { createChannelAdapter, type ChannelAdapter } from "@agentfactory/integrations";
 import { enqueueRunJob } from "@agentfactory/queue";
-import type { Agent, Connection, Task, TaskStatus } from "@agentfactory/core";
+import type { Agent, Connection, Session, Task, TaskStatus } from "@agentfactory/core";
 import { createLogger } from "@agentfactory/logger";
 import { formatTaskBrief } from "@/server/task-brief";
 
@@ -44,8 +45,11 @@ const MAIN_MENU_PROMPT = "What would you like to do?";
 const NEW_TASK_PROMPT = "Tell me what you need done.";
 const AGENT_PICKER_PROMPT = "Who should work on this?";
 const NEW_TASK_LABEL = "Start a new task";
+const DRAFT_TASK_TITLE = "New task";
 const TITLE_MAX_LENGTH = 80;
 const MAIN_MENU_TASK_LIMIT = 10;
+const RUNNING_ELSEWHERE_MESSAGE = (title: string) =>
+  `"${title}" is already running elsewhere — I can't relay messages to it from here. Send /tasks to pick something else.`;
 
 const STATUS_LABELS: Partial<Record<TaskStatus, string>> = {
   open: "open",
@@ -130,7 +134,13 @@ async function handleInbound(
     // survives untouched. Resume there instead of always starting fresh.
     const authorizedUser = await getAuthorizedUser(connection.id, externalUserId);
     const priorTask = authorizedUser?.activeTaskId ? await getTask(authorizedUser.activeTaskId) : undefined;
-    await sendCurrentStepPrompt(adapter, orgId, externalUserId, priorTask && priorTask.orgId === orgId ? priorTask : undefined);
+    const validPriorTask = priorTask && priorTask.orgId === orgId ? priorTask : undefined;
+    if (authorizedUser?.activeTaskId && !validPriorTask) {
+      // Stale/tampered pointer (e.g. cross-org) — clear it now rather than relying on the next
+      // message to self-heal through Step 2's equivalent check.
+      await setActiveTask(connection.id, externalUserId, null);
+    }
+    await sendCurrentStepPrompt(adapter, orgId, externalUserId, validPriorTask);
     return;
   }
 
@@ -143,7 +153,7 @@ async function handleInbound(
 
   if (inbound.callbackData === "newtask") {
     const createdBy = await inviterUserIdFor(connection.id, externalUserId, orgId);
-    const task = await createTask(orgId, createdBy, { title: "New task", description: "", acceptanceCriteria: [] });
+    const task = await createTask(orgId, createdBy, { title: DRAFT_TASK_TITLE, description: "", acceptanceCriteria: [] });
     await setActiveTask(connection.id, externalUserId, task.id);
     await adapter.send(externalUserId, NEW_TASK_PROMPT);
     return;
@@ -189,6 +199,14 @@ async function handleInbound(
   if (activeTask.sessionId) {
     // Running — forward, mirroring the web message route exactly, including its failed-task reset.
     if (!inbound.text) return; // a stray callback on a running task — nothing to do
+    const session = await getSession(activeTask.sessionId);
+    if (!session || !sessionBelongsToChat(session, externalUserId)) {
+      // The session belongs to a different chat, or to the web UI — forwarding into it would
+      // burn a run whose reply nobody in this chat would ever see (notifySessionOfReply only
+      // delivers to the session's own origin/thread).
+      await adapter.send(externalUserId, RUNNING_ELSEWHERE_MESSAGE(activeTask.title));
+      return;
+    }
     if (activeTask.status === "failed") {
       await updateTask(activeTask.id, { status: "in_progress" });
     }
@@ -204,14 +222,16 @@ async function handleInbound(
     return;
   }
 
-  if (activeTask.title === "New task" && activeTask.description === "") {
+  if (activeTask.title === DRAFT_TASK_TITLE && activeTask.description === "") {
     // Draft sentinel: only our own placeholder, not any web-created task with a blank
     // description, counts as "awaiting a description".
     if (!inbound.text) {
       await adapter.send(externalUserId, NEW_TASK_PROMPT);
       return;
     }
-    const title = firstLine(inbound.text).slice(0, TITLE_MAX_LENGTH);
+    // A message starting with a newline makes firstLine(...) empty — fall back to the placeholder
+    // title rather than persisting a blank one.
+    const title = firstLine(inbound.text).slice(0, TITLE_MAX_LENGTH) || DRAFT_TASK_TITLE;
     await updateTask(activeTask.id, { title, description: inbound.text });
     await sendAgentPickerMenu(adapter, orgId, externalUserId);
     return;
@@ -282,6 +302,15 @@ function parseIntOrNull(value: string): number | null {
 
 function firstLine(text: string): string {
   return text.split("\n")[0].trim();
+}
+
+// A task's session is only relayable from the chat it actually belongs to: a web-originated
+// session has no Telegram thread to notify, and two Telegram chats resuming the same org-wide
+// task must not both get forwarded into whichever one the session happened to be created from —
+// see notifySessionOfReply (apps/worker/src/channel-notify.ts), which only delivers to the
+// session's own origin/externalThreadRef.
+function sessionBelongsToChat(session: Session, externalUserId: string): boolean {
+  return session.origin === "telegram" && session.externalThreadRef === externalUserId;
 }
 
 async function showMainMenu(adapter: ChannelAdapter, orgId: number, externalUserId: string): Promise<void> {
@@ -364,6 +393,11 @@ async function sendCurrentStepPrompt(
     return;
   }
   if (activeTask.sessionId) {
+    const session = await getSession(activeTask.sessionId);
+    if (!session || !sessionBelongsToChat(session, externalUserId)) {
+      await adapter.send(externalUserId, RUNNING_ELSEWHERE_MESSAGE(activeTask.title));
+      return;
+    }
     const agent = activeTask.assigneeAgentId ? await getAgent(activeTask.assigneeAgentId) : undefined;
     await adapter.send(
       externalUserId,
@@ -371,7 +405,7 @@ async function sendCurrentStepPrompt(
     );
     return;
   }
-  if (activeTask.title === "New task" && activeTask.description === "") {
+  if (activeTask.title === DRAFT_TASK_TITLE && activeTask.description === "") {
     await adapter.send(externalUserId, NEW_TASK_PROMPT);
     return;
   }
