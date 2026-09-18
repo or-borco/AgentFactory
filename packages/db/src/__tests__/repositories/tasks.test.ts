@@ -174,4 +174,51 @@ describe("startTaskSession", () => {
       startTaskSession(999_999, org.id, agent.id, "title", "brief", { origin: "telegram" }),
     ).rejects.toThrow(/not found/);
   });
+
+  it("under real concurrency, exactly one caller starts the task and the loser creates no rows", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+    const agentA = await insertAgent(org.id);
+    const agentB = await insertAgent(org.id);
+    const task = await insertTask(org.id, user.id);
+
+    // Without this, `task.updatedAt` (captured immediately after insert) and the winner's
+    // post-`startTaskSession` `updatedAt` can land in the same millisecond, making the final
+    // `toBeGreaterThan` assertion below flaky — same pattern as Task 5's "bumps the task's
+    // updatedAt" test.
+    await new Promise((r) => setTimeout(r, 5));
+
+    const [resultA, resultB] = await Promise.all([
+      startTaskSession(task.id, org.id, agentA.id, task.title, "brief A", { origin: "telegram", externalThreadRef: "A" }),
+      startTaskSession(task.id, org.id, agentB.id, task.title, "brief B", { origin: "telegram", externalThreadRef: "B" }),
+    ]);
+
+    const outcomes = [resultA, resultB];
+    const winners = outcomes.filter((r) => r.started);
+    const losers = outcomes.filter((r) => !r.started);
+    expect(winners).toHaveLength(1);
+    expect(losers).toHaveLength(1);
+
+    const winner = winners[0];
+    if (!winner.started) throw new Error("expected a winner");
+    const loser = losers[0];
+
+    // The loser's own returned task reflects the actual winning agent — no window where
+    // task.assigneeAgentId and the running session's agentId can disagree.
+    expect(loser.task.assigneeAgentId).toBe(winner.task.assigneeAgentId);
+    expect(loser.task.sessionId).toBe(winner.session.id);
+
+    // No orphan rows: exactly one session and one message exist for this task, not two.
+    const { listSessions } = await import("../../repositories/sessions.js");
+    const allSessions = await listSessions(org.id);
+    const sessionsForThisTask = allSessions.filter((s) => s.id === winner.session.id || s.externalThreadRef === "A" || s.externalThreadRef === "B");
+    expect(sessionsForThisTask).toHaveLength(1);
+
+    const { listMessages } = await import("../../repositories/messages.js");
+    const messagesInWinningSession = await listMessages(winner.session.id);
+    expect(messagesInWinningSession).toHaveLength(1);
+
+    // The winning task's updatedAt genuinely advanced past its pre-call value.
+    expect(new Date(winner.task.updatedAt).getTime()).toBeGreaterThan(new Date(task.updatedAt).getTime());
+  });
 });
