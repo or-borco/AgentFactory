@@ -118,11 +118,6 @@ export async function updateTask(id: number, patch: UpdateTaskInput): Promise<Ta
   return toTask(row);
 }
 
-/** Attach a session to a task and flip status to in_progress. */
-export async function attachTaskSession(taskId: number, sessionId: number): Promise<Task> {
-  return updateTask(taskId, { sessionId, status: "in_progress" });
-}
-
 export async function deleteTask(id: number): Promise<void> {
   await db.delete(tasks).where(eq(tasks.id, id));
 }

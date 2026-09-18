@@ -2,11 +2,9 @@ import type { TaskExternalRef } from "@agentfactory/core";
 import { describe, expect, it } from "vitest";
 import "../setup.js";
 import {
-  attachTaskSession,
   createTask,
   getTaskBySessionId,
   startTaskSession,
-  toTask,
   updateTask,
 } from "../../repositories/tasks.js";
 import { insertAgent, insertOrg, insertSession, insertTask, insertUser } from "../fixtures.js";
@@ -18,7 +16,7 @@ describe("getTaskBySessionId", () => {
     const agent = await insertAgent(org.id);
     const session = await insertSession(org.id, agent.id);
     const task = await insertTask(org.id, user.id, { codebase: "acme-org/platform" });
-    await attachTaskSession(task.id, session.id);
+    await updateTask(task.id, { sessionId: session.id, status: "in_progress" });
 
     const found = await getTaskBySessionId(session.id);
 
