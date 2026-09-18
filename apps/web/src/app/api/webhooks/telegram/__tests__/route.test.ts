@@ -273,6 +273,20 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
     await expect(getAuthorizationStatus(connectionB.id, "1000")).resolves.toBe("unknown");
   });
 
+  it("blocks a message from a revoked user and sends the revocation reply", async () => {
+    const { connection } = await setupOrgWithBot();
+    const authorizedUser = await authorizeExternalUser(connection.id, "700");
+    await revokeAuthorizedUser(connection.id, authorizedUser.id);
+
+    const res = await POST(webhookRequest("wh-secret-1", 700, "hello again"), {
+      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockSend).toHaveBeenCalledWith("700", "Your access was revoked — ask your admin for a new invite.");
+    await expect(getAuthorizationStatus(connection.id, "700")).resolves.toBe("revoked");
+  });
+
   it("still returns 200 when a repository call inside handleInbound throws", async () => {
     const { org, connection } = await setupOrgWithBot();
     const agent = await insertAgent(org.id, { name: "Backend Bot" });
@@ -360,6 +374,32 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
       expect(task?.status).toBe("in_progress");
       const { enqueueRunJob } = await import("@agentfactory/queue");
       expect(enqueueRunJob).toHaveBeenCalled();
+    });
+
+    it("falls back to the agent menu on a malformed or cross-org agent callback", async () => {
+      const { org, connection } = await setupOrgWithBot();
+      const agent = await insertAgent(org.id, { name: "Backend Bot" });
+      const otherOrg = await insertOrg();
+      const otherAgent = await insertAgent(otherOrg.id, { name: "Other Org Bot" });
+      await authorizeExternalUser(connection.id, "1");
+      await POST(webhookRequest("wh-secret-1", 1, undefined, "newtask"), { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
+      await POST(webhookRequest("wh-secret-1", 1, "Fix the login bug"), { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
+      mockSendMenu.mockClear();
+
+      await POST(webhookRequest("wh-secret-1", 1, undefined, "agent:not-a-number"), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+      expect(mockSendMenu).toHaveBeenCalledWith("1", "Who should work on this?", [{ label: agent.name, value: `agent:${agent.id}` }]);
+      mockSendMenu.mockClear();
+
+      await POST(webhookRequest("wh-secret-1", 1, undefined, `agent:${otherAgent.id}`), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+      expect(mockSendMenu).toHaveBeenCalledWith("1", "Who should work on this?", [{ label: agent.name, value: `agent:${agent.id}` }]);
+
+      const authorizedUser = await getAuthorizedUser(connection.id, "1");
+      const task = await getTask(authorizedUser!.activeTaskId!);
+      expect(task?.assigneeAgentId).toBeFalsy();
     });
   });
 
@@ -520,6 +560,29 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
       expect(updated?.status).toBe("done");
       const messagesAfter = await listMessages(started.session.id);
       expect(messagesAfter.map((m) => m.content)).toContain("one more thing");
+    });
+
+    it("still enqueues the run when sendTyping fails", async () => {
+      const { org, connection } = await setupOrgWithBot();
+      const agent = await insertAgent(org.id);
+      const user = await insertUser();
+      const task = await insertTask(org.id, user.id, { assigneeAgentId: agent.id });
+      await authorizeExternalUser(connection.id, "1");
+      const { setActiveTask, startTaskSession } = db;
+      await setActiveTask(connection.id, "1", task.id);
+      const started = await startTaskSession(task.id, org.id, agent.id, task.title, "brief", { origin: "telegram", externalThreadRef: "1" });
+      if (!started.started) throw new Error("setup failed");
+      mockSendTyping.mockRejectedValueOnce(new Error("typing indicator failed"));
+
+      const res = await POST(webhookRequest("wh-secret-1", 1, "keep going"), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+
+      expect(res.status).toBe(200);
+      const { enqueueRunJob } = await import("@agentfactory/queue");
+      expect(enqueueRunJob).toHaveBeenCalled();
+      const messagesAfter = await listMessages(started.session.id);
+      expect(messagesAfter.map((m) => m.content)).toContain("keep going");
     });
   });
 
