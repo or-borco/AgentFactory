@@ -507,10 +507,14 @@ async function sendCurrentStepPrompt(
     return;
   }
   // Description set, no session: fully configured but not yet running (e.g. tapped from the resume
-  // list, or re-authorized mid-configuration). assigneeAgentId is always set (auto-assigned at task
-  // creation in this flow). Still resolve an undecided codebase first — same picker as the live
-  // flow — before auto-starting. No extraText here — neither a tap nor a redemption carries real
-  // chat text to fold in.
-  const agent = (await getAgent(activeTask.assigneeAgentId!))!;
+  // list, or re-authorized mid-configuration). Tasks created via the web UI may have no agent
+  // assigned yet — fall back to the main menu so the user can pick one. For Telegram-created tasks
+  // the agent is auto-assigned at creation, so this guard only fires on web-originated tasks.
+  // No extraText here — neither a tap nor a redemption carries real chat text to fold in.
+  if (!activeTask.assigneeAgentId) {
+    await showMainMenu(adapter, orgId, externalUserId, connectionAgentId);
+    return;
+  }
+  const agent = (await getAgent(activeTask.assigneeAgentId))!;
   await promptCodebaseOrStart(adapter, orgId, externalUserId, activeTask, agent);
 }
