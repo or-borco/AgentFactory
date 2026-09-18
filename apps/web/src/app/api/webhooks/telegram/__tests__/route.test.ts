@@ -439,9 +439,7 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
     });
 
     it("a task: tap on a task that is already running replies with a welcome-back message and creates nothing new", async () => {
-      const { org, connection } = await setupOrgWithBot();
-      const agent = await insertAgent(org.id);
-      const user = await insertUser();
+      const { org, connection, agent, user } = await setupOrgWithBot();
       const runningTask = await insertTask(org.id, user.id, { assigneeAgentId: agent.id });
       await authorizeExternalUser(connection.id, "1");
       const { startTaskSession } = db;
@@ -488,9 +486,7 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
     });
 
     it("a task: tap on a task with an agent but no session (e.g. created via the web UI) auto-starts", async () => {
-      const { org, connection } = await setupOrgWithBot();
-      const agent = await insertAgent(org.id);
-      const user = await insertUser();
+      const { org, connection, agent, user } = await setupOrgWithBot();
       const webTask = await insertTask(org.id, user.id, { assigneeAgentId: agent.id, description: "Do the thing" });
       await authorizeExternalUser(connection.id, "1");
 
@@ -517,9 +513,7 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
 
   describe("cross-chat / cross-origin session ownership", () => {
     it("resuming a task whose session was started from the web says it's running elsewhere and enqueues nothing", async () => {
-      const { org, connection } = await setupOrgWithBot();
-      const agent = await insertAgent(org.id);
-      const user = await insertUser();
+      const { org, connection, agent, user } = await setupOrgWithBot();
       const webTask = await insertTask(org.id, user.id, { assigneeAgentId: agent.id });
       await authorizeExternalUser(connection.id, "1");
       const { startTaskSession } = db;

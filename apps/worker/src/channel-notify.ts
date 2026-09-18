@@ -7,10 +7,12 @@ const log = createLogger("channel-notify");
 const TYPING_REFRESH_MS = 4_000;
 
 // Mirrors task-notify.ts's resolveTaskProvider exactly, for the same reason (apps/worker and
-// apps/web are separate processes with no shared-code path). Resolves the org's single
-// channel/telegram connection.
-async function resolveChannelAdapter(orgId: number) {
-  const connection = (await listConnections(orgId)).find((c) => c.kind === "channel" && c.provider === "telegram");
+// apps/web are separate processes with no shared-code path). Resolves the org's Telegram
+// connection for the given agent (when provided), or the first matching connection as a fallback.
+async function resolveChannelAdapter(orgId: number, agentId?: number | null) {
+  const connection = (await listConnections(orgId)).find(
+    (c) => c.kind === "channel" && c.provider === "telegram" && (agentId != null ? c.agentId === agentId : true),
+  );
   if (!connection) return undefined;
   try {
     const credentialRef = await getConnectionCredentialRef(orgId, connection.id);
@@ -45,7 +47,7 @@ export async function notifySessionOfReply(
     const task = await getTaskBySessionId(session.id);
     const prefixedText = task ? `[${task.ref}] ${text}` : text;
 
-    const resolved = await resolveChannelAdapter(orgId);
+    const resolved = await resolveChannelAdapter(orgId, task?.assigneeAgentId);
     if (!resolved) return;
     connectionId = resolved.connection.id;
     await resolved.adapter.send(externalThreadRef, prefixedText);

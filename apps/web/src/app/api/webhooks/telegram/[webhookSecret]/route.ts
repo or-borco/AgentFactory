@@ -178,9 +178,10 @@ async function handleInbound(
   if (inbound.callbackData?.startsWith("task:")) {
     const taskId = parseIntOrNull(inbound.callbackData.slice("task:".length));
     const task = taskId !== null ? await getTask(taskId) : undefined;
-    if (!task || task.orgId !== orgId) {
-      // Tampered, stale, or cross-org callback — never trust the id blindly (mirrors the
-      // existing agent: handler's own NaN/orgId guards).
+    if (!task || task.orgId !== orgId || (task.assigneeAgentId != null && task.assigneeAgentId !== connectionAgentId)) {
+      // Tampered, stale, cross-org, or cross-bot callback — never trust the id blindly (mirrors
+      // the existing agent: handler's own NaN/orgId guards). Allow tasks with no agent assigned
+      // (web-created) to pass through; sendCurrentStepPrompt handles the null-agent path.
       await showMainMenu(adapter, orgId, externalUserId, connectionAgentId);
       return;
     }
