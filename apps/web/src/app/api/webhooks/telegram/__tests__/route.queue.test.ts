@@ -53,6 +53,8 @@ describe("POST /api/webhooks/telegram/[webhookSecret] — real queue", () => {
     const org = await insertOrg();
     const user = await insertUser();
     await insertMembership(org.id, user.id, "admin");
+    // Agent must be created before the connection so its id can be passed as agentId.
+    const agent = await insertAgent(org.id, { name: "Backend Bot" });
     const credentialRef = await createConnectionSecret(org.id, { botToken: "test-token" });
     const connection = await createConnection(org.id, {
       provider: "telegram",
@@ -61,23 +63,19 @@ describe("POST /api/webhooks/telegram/[webhookSecret] — real queue", () => {
       auth: "api_token",
       credentialRef,
       config: { botUsername: "test_bot", webhookSecret: "wh-secret-queue", telegramSecretToken: SECRET_TOKEN },
+      agentId: agent.id,
     });
-    const agent = await insertAgent(org.id, { name: "Backend Bot" });
     const invite = await generateInviteCode(org.id, connection.id, user.id);
 
     await POST(webhookRequest("wh-secret-queue", 700, `/start ${invite.code}`), {
       params: Promise.resolve({ webhookSecret: "wh-secret-queue" }),
     });
-    // A bare agent: tap right after authorization, with no activeTaskId set yet, falls through to
-    // the main menu instead of binding anything under the new Task-centric flow — so driving the
-    // real path means going through newtask + description first, same as a real user would.
+    // Per-agent bot flow: newtask auto-assigns to the connection's agent; description text
+    // triggers auto-start (no repos connected → no codebase picker → direct enqueue).
     await POST(webhookRequest("wh-secret-queue", 700, undefined, "newtask"), {
       params: Promise.resolve({ webhookSecret: "wh-secret-queue" }),
     });
     await POST(webhookRequest("wh-secret-queue", 700, "fix the thing"), {
-      params: Promise.resolve({ webhookSecret: "wh-secret-queue" }),
-    });
-    await POST(webhookRequest("wh-secret-queue", 700, undefined, `agent:${agent.id}`), {
       params: Promise.resolve({ webhookSecret: "wh-secret-queue" }),
     });
 

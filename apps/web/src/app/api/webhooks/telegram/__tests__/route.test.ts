@@ -11,6 +11,8 @@ import {
   revokeAuthorizedUser,
   getTask,
   listMessages,
+  listTasks,
+  setActiveTask,
 } from "@agentfactory/db";
 // Namespace import alongside the named one above so individual repository functions can be
 // spied on for the "an internal error must never surface as a non-200" regression test — this
@@ -65,6 +67,7 @@ async function setupOrgWithBot() {
   // authorizes a chat via authorizeExternalUser() directly, bypassing invite-code redemption and
   // so leaving no redeemer row) only finds a membership with role "owner".
   await insertMembership(org.id, user.id, "owner");
+  const agent = await insertAgent(org.id, { name: "Test Agent" });
   const credentialRef = await createConnectionSecret(org.id, { botToken: "test-token" });
   const connection = await createConnection(org.id, {
     provider: "telegram",
@@ -73,8 +76,9 @@ async function setupOrgWithBot() {
     auth: "api_token",
     credentialRef,
     config: { botUsername: "test_bot", webhookSecret: "wh-secret-1", telegramSecretToken: SECRET_TOKEN },
+    agentId: agent.id,
   });
-  return { org, user, connection };
+  return { org, user, agent, connection };
 }
 
 // Telegram's real webhook request always carries this header once secret_token is registered
@@ -287,16 +291,13 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
   });
 
   it("still returns 200 when a repository call inside handleInbound throws", async () => {
-    const { org, connection } = await setupOrgWithBot();
-    const agent = await insertAgent(org.id, { name: "Backend Bot" });
+    const { connection } = await setupOrgWithBot();
     await authorizeExternalUser(connection.id, "800");
+    // newtask + description auto-assigns and starts the session (no repos → direct start)
     await POST(webhookRequest("wh-secret-1", 800, undefined, "newtask"), {
       params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
     });
     await POST(webhookRequest("wh-secret-1", 800, "Fix the login bug"), {
-      params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
-    });
-    await POST(webhookRequest("wh-secret-1", 800, undefined, `agent:${agent.id}`), {
       params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
     });
 
@@ -342,63 +343,76 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
       expect(task?.description).toBe("");
     });
 
-    it("description text updates the task and shows the agent picker", async () => {
-      const { org, connection } = await setupOrgWithBot();
+    it("new task is auto-assigned to the connection's agent", async () => {
+      const { org, connection, agent } = await setupOrgWithBot();
       await authorizeExternalUser(connection.id, "1");
-      await POST(webhookRequest("wh-secret-1", 1, undefined, "newtask"), { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
-      const agent = await insertAgent(org.id);
+      await setActiveTask(connection.id, "1", null);
 
-      await POST(webhookRequest("wh-secret-1", 1, "Fix the login bug"), { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
-
-      expect(mockSendMenu).toHaveBeenCalledWith("1", "Who should work on this?", [{ label: agent.name, value: `agent:${agent.id}` }]);
-      const authorizedUser = await getAuthorizedUser(connection.id, "1");
-      const task = await getTask(authorizedUser!.activeTaskId!);
-      expect(task?.title).toBe("Fix the login bug");
-      expect(task?.description).toBe("Fix the login bug");
-    });
-
-    it("agent tap creates the session, updates the task, and enqueues a run", async () => {
-      const { org, connection } = await setupOrgWithBot();
-      const agent = await insertAgent(org.id);
-      await authorizeExternalUser(connection.id, "1");
-      await POST(webhookRequest("wh-secret-1", 1, undefined, "newtask"), { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
-      await POST(webhookRequest("wh-secret-1", 1, "Fix the login bug"), { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
-
-      await POST(webhookRequest("wh-secret-1", 1, undefined, `agent:${agent.id}`), { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
-
-      const authorizedUser = await getAuthorizedUser(connection.id, "1");
-      const task = await getTask(authorizedUser!.activeTaskId!);
-      expect(task?.assigneeAgentId).toBe(agent.id);
-      expect(task?.sessionId).toBeDefined();
-      expect(task?.status).toBe("in_progress");
-      const { enqueueRunJob } = await import("@agentfactory/queue");
-      expect(enqueueRunJob).toHaveBeenCalled();
-    });
-
-    it("falls back to the agent menu on a malformed or cross-org agent callback", async () => {
-      const { org, connection } = await setupOrgWithBot();
-      const agent = await insertAgent(org.id, { name: "Backend Bot" });
-      const otherOrg = await insertOrg();
-      const otherAgent = await insertAgent(otherOrg.id, { name: "Other Org Bot" });
-      await authorizeExternalUser(connection.id, "1");
-      await POST(webhookRequest("wh-secret-1", 1, undefined, "newtask"), { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
-      await POST(webhookRequest("wh-secret-1", 1, "Fix the login bug"), { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
-      mockSendMenu.mockClear();
-
-      await POST(webhookRequest("wh-secret-1", 1, undefined, "agent:not-a-number"), {
+      await POST(webhookRequest("wh-secret-1", 1, undefined, "newtask"), {
         params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
       });
-      expect(mockSendMenu).toHaveBeenCalledWith("1", "Who should work on this?", [{ label: agent.name, value: `agent:${agent.id}` }]);
-      mockSendMenu.mockClear();
 
-      await POST(webhookRequest("wh-secret-1", 1, undefined, `agent:${otherAgent.id}`), {
+      const tasks = await listTasks(org.id);
+      const newTask = tasks.find((t) => t.title === "New task");
+      expect(newTask?.assigneeAgentId).toBe(agent.id);
+    });
+
+    it("description text updates the task and proceeds to codebase or start (no agent picker)", async () => {
+      const { org, user, connection, agent } = await setupOrgWithBot();
+      await authorizeExternalUser(connection.id, "1");
+      // Create a draft task already assigned to the agent (as the new flow does)
+      const task = await insertTask(org.id, user.id, {
+        title: "New task",
+        description: "",
+        assigneeAgentId: agent.id,
+      });
+      await setActiveTask(connection.id, "1", task.id);
+
+      await POST(webhookRequest("wh-secret-1", 1, "Fix the login bug"), {
         params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
       });
-      expect(mockSendMenu).toHaveBeenCalledWith("1", "Who should work on this?", [{ label: agent.name, value: `agent:${agent.id}` }]);
 
-      const authorizedUser = await getAuthorizedUser(connection.id, "1");
-      const task = await getTask(authorizedUser!.activeTaskId!);
-      expect(task?.assigneeAgentId).toBeFalsy();
+      // Should NOT have shown an agent picker
+      expect(mockSendMenu).not.toHaveBeenCalledWith(
+        expect.anything(),
+        "Who should work on this?",
+        expect.anything(),
+      );
+      // Task title/description should be updated
+      const updated = await getTask(task.id);
+      expect(updated?.title).toBe("Fix the login bug");
+      expect(updated?.description).toBe("Fix the login bug");
+    });
+
+    it("main menu only shows tasks assigned to the connection's agent", async () => {
+      const { org, user, connection, agent } = await setupOrgWithBot();
+      const otherAgent = await insertAgent(org.id, { name: "Other Agent" });
+      await authorizeExternalUser(connection.id, "1");
+
+      // Task for our agent
+      const myTask = await insertTask(org.id, user.id, { assigneeAgentId: agent.id, description: "a" });
+      // Task for a different agent — should NOT appear in the menu
+      const otherTask = await insertTask(org.id, user.id, { assigneeAgentId: otherAgent.id, description: "b" });
+
+      await POST(webhookRequest("wh-secret-1", 1, undefined, "newtask"), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+      // /tasks command shows the main menu
+      await POST(webhookRequest("wh-secret-1", 1, "/tasks"), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+
+      const menuCalls = mockSendMenu.mock.calls;
+      // Find the main menu call (the one with MAIN_MENU_PROMPT)
+      const mainMenuCall = menuCalls.find((call) => call[1] === "What would you like to do?");
+      expect(mainMenuCall).toBeDefined();
+      const menuItems = mainMenuCall![2] as Array<{ label: string; value: string }>;
+      // Our agent's task should appear; other agent's task should not
+      const taskValues = menuItems.map((item) => item.value).filter((v) => v.startsWith("task:"));
+      expect(taskValues).toContain(`task:${myTask.id}`);
+      // Other agent's task should NOT be present
+      const otherTaskItem = menuItems.find((item) => item.value === `task:${otherTask.id}`);
+      expect(otherTaskItem).toBeUndefined();
     });
   });
 
@@ -634,17 +648,30 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
     });
   });
 
-  describe("zero agents configured", () => {
-    it("sends the no-agents message and keeps activeTaskId pointed at the draft", async () => {
-      const { connection } = await setupOrgWithBot();
+  describe("connection not bound to an agent", () => {
+    it("returns 200 silently when the connection has no agentId configured", async () => {
+      // A connection without an agentId is a misconfigured bot — the route returns 200 with no
+      // messages sent rather than exposing internal state or triggering Telegram retries.
+      const org = await insertOrg();
+      const user = await insertUser();
+      await insertMembership(org.id, user.id, "owner");
+      const credentialRef = await createConnectionSecret(org.id, { botToken: "test-token" });
+      const connection = await createConnection(org.id, {
+        provider: "telegram",
+        kind: "channel",
+        label: "Telegram",
+        auth: "api_token",
+        credentialRef,
+        config: { botUsername: "no_agent_bot", webhookSecret: "wh-secret-noagent", telegramSecretToken: SECRET_TOKEN },
+      });
       await authorizeExternalUser(connection.id, "1");
-      await POST(webhookRequest("wh-secret-1", 1, undefined, "newtask"), { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
 
-      await POST(webhookRequest("wh-secret-1", 1, "Fix the thing"), { params: Promise.resolve({ webhookSecret: "wh-secret-1" }) });
+      await POST(webhookRequest("wh-secret-noagent", 1, "hello"), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-noagent" }),
+      });
 
-      expect(mockSend).toHaveBeenCalledWith("1", "No agents are set up for this org yet — ask your admin.");
-      const authorizedUser = await getAuthorizedUser(connection.id, "1");
-      expect(authorizedUser?.activeTaskId).toBeDefined();
+      expect(mockSend).not.toHaveBeenCalled();
+      expect(mockSendMenu).not.toHaveBeenCalled();
     });
   });
 
