@@ -15,7 +15,7 @@ import {
   getSession,
   getTask,
   isInCooldown,
-  listAgents,
+  listConnections,
   listTasks,
   looksLikeInviteCode,
   readConnectionSecret,
@@ -27,7 +27,8 @@ import {
   updateTask,
 } from "@agentfactory/db";
 import { createChannelAdapter, type ChannelAdapter } from "@agentfactory/integrations";
-import { enqueueRunJob } from "@agentfactory/queue";
+import { enqueueRepoMapWarmJob, enqueueRunJob } from "@agentfactory/queue";
+import { getScmProvider, type RepoOption } from "@agentfactory/scm";
 import type { Agent, Connection, Session, Task, TaskStatus } from "@agentfactory/core";
 import { createLogger } from "@agentfactory/logger";
 import { formatTaskBrief } from "@/server/task-brief";
@@ -39,11 +40,18 @@ const WELCOME_MESSAGE = (orgLabel: string) =>
 const INVALID_CODE_MESSAGE = "That code isn't valid — ask your admin for a new one.";
 const COOLDOWN_MESSAGE = "Too many invalid codes — try again in a bit.";
 const REVOKED_MESSAGE = "Your access was revoked — ask your admin for a new invite.";
-const NO_AGENTS_MESSAGE = "No agents are set up for this org yet — ask your admin.";
 const ASK_FOR_CODE_MESSAGE = "Send your invite code to get started.";
 const MAIN_MENU_PROMPT = "What would you like to do?";
 const NEW_TASK_PROMPT = "Tell me what you need done.";
-const AGENT_PICKER_PROMPT = "Who should work on this?";
+const CODEBASE_PICKER_PROMPT = "Which repo should this run against?";
+const NO_REPO_LABEL = "No repository";
+const NO_REPO_CALLBACK_VALUE = "codebase:none";
+const CODEBASE_CALLBACK_PREFIX = "codebase:";
+// Sentinel for "asked, and the user explicitly chose none" — distinct from the DB's own `null`,
+// which already means "never asked" (see task.codebase's nullable column). Falsy either way, so it
+// still reads as "no repo" everywhere downstream (startTask's default fallback, the worker's clone
+// check), but it stops the picker from re-prompting on every subsequent message.
+const CODEBASE_DECLINED = "";
 const NEW_TASK_LABEL = "Start a new task";
 const DRAFT_TASK_TITLE = "New task";
 const TITLE_MAX_LENGTH = 80;
@@ -90,8 +98,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ web
     return new NextResponse(null, { status: 200 }); // unrecognized update shape — ack and ignore
   }
 
+  const connectionAgentId = resolved.agentId;
+  if (connectionAgentId == null) {
+    // Channel connection has no agent configured — misconfigured bot, nothing to do.
+    log.warn("Channel connection has no agentId configured", { connectionId: connection.id });
+    return new NextResponse(null, { status: 200 });
+  }
+
   try {
-    await handleInbound(adapter, orgId, connection, inbound);
+    await handleInbound(adapter, orgId, connection, connectionAgentId, inbound);
   } catch (err) {
     // Never let an internal error surface as a non-200 to Telegram — a 5xx here triggers
     // Telegram's own retry-storm behavior, exactly what this design exists to avoid. A transient
@@ -106,6 +121,7 @@ async function handleInbound(
   adapter: ChannelAdapter,
   orgId: number,
   connection: Connection,
+  connectionAgentId: number,
   inbound: ReturnType<ChannelAdapter["receive"]>,
 ) {
   const { externalUserId } = inbound;
@@ -140,20 +156,20 @@ async function handleInbound(
       // message to self-heal through Step 2's equivalent check.
       await setActiveTask(connection.id, externalUserId, null);
     }
-    await sendCurrentStepPrompt(adapter, orgId, externalUserId, validPriorTask);
+    await sendCurrentStepPrompt(adapter, orgId, externalUserId, connectionAgentId, validPriorTask);
     return;
   }
 
   // Step 1 — commands and menu taps, checked before anything else, so they always work regardless
   // of what this chat's activeTaskId currently points at.
   if ((inbound.isStartCommand && !inbound.startPayload) || inbound.isTasksCommand) {
-    await showMainMenu(adapter, orgId, externalUserId);
+    await showMainMenu(adapter, orgId, externalUserId, connectionAgentId);
     return;
   }
 
   if (inbound.callbackData === "newtask") {
     const createdBy = await inviterUserIdFor(connection.id, externalUserId, orgId);
-    const task = await createTask(orgId, createdBy, { title: DRAFT_TASK_TITLE, description: "", acceptanceCriteria: [] });
+    const task = await createTask(orgId, createdBy, { title: DRAFT_TASK_TITLE, description: "", acceptanceCriteria: [], assigneeAgentId: connectionAgentId });
     await setActiveTask(connection.id, externalUserId, task.id);
     await adapter.send(externalUserId, NEW_TASK_PROMPT);
     return;
@@ -165,7 +181,7 @@ async function handleInbound(
     if (!task || task.orgId !== orgId) {
       // Tampered, stale, or cross-org callback — never trust the id blindly (mirrors the
       // existing agent: handler's own NaN/orgId guards).
-      await showMainMenu(adapter, orgId, externalUserId);
+      await showMainMenu(adapter, orgId, externalUserId, connectionAgentId);
       return;
     }
     await setActiveTask(connection.id, externalUserId, task.id);
@@ -173,7 +189,7 @@ async function handleInbound(
     // carries no inbound.text, and Step 3's running-task branch returns early with nothing sent
     // whenever inbound.text is absent — falling through there on a tap would silently no-op on
     // exactly the headline case this feature exists to fix (tapping a running task from the menu).
-    await sendCurrentStepPrompt(adapter, orgId, externalUserId, task);
+    await sendCurrentStepPrompt(adapter, orgId, externalUserId, connectionAgentId, task);
     return;
   }
 
@@ -181,16 +197,16 @@ async function handleInbound(
   const authorizedUser = await getAuthorizedUser(connection.id, externalUserId);
   const activeTaskId = authorizedUser?.activeTaskId;
   if (!activeTaskId) {
-    await showMainMenu(adapter, orgId, externalUserId); // unrecognized input, nothing focused
+    await showMainMenu(adapter, orgId, externalUserId, connectionAgentId); // unrecognized input, nothing focused
     return;
   }
 
-  const activeTask = await getTask(activeTaskId);
+  let activeTask = await getTask(activeTaskId);
   if (!activeTask || activeTask.orgId !== orgId) {
     // Shouldn't happen — activeTaskId is only ever set from a task already checked against this
     // orgId — but never trust a stored pointer over a fresh check.
     await setActiveTask(connection.id, externalUserId, null);
-    await showMainMenu(adapter, orgId, externalUserId);
+    await showMainMenu(adapter, orgId, externalUserId, connectionAgentId);
     return;
   }
 
@@ -232,33 +248,44 @@ async function handleInbound(
     // A message starting with a newline makes firstLine(...) empty — fall back to the placeholder
     // title rather than persisting a blank one.
     const title = firstLine(inbound.text).slice(0, TITLE_MAX_LENGTH) || DRAFT_TASK_TITLE;
-    await updateTask(activeTask.id, { title, description: inbound.text });
-    await sendAgentPickerMenu(adapter, orgId, externalUserId);
+    activeTask = await updateTask(activeTask.id, { title, description: inbound.text });
+    const agent = (await getAgent(activeTask.assigneeAgentId!))!;
+    await promptCodebaseOrStart(adapter, orgId, externalUserId, activeTask, agent);
     return;
   }
 
-  if (!activeTask.assigneeAgentId) {
-    if (inbound.callbackData?.startsWith("agent:")) {
-      const agentId = parseIntOrNull(inbound.callbackData.slice("agent:".length));
-      const agent = agentId !== null ? await getAgent(agentId) : undefined;
-      if (!agent || agent.orgId !== orgId) {
-        await sendAgentPickerMenu(adapter, orgId, externalUserId);
+  // Agent already set (auto-assigned at task creation); still undecided on a codebase (never reached the picker, or its menu is
+  // still pending) — resolve that before starting, mirroring the web form's codebase field.
+  if (activeTask.codebase == null) {
+    const agent = (await getAgent(activeTask.assigneeAgentId!))!;
+    if (inbound.callbackData === NO_REPO_CALLBACK_VALUE) {
+      activeTask = await updateTask(activeTask.id, { codebase: CODEBASE_DECLINED });
+      await startTask(adapter, orgId, externalUserId, activeTask, agent, inbound.text);
+    } else if (inbound.callbackData?.startsWith(CODEBASE_CALLBACK_PREFIX)) {
+      const repo = await resolveRepoFromCallback(orgId, inbound.callbackData);
+      if (!repo) {
+        await sendCodebasePickerMenu(adapter, orgId, externalUserId, agent);
         return;
       }
-      await startTask(adapter, orgId, externalUserId, activeTask, agent);
+      activeTask = await updateTask(activeTask.id, { codebase: repo.fullName });
+      const taskId = activeTask.id;
+      enqueueRepoMapWarmJob(orgId, repo.fullName).catch((err) => {
+        log.warn("Failed to enqueue repo map warm job", { taskId, err });
+      });
+      await startTask(adapter, orgId, externalUserId, activeTask, agent, inbound.text);
     } else {
-      await sendAgentPickerMenu(adapter, orgId, externalUserId); // re-prompt on stray text or stale callback
+      await sendCodebasePickerMenu(adapter, orgId, externalUserId, agent); // re-prompt on stray text
     }
     return;
   }
 
-  // Description set, agent already set, no session yet — e.g. a task fully configured via the web
-  // UI, then picked from the Telegram resume list, or reached here by typing instead of tapping.
-  // Just start it, using the agent it already has. inbound.text (if any) is folded into the brief
-  // rather than silently discarded.
-  // assigneeAgentId is set (checked above), and ON DELETE SET NULL means the referenced agent row
-  // still exists whenever the column is non-null — the assertion below reflects that invariant.
-  const agent = (await getAgent(activeTask.assigneeAgentId))!;
+  // Description, agent, and codebase all set, no session yet — e.g. a task fully configured via
+  // the web UI, then picked from the Telegram resume list, or reached here by typing instead of
+  // tapping. Just start it, using what it already has. inbound.text (if any) is folded into the
+  // brief rather than silently discarded.
+  // assigneeAgentId is set (auto-assigned at task creation), and ON DELETE SET NULL means the
+  // referenced agent row still exists whenever the column is non-null — the assertion reflects that.
+  const agent = (await getAgent(activeTask.assigneeAgentId!))!;
   await startTask(adapter, orgId, externalUserId, activeTask, agent, inbound.text);
 }
 
@@ -313,9 +340,9 @@ function sessionBelongsToChat(session: Session, externalUserId: string): boolean
   return session.origin === "telegram" && session.externalThreadRef === externalUserId;
 }
 
-async function showMainMenu(adapter: ChannelAdapter, orgId: number, externalUserId: string): Promise<void> {
+async function showMainMenu(adapter: ChannelAdapter, orgId: number, externalUserId: string, agentId: number): Promise<void> {
   const openTasks = (await listTasks(orgId))
-    .filter((t) => t.status !== "done" && t.status !== "failed" && t.status !== "cancelled")
+    .filter((t) => t.status !== "done" && t.status !== "failed" && t.status !== "cancelled" && t.assigneeAgentId === agentId)
     .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)) // updatedAt descending
     .slice(0, MAIN_MENU_TASK_LIMIT);
 
@@ -328,17 +355,75 @@ async function showMainMenu(adapter: ChannelAdapter, orgId: number, externalUser
   ]);
 }
 
-async function sendAgentPickerMenu(adapter: ChannelAdapter, orgId: number, externalUserId: string): Promise<void> {
-  const agents = await listAgents(orgId);
-  if (agents.length === 0) {
-    await adapter.send(externalUserId, NO_AGENTS_MESSAGE);
-    return;
-  }
-  await adapter.sendMenu(
-    externalUserId,
-    AGENT_PICKER_PROMPT,
-    agents.map((agent) => ({ label: agent.name, value: `agent:${agent.id}` })),
+// Mirrors the web "New task" form's Codebase field (apps/web/src/app/(app)/tasks/new/page.tsx),
+// which sources its options from every one of the org's scm connections via each provider's own
+// listRepos — same merge-and-dedupe shape as apps/web/src/app/api/connections/repos/route.ts.
+async function listConnectedRepos(orgId: number): Promise<RepoOption[]> {
+  const scmConnections = (await listConnections(orgId)).filter((c) => c.kind === "scm");
+  const repoLists = await Promise.all(
+    scmConnections.map(async (connection): Promise<RepoOption[]> => {
+      const provider = getScmProvider(connection.provider);
+      if (!provider) return [];
+      try {
+        const repos = await provider.listRepos(connection);
+        return repos.map((r) => ({ ...r, provider: connection.provider }));
+      } catch {
+        // A revoked/broken installation shouldn't take down the whole picker — skip it.
+        return [];
+      }
+    }),
   );
+  const seen = new Set<string>();
+  return repoLists.flat().filter((repo) => {
+    const key = `${repo.provider}:${repo.id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+// Callback values are `codebase:<provider>:<repo id>` rather than the raw "owner/repo" full name,
+// to stay well under Telegram's 64-byte callback_data cap for long repo names.
+async function resolveRepoFromCallback(orgId: number, callbackData: string): Promise<RepoOption | undefined> {
+  const [provider, id] = callbackData.slice(CODEBASE_CALLBACK_PREFIX.length).split(":");
+  if (!provider || !id) return undefined;
+  const repos = await listConnectedRepos(orgId);
+  return repos.find((r) => r.provider === provider && r.id === id);
+}
+
+// Returns true if a menu was sent (caller should stop and wait for the tap); false if there was
+// nothing to choose (no repos connected to the org yet) and the caller should proceed as-is,
+// falling back to startTask's own agent.defaultCodebase handling.
+async function sendCodebasePickerMenu(
+  adapter: ChannelAdapter,
+  orgId: number,
+  externalUserId: string,
+  agent: Agent,
+): Promise<boolean> {
+  const repos = await listConnectedRepos(orgId);
+  if (repos.length === 0) return false;
+  await adapter.sendMenu(externalUserId, CODEBASE_PICKER_PROMPT, [
+    ...repos.map((repo) => ({
+      label: repo.fullName === agent.defaultCodebase ? `${repo.fullName} (default)` : repo.fullName,
+      value: `${CODEBASE_CALLBACK_PREFIX}${repo.provider}:${repo.id}`,
+    })),
+    { label: NO_REPO_LABEL, value: NO_REPO_CALLBACK_VALUE },
+  ]);
+  return true;
+}
+
+// Called right after an agent is picked (or resolved) for a task with no codebase decision yet.
+// Prompts for one if the org has repos connected; otherwise starts immediately, same as before
+// this step existed.
+async function promptCodebaseOrStart(
+  adapter: ChannelAdapter,
+  orgId: number,
+  externalUserId: string,
+  task: Task,
+  agent: Agent,
+): Promise<void> {
+  if (task.codebase == null && (await sendCodebasePickerMenu(adapter, orgId, externalUserId, agent))) return;
+  await startTask(adapter, orgId, externalUserId, task, agent);
 }
 
 // Implements the task-attribution design decision: a Telegram-created task is attributed to
@@ -363,6 +448,17 @@ async function startTask(
   agent: Agent,
   extraText?: string,
 ): Promise<void> {
+  // Fallback for tasks that reach startTask without ever going through promptCodebaseOrStart (e.g.
+  // fully configured via the web UI with no codebase chosen there either). `== null` — not `!` —
+  // so an explicit CODEBASE_DECLINED ("", "the user picked 'No repository'") is left alone rather
+  // than silently overridden by the agent's default.
+  if (task.codebase == null && agent.defaultCodebase) {
+    const codebase = agent.defaultCodebase;
+    task = await updateTask(task.id, { codebase });
+    enqueueRepoMapWarmJob(orgId, codebase).catch((err) => {
+      log.warn("Failed to enqueue repo map warm job", { taskId: task.id, err });
+    });
+  }
   const brief = extraText ? `${formatTaskBrief(task)}\n\n${extraText}` : formatTaskBrief(task);
   const result = await startTaskSession(task.id, orgId, agent.id, task.title, brief, {
     origin: "telegram",
@@ -386,10 +482,11 @@ async function sendCurrentStepPrompt(
   adapter: ChannelAdapter,
   orgId: number,
   externalUserId: string,
+  connectionAgentId: number,
   activeTask: Task | undefined,
 ): Promise<void> {
   if (!activeTask) {
-    await showMainMenu(adapter, orgId, externalUserId);
+    await showMainMenu(adapter, orgId, externalUserId, connectionAgentId);
     return;
   }
   if (activeTask.sessionId) {
@@ -409,15 +506,11 @@ async function sendCurrentStepPrompt(
     await adapter.send(externalUserId, NEW_TASK_PROMPT);
     return;
   }
-  if (!activeTask.assigneeAgentId) {
-    await sendAgentPickerMenu(adapter, orgId, externalUserId);
-    return;
-  }
-  // Description set, agent set, no session: fully configured but not yet running (e.g. tapped
-  // from the resume list, or re-authorized mid-configuration). Auto-start immediately, matching
-  // Step 3's own version of this state, rather than re-asking a question the task already has an
-  // answer to. No extraText here — neither a tap nor a redemption carries real chat text to fold
-  // in.
-  const agent = (await getAgent(activeTask.assigneeAgentId))!;
-  await startTask(adapter, orgId, externalUserId, activeTask, agent);
+  // Description set, no session: fully configured but not yet running (e.g. tapped from the resume
+  // list, or re-authorized mid-configuration). assigneeAgentId is always set (auto-assigned at task
+  // creation in this flow). Still resolve an undecided codebase first — same picker as the live
+  // flow — before auto-starting. No extraText here — neither a tap nor a redemption carries real
+  // chat text to fold in.
+  const agent = (await getAgent(activeTask.assigneeAgentId!))!;
+  await promptCodebaseOrStart(adapter, orgId, externalUserId, activeTask, agent);
 }
