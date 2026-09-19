@@ -3,6 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
 import { AgentFormModal, type AgentFormValues } from "@/components/AgentFormModal";
+import { AgentMemorySection } from "@/components/AgentMemorySection";
 import { AgentSkillsSection } from "@/components/AgentSkillsSection";
 import { Badge, Breadcrumb, Button, Card, CardLink, Truncate } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
@@ -63,6 +64,8 @@ export default function AgentDetailPage() {
       </div>
 
       <AgentSkillsSection agentId={agent.id} />
+
+      <AgentMemorySection agentId={agent.id} />
 
       <div className="px-10 pt-8">
         <div className="mb-3 flex items-center justify-between">

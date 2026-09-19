@@ -856,3 +856,50 @@ export const repoMaps = pgTable(
     check("repo_maps_content_max_length", sql`char_length(${table.content}) <= 16384`),
   ],
 );
+
+// A closed set matching MemorySource in packages/core/src/domain.ts. Native enum so an invalid
+// value is a rejected write, not an app-level bug, same reasoning as taskStatusEnum.
+export const memorySourceEnum = pgEnum("memory_source", ["manual", "retrospective"]);
+
+// One lesson an agent has learned, injected into every future run's prompt as the final system
+// prompt segment (see buildAgentMemorySegment in apps/worker/src/prompt-composition.ts).
+// ciphertext/keyVersion mirror connection_secrets exactly (same encryptSecret/decryptSecret
+// envelope, same CONNECTION_SECRET_KEY), see crypto.ts's header comment. embedding/embeddingModel
+// mirror context_chunks: same 384-dim vector, same HNSW cosine index, used for near-duplicate
+// detection (packages/db/src/repositories/agent-memory.ts's findSimilarMemoryEntry) rather than
+// document retrieval. The embedding is derived from plaintext but stored unencrypted, a known,
+// accepted gap (decrypting every existing entry to recompute embeddings on every write would be
+// prohibitively expensive and defeats the purpose of an index); it isn't practically reversible to
+// the source text, matching crypto.ts's own "defense against a database dump, not a KMS" model.
+export const agentMemoryEntries = pgTable(
+  "agent_memory_entries",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    agentId: integer("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    // Denormalized from the agent so every scoping check (readAgentMemoryEntries,
+    // updateMemoryEntryContent, deleteMemoryEntry) is a column predicate, matching
+    // connection_secrets' own org_id column.
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    source: memorySourceEnum("source").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    keyVersion: integer("key_version").notNull().default(1),
+    embedding: vector("embedding", { dimensions: 384 }).notNull(),
+    embeddingModel: text("embedding_model").notNull(),
+    weight: integer("weight").notNull().default(1),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastReinforcedAt: timestamp("last_reinforced_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSourceRunId: integer("last_source_run_id").references(() => runs.id, { onDelete: "set null" }),
+    lastSourceSessionId: integer("last_source_session_id").references(() => sessions.id, { onDelete: "set null" }),
+  },
+  (table) => [
+    // findSimilarMemoryEntry filters WHERE org_id = ? AND agent_id = ? before ranking by
+    // embedding distance, without this, a seq scan over every agent's memory on every remember
+    // call and every retrospective lesson.
+    index("agent_memory_entries_agent_id_idx").on(table.agentId),
+    index("agent_memory_entries_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
+  ],
+);

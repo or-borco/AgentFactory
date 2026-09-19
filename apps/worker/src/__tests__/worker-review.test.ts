@@ -45,6 +45,7 @@ vi.mock("@agentfactory/queue", () => ({
   SANDBOX_REAP_QUEUE_NAME: "sandbox-reap",
   REPO_MAP_WARM_QUEUE_NAME: "repo-map-warm",
   EVAL_QUEUE_NAME: "evals",
+  MEMORY_RETROSPECTIVE_QUEUE_NAME: "memory-retrospective",
   TEAM_CONTEXT_INGEST_QUEUE_NAME: "team-context-ingest",
   TASK_CONTEXT_INGEST_QUEUE_NAME: "task-context-ingest",
   queueConnection: {},
@@ -55,6 +56,7 @@ vi.mock("@agentfactory/db", () => ({
   createEvent: vi.fn(),
   createMessage: vi.fn(),
   createPendingPrReview: vi.fn(),
+  findSimilarMemoryEntry: vi.fn(),
   getAgent: vi.fn(),
   getLatestPrReview: vi.fn(async () => undefined),
   getLatestResumeCandidate: vi.fn(async () => undefined),
@@ -64,8 +66,11 @@ vi.mock("@agentfactory/db", () => ({
   getTaskBySessionId: vi.fn(),
   getTeamForOrg: vi.fn(async () => undefined),
   hasNonTerminalRun: vi.fn(async () => false),
+  insertMemoryEntry: vi.fn(),
   insertRunContextRetrievals: vi.fn(),
   listMessages: vi.fn(async () => []),
+  readAgentMemoryEntries: vi.fn(async () => []),
+  reinforceMemoryEntry: vi.fn(),
   setSessionSandboxId: vi.fn(),
   touchSessionActivity: vi.fn(),
   updateRunCommitRange: vi.fn(),
@@ -128,6 +133,7 @@ vi.mock("../context-ingest-wait", () => ({ waitForPendingContextIngest: vi.fn(as
 vi.mock("../task-documents", () => ({ materialiseTaskDocuments: vi.fn(async () => ({ written: [], omitted: [] })) }));
 vi.mock("../skills-materialize", () => ({ materialiseSkills: vi.fn(async () => []) }));
 vi.mock("../eval-runner", () => ({ processEvalJob: vi.fn() }));
+vi.mock("../memory-retrospective", () => ({ processMemoryRetrospectiveJob: vi.fn() }));
 vi.mock("../context-ingest", () => ({ ingestTaskContextItem: vi.fn(), ingestTeamContextItem: vi.fn() }));
 vi.mock("../task-notify", () => ({ notifyIssueOfPullRequest: vi.fn() }));
 vi.mock("../sandbox-reap", () => ({ SANDBOX_REAP_INTERVAL_MS: 60_000, scanForIdleSandboxes: vi.fn() }));
@@ -364,6 +370,12 @@ describe("review run detection gate", () => {
       1,
       expect.objectContaining({ repoFullName: "acme/app", prNumber: 7, verdict: "comment" }),
     );
+    // isReviewTurn: true is what drives run-turn-claude.ts to omit the `remember` MCP tool for
+    // review turns (see claude-code-runtime.test.ts for the env-var wiring this feeds into).
+    expect(h.runTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ isReviewTurn: true }),
+      expect.anything(),
+    );
   });
 
   it("runs a PR-link-free task as an ordinary run", async () => {
@@ -382,6 +394,9 @@ describe("review run detection gate", () => {
     expect(checkoutPullRequest).not.toHaveBeenCalled();
     expect(postReview).not.toHaveBeenCalled();
     expect(createPendingPrReview).not.toHaveBeenCalled();
-    expect(h.runTurn).toHaveBeenCalled();
+    expect(h.runTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ isReviewTurn: false }),
+      expect.anything(),
+    );
   });
 });

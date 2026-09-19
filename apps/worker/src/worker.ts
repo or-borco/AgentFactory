@@ -4,6 +4,7 @@ import {
   TASK_CONTEXT_INGEST_QUEUE_NAME,
   TEAM_CONTEXT_INGEST_QUEUE_NAME,
   EVAL_QUEUE_NAME,
+  MEMORY_RETROSPECTIVE_QUEUE_NAME,
   RUN_QUEUE_NAME,
   REPO_MAP_WARM_QUEUE_NAME,
   SANDBOX_REAP_QUEUE_NAME,
@@ -11,6 +12,7 @@ import {
   queueConnection,
   type ContextIngestJobData,
   type EvalJobData,
+  type MemoryRetrospectiveJobData,
   type RepoMapWarmJobData,
   type RunJobData,
   type SandboxTeardownJobData,
@@ -33,6 +35,7 @@ import {
   hasNonTerminalRun,
   insertRunContextRetrievals,
   listMessages,
+  readAgentMemoryEntries,
   setSessionSandboxId,
   touchSessionActivity,
   updateRunCommitRange,
@@ -49,6 +52,7 @@ import type { AgentTurnResult } from "./agent-runtime/types";
 import {
   PLATFORM_PREAMBLE,
   REVIEW_PLATFORM_PREAMBLE,
+  buildAgentMemorySegment,
   buildPriorConversationSegment,
   buildRepoMapSegment,
   buildRetrievedContextSegment,
@@ -63,6 +67,7 @@ import {
   hashPrompt,
   type SandboxEnvironment,
 } from "./prompt-composition";
+import { writeMemoryEntry } from "./memory-write";
 import {
   REVIEW_OUTPUT_SCHEMA,
   checkoutPullRequest,
@@ -92,6 +97,7 @@ import { waitForPendingContextIngest } from "./context-ingest-wait";
 import { materialiseTaskDocuments, type MaterialisedTaskDocuments } from "./task-documents";
 import { materialiseSkills } from "./skills-materialize";
 import { processEvalJob } from "./eval-runner";
+import { processMemoryRetrospectiveJob } from "./memory-retrospective";
 import { ingestTaskContextItem, ingestTeamContextItem } from "./context-ingest";
 import { notifyIssueOfPullRequest } from "./task-notify";
 import { notifySessionOfReply, startTypingIndicator } from "./channel-notify";
@@ -393,6 +399,29 @@ const runWorker = new Worker<RunJobData>(
       const team = agent.teamId ? await getTeamForOrg(agent.teamId, agent.orgId) : undefined;
       const teamContextPrefix = team ? formatSharedContextForPrompt(team.sharedContext) : "";
 
+      // Fetched unconditionally (unlike team/retrieval, which both gate on `!review`; a review
+      // run's prompt still includes the agent's own accumulated lessons, since those are agent-
+      // specific behavior, not task-specific business context). A brand-new agent with zero
+      // entries is the common case and just means an omitted segment, not an error.
+      // readAgentMemoryEntries throws on a decrypt failure (a corrupt/tampered ciphertext row or
+      // a key-rotation mismatch), and that must not brick every future run for this agent - fall
+      // back to treating memory as unavailable for this run rather than failing before the model
+      // is ever called.
+      let memoryEntries: Awaited<ReturnType<typeof readAgentMemoryEntries>> = [];
+      try {
+        memoryEntries = await readAgentMemoryEntries(agent.orgId, agent.id);
+      } catch (err) {
+        log.error("Failed to read agent memory entries", { runId, agentId: agent.id, err });
+      }
+      const agentMemorySegment = buildAgentMemorySegment(
+        memoryEntries.map((entry) => ({
+          content: entry.content,
+          weight: entry.weight,
+          lastReinforcedAt: entry.lastReinforcedAt,
+        })),
+      );
+      mark(memoryEntries.length > 0 ? `memory (${memoryEntries.length} entries)` : "memory (none)");
+
       // `!review` because this event is the task page's "shared context was used" indicator, and
       // a review run's prompt does NOT include the team's shared context (the review arm of the
       // composition branch below passes an empty team-context segment by design). Firing it
@@ -481,6 +510,7 @@ const runWorker = new Worker<RunJobData>(
             formatPullRequestForPrompt(review.prTitle, review.prBody) +
             review.existingComments +
             formatReviewDiffForPrompt(review.focusBaseSha, review.focusHeadSha, review.focusDiffText),
+          agentMemorySegment,
         );
       } else {
         composed = composeSystemPrompt(
@@ -491,6 +521,7 @@ const runWorker = new Worker<RunJobData>(
           buildRepoMapSegment(Boolean(task?.codebase), repoMap),
           retrievedContextSegment,
           agent.systemPrompt,
+          agentMemorySegment,
         );
       }
       const systemPrompt = composed.prompt;
@@ -539,11 +570,36 @@ const runWorker = new Worker<RunJobData>(
                 resumeSessionRef,
                 skillNames,
                 outputSchema: review ? REVIEW_OUTPUT_SCHEMA : undefined,
+                // Gates the `remember` MCP tool off inside the sandbox for review turns - see
+                // RunInput.isReviewTurn.
+                isReviewTurn: Boolean(review),
               },
               {
                 sandboxProvider,
                 sandboxId,
                 onEvent: async (event) => {
+                  // Special-cased: the generic `{ ...event }` spread below would otherwise put the
+                  // plaintext lesson straight into events.data, an unencrypted column, defeating
+                  // the whole point of encrypting agent_memory_entries.ciphertext. writeMemoryEntry
+                  // is the only place the content is persisted, and only there, encrypted.
+                  if (event.type === "memory_write") {
+                    // Non-throwing, like every other writeMemoryEntry call site (the retrospective
+                    // job, the tasks route's fire-and-forget enqueue). onEvent is awaited inside the
+                    // turn's read loop, so letting this reject would fail an otherwise-successful
+                    // run over e.g. a transient embedder or Postgres error.
+                    let reinforced = false;
+                    try {
+                      ({ reinforced } = await writeMemoryEntry(agent.orgId, agent.id, event.content, "manual", {
+                        runId,
+                        sessionId: session.id,
+                      }));
+                    } catch (err) {
+                      // Never log event.content itself - only the error and enough context to debug.
+                      log.error("Failed to write memory entry", { runId, agentId: agent.id, err });
+                    }
+                    await createEvent(runId, seq++, "memory_write", { reinforced });
+                    return;
+                  }
                   await createEvent(runId, seq++, event.type, { ...event });
                 },
               },
@@ -853,6 +909,22 @@ evalWorker.on("failed", (job, err) => {
   log.error("Eval job failed", { jobId: job?.id, err });
 });
 
+// Triggered by any task reaching a terminal status (apps/web's PATCH /api/tasks/[taskId] route),
+// extracts general lessons from the session's transcript. Never touches run/message history;
+// failures are logged inside processMemoryRetrospectiveJob itself, not surfaced anywhere else.
+const memoryRetrospectiveWorker = new Worker<MemoryRetrospectiveJobData>(
+  MEMORY_RETROSPECTIVE_QUEUE_NAME,
+  async (job) => {
+    const { orgId, agentId, sessionId } = job.data;
+    await processMemoryRetrospectiveJob(orgId, agentId, sessionId);
+  },
+  { connection: queueConnection },
+);
+
+memoryRetrospectiveWorker.on("failed", (job, err) => {
+  log.error("Memory retrospective job failed", { jobId: job?.id, err });
+});
+
 // Triggered by a document upload (apps/web's /api/teams/[teamId]/context-items route) —
 // extracts, chunks and embeds the file so PR 5's retrieval can reach it. Own queue for the
 // same reason the eval queue is its own: an upload's feedback loop is a status badge the
@@ -897,5 +969,6 @@ log.info("apps/worker listening", {
     EVAL_QUEUE_NAME,
     TEAM_CONTEXT_INGEST_QUEUE_NAME,
     TASK_CONTEXT_INGEST_QUEUE_NAME,
+    MEMORY_RETROSPECTIVE_QUEUE_NAME,
   ],
 });

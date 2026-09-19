@@ -1,7 +1,7 @@
 // Tenant-isolation gap: see /api/tasks/route.ts for the documented caveat.
 import { NextResponse } from "next/server";
 import { deleteTask, getTask, updateTask } from "@agentfactory/db";
-import { enqueueRepoMapWarmJob, enqueueSandboxTeardownJob } from "@agentfactory/queue";
+import { enqueueMemoryRetrospectiveJob, enqueueRepoMapWarmJob, enqueueSandboxTeardownJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
 import type { TaskStatus } from "@agentfactory/core";
 import { createLogger } from "@agentfactory/logger";
@@ -30,6 +30,17 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ taskId
   // The worker owns the docker socket, so this only enqueues the job (see the DELETE handler below).
   if (body.status && TERMINAL_TASK_STATUSES.has(task.status) && task.sessionId) {
     await enqueueSandboxTeardownJob(task.sessionId);
+  }
+
+  // A completed task is at least as valuable a lesson as a successful one, fires on all three
+  // terminal statuses (done, failed, cancelled), unlike the repo-map-warm job below which only
+  // fires on "done". Fire-and-forget, same style as the repo-map-warm call: the task update is
+  // already committed, so a transient queue failure here must not turn a successful PATCH into
+  // an apparent 500.
+  if (body.status && TERMINAL_TASK_STATUSES.has(task.status) && task.sessionId && task.assigneeAgentId) {
+    enqueueMemoryRetrospectiveJob(task.orgId, task.assigneeAgentId, task.sessionId).catch((err) => {
+      log.error("Failed to enqueue memory retrospective job", { taskId: task.id, err });
+    });
   }
 
   // A task marked done just merged code (unlike failed/cancelled) — warm the repo map cache so

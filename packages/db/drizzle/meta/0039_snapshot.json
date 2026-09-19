@@ -1,6 +1,6 @@
 {
-  "id": "88ea75d5-5547-46d2-8d57-84d5febb2a3e",
-  "prevId": "c05786b2-b1fe-404a-943c-53c47bbfd2aa",
+  "id": "f9589c5b-cf7d-4bdd-8990-07e81bbc32f3",
+  "prevId": "47ff7829-085e-4ed1-9ee3-ccc804f0ba03",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -352,6 +352,12 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "active_task_id": {
+          "name": "active_task_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -389,6 +395,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "channel_authorized_users_active_task_id_tasks_id_fk": {
+          "name": "channel_authorized_users_active_task_id_tasks_id_fk",
+          "tableFrom": "channel_authorized_users",
+          "tableTo": "tasks",
+          "columnsFrom": [
+            "active_task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -775,6 +794,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "agent_id": {
+          "name": "agent_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -804,6 +829,19 @@
           "tableTo": "connection_secrets",
           "columnsFrom": [
             "credential_ref"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "connections_agent_id_agents_id_fk": {
+          "name": "connections_agent_id_agents_id_fk",
+          "tableFrom": "connections",
+          "tableTo": "agents",
+          "columnsFrom": [
+            "agent_id"
           ],
           "columnsTo": [
             "id"

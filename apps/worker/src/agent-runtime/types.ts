@@ -10,7 +10,7 @@ export interface AgentTurnResult {
 // Named RuntimeEvent, not RunEvent, to avoid colliding with @agentfactory/core's RunEvent (the
 // persisted event row, with id/runId/seq/createdAt) — this is the raw shape a runtime emits
 // before worker.ts wraps it into a stored event via createEvent().
-export interface RuntimeEvent {
+export interface ThinkingDeltaRuntimeEvent {
   type: "thinking_delta";
   text: string;
   tool?: string;
@@ -18,6 +18,18 @@ export interface RuntimeEvent {
   command?: string;
   filePath?: string;
 }
+
+// Emitted by the sandbox's `remember` SDK tool (run-turn-claude.ts) the moment a lesson is
+// dictated mid-turn. Worker.ts's onEvent handler special-cases this type to call
+// writeMemoryEntry and persist a content-free MemoryWriteEvent, rather than the generic
+// `createEvent(runId, seq++, event.type, { ...event })` every other runtime event goes through
+// (which would otherwise leak the plaintext lesson into the unencrypted events.data column).
+export interface MemoryWriteRuntimeEvent {
+  type: "memory_write";
+  content: string;
+}
+
+export type RuntimeEvent = ThinkingDeltaRuntimeEvent | MemoryWriteRuntimeEvent;
 
 export interface RuntimeCapabilities {
   supportsSkills: boolean;
@@ -34,6 +46,11 @@ export interface RunInput {
   resumeSessionRef?: string;
   skillNames?: string[];
   outputSchema?: Record<string, unknown>;
+  // True for a PR-review turn. Review prompts embed PR title/body/existing comments/diff text,
+  // which is attacker-influenced content, so run-turn-claude.ts uses this to gate out the
+  // `remember` MCP tool for review turns - otherwise a crafted PR body could induce the agent to
+  // persist attacker-chosen "lessons" that later get injected into every future run's prompt.
+  isReviewTurn?: boolean;
 }
 
 export interface AgentRuntime {

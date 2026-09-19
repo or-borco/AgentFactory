@@ -28,6 +28,9 @@ class ClaudeCodeRuntime implements AgentRuntime {
     if (input.resumeSessionRef) env.RESUME_SESSION_REF = input.resumeSessionRef;
     if (input.skillNames && input.skillNames.length > 0) env.SKILL_NAMES = input.skillNames.join(",");
     if (input.outputSchema) env.OUTPUT_SCHEMA = JSON.stringify(input.outputSchema);
+    // Read by run-turn-claude.ts to gate the `remember` MCP tool off for review turns - see
+    // RunInput.isReviewTurn.
+    if (input.isReviewTurn) env.AGENT_TURN_KIND = "review";
 
     const output = ctx.sandboxProvider.exec(
       ctx.sandboxId,

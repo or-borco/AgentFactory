@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
-// AES-256-GCM helpers for connection_secrets.ciphertext. Envelope format is
+// AES-256-GCM helpers, shared by connection_secrets.ciphertext and agent_memory_entries.ciphertext
+// (packages/db/src/repositories/agent-memory.ts). Envelope format is
 // base64(iv[12] || authTag[16] || ciphertext). This is defense against a database dump, not a
 // KMS: the key is a single app-level secret read from CONNECTION_SECRET_KEY.
 
