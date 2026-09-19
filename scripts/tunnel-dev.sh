@@ -16,6 +16,10 @@ TUNNEL_REG_PID=""  # PID of the webhook-registration background subshell
 update_env() {
   local file="$1"
   local url="$2"
+  # Resolve symlinks — macOS sed -i refuses to edit through a symlink
+  if [ -L "$file" ]; then
+    file="$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$file")"
+  fi
   if [ ! -f "$file" ]; then return; fi
   # Escape & so sed doesn't expand it as a backreference in the replacement string
   local url_esc="${url//&/\\&}"
@@ -186,8 +190,11 @@ else
   echo "Updated PUBLIC_APP_URL in .env.local"
 
   echo "Re-registering Telegram webhooks in background (DNS propagation can take a few minutes)..."
-  reregister_telegram_webhooks_bg "$TUNNEL_URL" &
+  TUNNEL_REG_LOG=$(mktemp) || TUNNEL_REG_LOG=/tmp/tunnel-reg-$$.log
+  reregister_telegram_webhooks_bg "$TUNNEL_URL" >"$TUNNEL_REG_LOG" 2>&1 &
   TUNNEL_REG_PID=$!
+  # Print registration output once it finishes (runs alongside pnpm dev:all)
+  { wait "$TUNNEL_REG_PID" 2>/dev/null; cat "$TUNNEL_REG_LOG"; rm -f "$TUNNEL_REG_LOG"; } &
 fi
 
 echo ""
