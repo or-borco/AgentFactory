@@ -115,6 +115,11 @@ reregister_telegram_webhooks_bg() {
       " 2>/dev/null) || ok="no"
       if [ "$ok" = "yes" ]; then
         echo "  [Telegram] Webhook registered after ${attempt} attempt(s): $webhook_url"
+        # Register slash commands so they appear in Telegram's autocomplete menu (best-effort).
+        curl -sf -X POST "https://api.telegram.org/bot${bot_token}/setMyCommands" \
+          -H 'Content-Type: application/json' \
+          -d '{"commands":[{"command":"tasks","description":"Show your tasks and start a new one"},{"command":"start","description":"Show your tasks and start a new one"}]}' \
+          >/dev/null 2>&1 || true
         break
       fi
       # 401 = bad token; retrying won't help
