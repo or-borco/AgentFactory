@@ -184,10 +184,80 @@ export const connections = pgTable("connections", {
   // backfill. set null (not cascade) on secret deletion: losing the credential must degrade the
   // connection to unhealthy, not silently delete the user's configuration.
   credentialRef: integer("credential_ref").references(() => connectionSecrets.id, { onDelete: "set null" }),
+  // Nullable for org-level connections (scm, tasks). Set for per-agent channel connections
+  // (telegram, future slack): the bot IS the agent, so the connection must know which one.
+  // ON DELETE SET NULL: a deleted agent leaves the connection intact but broken-and-visible,
+  // rather than silently removing it.
+  agentId: integer("agent_id").references(() => agents.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const sessionOriginEnum = pgEnum("session_origin", ["web", "slack", "github", "jira", "cron"]);
+// A single-use, time-limited code an admin hands to a teammate so they can authorize their
+// Telegram (or, per #269, future Slack) account without the admin needing to know their handle
+// ahead of time. Redemption is a single atomic UPDATE (see channel-invite-codes.ts) guarded by
+// `redeemedAt IS NULL AND expiresAt > now()` — that's what makes "single-use" race-safe.
+export const channelInviteCodes = pgTable("channel_invite_codes", {
+  id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+  orgId: integer("org_id")
+    .notNull()
+    .references(() => orgs.id, { onDelete: "cascade" }),
+  connectionId: integer("connection_id")
+    .notNull()
+    .references(() => connections.id, { onDelete: "cascade" }),
+  code: text("code").notNull().unique(),
+  createdBy: integer("created_by")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }),
+  redeemedByExternalUserId: text("redeemed_by_external_user_id"),
+});
+
+// A Telegram (or future Slack) external user who has redeemed an invite code for this connection.
+// Written at redemption time, before an agent is picked — see the design spec's Data model
+// section for why. `revokedAt` is the offboarding path: an admin can cut off one person without
+// touching invite codes (which are already spent by the time anyone would want to revoke access).
+export const channelAuthorizedUsers = pgTable(
+  "channel_authorized_users",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    connectionId: integer("connection_id")
+      .notNull()
+      .references(() => connections.id, { onDelete: "cascade" }),
+    externalUserId: text("external_user_id").notNull(),
+    authorizedAt: timestamp("authorized_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    // The chat's current focus — derived-state design (see the Telegram task-integration spec's
+    // "Data model"): everything else about what the bot says next comes from reading this task's
+    // own fields, not a separate state machine. Survives a revoke/re-authorize cycle untouched,
+    // since authorizeExternalUser's upsert only ever writes revokedAt.
+    activeTaskId: integer("active_task_id").references((): AnyPgColumn => tasks.id, { onDelete: "set null" }),
+  },
+  (table) => [uniqueIndex("channel_authorized_users_connection_external_user_idx").on(table.connectionId, table.externalUserId)],
+);
+
+// Brute-force cooldown state for invite-code redemption attempts, keyed per (connection, external
+// user). Not part of the design spec's Data model section — added here because the spec's own
+// "Redemption brute-forcing" requirement (5 failed attempts -> 15 min cooldown) needs somewhere to
+// persist the counter; there was no other natural place for it. `failCount` resets to 0 (and
+// `cooldownUntil` clears) on a successful redemption or once the cooldown window has passed.
+export const channelRedemptionAttempts = pgTable(
+  "channel_redemption_attempts",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    connectionId: integer("connection_id")
+      .notNull()
+      .references(() => connections.id, { onDelete: "cascade" }),
+    externalUserId: text("external_user_id").notNull(),
+    failCount: integer("fail_count").notNull().default(0),
+    cooldownUntil: timestamp("cooldown_until", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("channel_redemption_attempts_connection_external_user_idx").on(table.connectionId, table.externalUserId)],
+);
+
+export const sessionOriginEnum = pgEnum("session_origin", ["web", "slack", "github", "jira", "cron", "telegram"]);
 
 export const sessions = pgTable(
   "sessions",

@@ -100,6 +100,7 @@ import { processEvalJob } from "./eval-runner";
 import { processMemoryRetrospectiveJob } from "./memory-retrospective";
 import { ingestTaskContextItem, ingestTeamContextItem } from "./context-ingest";
 import { notifyIssueOfPullRequest } from "./task-notify";
+import { notifySessionOfReply, startTypingIndicator } from "./channel-notify";
 import { createLogger } from "@agentfactory/logger";
 
 const log = createLogger("worker");
@@ -557,63 +558,68 @@ const runWorker = new Worker<RunJobData>(
 
       attemptModel = task?.model ?? agent.model;
       let turnResult!: AgentTurnResult;
-      for (;;) {
-        try {
-          turnResult = await runtime.runTurn(
-            {
-              systemPrompt,
-              model: attemptModel,
-              userText: (triggeringMessage?.content ?? "") + issueContext,
-              resumeSessionRef,
-              skillNames,
-              outputSchema: review ? REVIEW_OUTPUT_SCHEMA : undefined,
-              // Gates the `remember` MCP tool off inside the sandbox for review turns - see
-              // RunInput.isReviewTurn.
-              isReviewTurn: Boolean(review),
-            },
-            {
-              sandboxProvider,
-              sandboxId,
-              onEvent: async (event) => {
-                // Special-cased: the generic `{ ...event }` spread below would otherwise put the
-                // plaintext lesson straight into events.data, an unencrypted column, defeating
-                // the whole point of encrypting agent_memory_entries.ciphertext. writeMemoryEntry
-                // is the only place the content is persisted, and only there, encrypted.
-                if (event.type === "memory_write") {
-                  // Non-throwing, like every other writeMemoryEntry call site (the retrospective
-                  // job, the tasks route's fire-and-forget enqueue). onEvent is awaited inside the
-                  // turn's read loop, so letting this reject would fail an otherwise-successful
-                  // run over e.g. a transient embedder or Postgres error.
-                  let reinforced = false;
-                  try {
-                    ({ reinforced } = await writeMemoryEntry(agent.orgId, agent.id, event.content, "manual", {
-                      runId,
-                      sessionId: session.id,
-                    }));
-                  } catch (err) {
-                    // Never log event.content itself - only the error and enough context to debug.
-                    log.error("Failed to write memory entry", { runId, agentId: agent.id, err });
-                  }
-                  await createEvent(runId, seq++, "memory_write", { reinforced });
-                  return;
-                }
-                await createEvent(runId, seq++, event.type, { ...event });
+      const stopTyping = startTypingIndicator(agent.orgId, session);
+      try {
+        for (;;) {
+          try {
+            turnResult = await runtime.runTurn(
+              {
+                systemPrompt,
+                model: attemptModel,
+                userText: (triggeringMessage?.content ?? "") + issueContext,
+                resumeSessionRef,
+                skillNames,
+                outputSchema: review ? REVIEW_OUTPUT_SCHEMA : undefined,
+                // Gates the `remember` MCP tool off inside the sandbox for review turns - see
+                // RunInput.isReviewTurn.
+                isReviewTurn: Boolean(review),
               },
-            },
-          );
-          break;
-        } catch (err) {
-          if (!(err instanceof PromptTooLongError)) throw err;
-          const nextModelId = resolveEscalation(attemptModel.id, agent.onContextOverflow);
-          if (!nextModelId) throw err;
-          const nextModel = buildModelSpec(nextModelId);
-          await createEvent(runId, seq++, "model_escalated", {
-            fromModel: attemptModel.id,
-            toModel: nextModel.id,
-            reason: "context_overflow",
-          });
-          attemptModel = nextModel;
+              {
+                sandboxProvider,
+                sandboxId,
+                onEvent: async (event) => {
+                  // Special-cased: the generic `{ ...event }` spread below would otherwise put the
+                  // plaintext lesson straight into events.data, an unencrypted column, defeating
+                  // the whole point of encrypting agent_memory_entries.ciphertext. writeMemoryEntry
+                  // is the only place the content is persisted, and only there, encrypted.
+                  if (event.type === "memory_write") {
+                    // Non-throwing, like every other writeMemoryEntry call site (the retrospective
+                    // job, the tasks route's fire-and-forget enqueue). onEvent is awaited inside the
+                    // turn's read loop, so letting this reject would fail an otherwise-successful
+                    // run over e.g. a transient embedder or Postgres error.
+                    let reinforced = false;
+                    try {
+                      ({ reinforced } = await writeMemoryEntry(agent.orgId, agent.id, event.content, "manual", {
+                        runId,
+                        sessionId: session.id,
+                      }));
+                    } catch (err) {
+                      // Never log event.content itself - only the error and enough context to debug.
+                      log.error("Failed to write memory entry", { runId, agentId: agent.id, err });
+                    }
+                    await createEvent(runId, seq++, "memory_write", { reinforced });
+                    return;
+                  }
+                  await createEvent(runId, seq++, event.type, { ...event });
+                },
+              },
+            );
+            break;
+          } catch (err) {
+            if (!(err instanceof PromptTooLongError)) throw err;
+            const nextModelId = resolveEscalation(attemptModel.id, agent.onContextOverflow);
+            if (!nextModelId) throw err;
+            const nextModel = buildModelSpec(nextModelId);
+            await createEvent(runId, seq++, "model_escalated", {
+              fromModel: attemptModel.id,
+              toModel: nextModel.id,
+              reason: "context_overflow",
+            });
+            attemptModel = nextModel;
+          }
         }
+      } finally {
+        stopTyping();
       }
       const { text, providerSessionRef } = turnResult;
       mark("agent turn");
@@ -680,6 +686,7 @@ const runWorker = new Worker<RunJobData>(
 
       await createMessage(run.sessionId, "assistant", transcriptText, runId);
       await createEvent(runId, seq++, "text_delta", { text: transcriptText });
+      await notifySessionOfReply(agent.orgId, session, transcriptText, (type, data) => createEvent(runId, seq++, type, data));
       await createEvent(runId, seq++, "done", { reason: "completed" });
 
       await updateRunStatus(runId, "finalizing");

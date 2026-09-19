@@ -1,9 +1,11 @@
+import { randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
-import type { Task, TaskExternalRef, TaskStatus } from "@agentfactory/core";
+import type { Session, SessionOrigin, Task, TaskExternalRef, TaskStatus } from "@agentfactory/core";
 import { db } from "../client";
-import { tasks } from "../schema";
+import { messages, sessions, tasks } from "../schema";
+import { toSession } from "./sessions";
 
-function toTask(row: typeof tasks.$inferSelect): Task {
+export function toTask(row: typeof tasks.$inferSelect): Task {
   return {
     id: row.id,
     orgId: row.orgId,
@@ -116,11 +118,67 @@ export async function updateTask(id: number, patch: UpdateTaskInput): Promise<Ta
   return toTask(row);
 }
 
-/** Attach a session to a task and flip status to in_progress. */
-export async function attachTaskSession(taskId: number, sessionId: number): Promise<Task> {
-  return updateTask(taskId, { sessionId, status: "in_progress" });
-}
-
 export async function deleteTask(id: number): Promise<void> {
   await db.delete(tasks).where(eq(tasks.id, id));
+}
+
+export interface StartTaskSessionOptions {
+  origin: SessionOrigin;
+  externalThreadRef?: string;
+}
+
+export type StartTaskSessionResult =
+  | { started: true; session: Session; userMessageId: number; task: Task }
+  | { started: false; task: Task };
+
+// The single atomic "start this task" primitive, shared by the web run route and the Telegram
+// webhook route — see the Telegram task-integration design spec's "Data model" section for the
+// full rationale. The SELECT ... FOR UPDATE row lock means a concurrent second caller blocks and,
+// once unblocked, sees sessionId already set and creates nothing: no orphan session, no orphan
+// message. This is the third transaction in this repo (the others are searchTeamContextChunks in
+// context-chunks.ts and the one in task-context-chunks.ts).
+export async function startTaskSession(
+  taskId: number,
+  orgId: number,
+  agentId: number,
+  title: string,
+  briefText: string,
+  sessionOpts: StartTaskSessionOptions,
+): Promise<StartTaskSessionResult> {
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select().from(tasks).where(eq(tasks.id, taskId)).for("update");
+    // No task-deletion UI exists today, so this is unreachable in practice — an explicit error
+    // beats an opaque crash a few lines down if that ever changes.
+    if (!row) throw new Error(`Task ${taskId} not found`);
+    if (row.orgId !== orgId) throw new Error(`Task ${taskId} does not belong to org ${orgId}`);
+    if (row.sessionId) return { started: false, task: toTask(row) };
+
+    const [sessionRow] = await tx
+      .insert(sessions)
+      .values({
+        orgId,
+        agentId,
+        title,
+        origin: sessionOpts.origin,
+        externalThreadRef: sessionOpts.externalThreadRef,
+        branchToken: randomBytes(4).toString("hex"),
+      })
+      .returning();
+
+    const [messageRow] = await tx
+      .insert(messages)
+      .values({ sessionId: sessionRow.id, role: "user", content: briefText })
+      .returning();
+
+    const [updatedRow] = await tx
+      .update(tasks)
+      // updatedAt has no $onUpdate in the schema — updateTask() (below) sets it explicitly on
+      // every write, and this raw tx.update must match that or the task silently stops advancing
+      // in any updatedAt-ordered view (the Telegram main menu's own sort, the web Activity feed).
+      .set({ assigneeAgentId: agentId, sessionId: sessionRow.id, status: "in_progress", updatedAt: new Date() })
+      .where(eq(tasks.id, taskId))
+      .returning();
+
+    return { started: true, session: toSession(sessionRow), userMessageId: messageRow.id, task: toTask(updatedRow) };
+  });
 }

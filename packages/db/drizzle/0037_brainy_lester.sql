@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "sessions_org_origin_external_thread_idx" ON "sessions" USING btree ("org_id","origin","external_thread_ref") WHERE external_thread_ref IS NOT NULL;

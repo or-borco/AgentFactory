@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type {
   Connection,
   ConnectionAuthKind,
@@ -10,6 +10,16 @@ import { db } from "../client";
 import { connections } from "../schema";
 
 function toConnection(row: typeof connections.$inferSelect): Connection {
+  // webhookSecret (the URL path segment) and telegramSecretToken (the value Telegram echoes in
+  // X-Telegram-Bot-Api-Secret-Token) are both real secrets despite living in the generic `config`
+  // jsonb column — Connection.config is returned verbatim to the browser by GET /api/connections,
+  // so neither may surface here. The raw DB row still carries them; only the materialized
+  // Connection object hides them.
+  const {
+    webhookSecret: _webhookSecret,
+    telegramSecretToken: _telegramSecretToken,
+    ...safeConfig
+  } = (row.config ?? {}) as Record<string, unknown>;
   return {
     id: row.id,
     orgId: row.orgId,
@@ -17,8 +27,9 @@ function toConnection(row: typeof connections.$inferSelect): Connection {
     kind: row.kind,
     label: row.label,
     health: row.health,
-    config: row.config,
+    config: safeConfig,
     auth: row.auth,
+    agentId: row.agentId ?? null,
     createdAt: row.createdAt.toISOString(),
   };
 }
@@ -42,6 +53,7 @@ export interface NewConnectionInput {
   // credential (e.g. connecting Jira) pass both together once the secret has already been written.
   auth?: ConnectionAuthKind;
   credentialRef?: number | null;
+  agentId?: number | null;
 }
 
 export async function createConnection(orgId: number, input: NewConnectionInput): Promise<Connection> {
@@ -55,6 +67,7 @@ export async function createConnection(orgId: number, input: NewConnectionInput)
       config: input.config,
       ...(input.auth !== undefined ? { auth: input.auth } : {}),
       ...(input.credentialRef !== undefined ? { credentialRef: input.credentialRef } : {}),
+      ...(input.agentId !== undefined ? { agentId: input.agentId } : {}),
     })
     .returning();
   return toConnection(row);
@@ -106,4 +119,31 @@ export async function getConnectionCredentialRef(orgId: number, id: number): Pro
     .from(connections)
     .where(and(eq(connections.orgId, orgId), eq(connections.id, id)));
   return row?.credentialRef;
+}
+
+/**
+ * Cross-org lookup by a channel connection's own webhook secret, for an inbound webhook that
+ * arrives with no org context. `config->>'webhookSecret'` is a jsonb text lookup — no dedicated
+ * index today; fine at current scale (a handful of orgs, one Telegram connection each), revisit
+ * with a dedicated column/index if that stops being true.
+ *
+ * `secretToken` is handed back alongside the (stripped) Connection precisely because
+ * `toConnection` hides it: the webhook route has to compare it against the request header, and
+ * this is the server-side path that lets it, without widening the browser-facing shape.
+ */
+export async function findChannelConnectionByWebhookSecret(
+  webhookSecret: string,
+): Promise<{ connection: Connection; orgId: number; agentId: number | null; secretToken?: string } | undefined> {
+  const [row] = await db
+    .select()
+    .from(connections)
+    .where(and(eq(connections.kind, "channel"), sql`${connections.config}->>'webhookSecret' = ${webhookSecret}`));
+  if (!row) return undefined;
+  const rawSecretToken = (row.config as Record<string, unknown> | null)?.telegramSecretToken;
+  return {
+    connection: toConnection(row),
+    orgId: row.orgId,
+    agentId: row.agentId ?? null,
+    secretToken: typeof rawSecretToken === "string" ? rawSecretToken : undefined,
+  };
 }

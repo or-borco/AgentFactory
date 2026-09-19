@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, and } from "drizzle-orm";
 import type { Membership, OrgMember } from "@agentfactory/core";
 import { db } from "../client";
 import { memberships, users } from "../schema";
@@ -39,4 +39,18 @@ export async function getPrimaryMembership(userId: number): Promise<Membership |
     .orderBy(asc(memberships.createdAt))
     .limit(1);
   return row ? toMembership(row) : undefined;
+}
+
+// The fallback createdBy attribution for a Telegram-created task when no invite-code redeemer row
+// can be found (see getInviteCodeRedeemer) — every org gets exactly one "owner" membership at
+// registration (apps/web/src/app/api/auth/register/route.ts), so this should always resolve in
+// practice; it exists as a defensive second lookup, not the primary path.
+export async function getOrgOwnerUserId(orgId: number): Promise<number | undefined> {
+  const [row] = await db
+    .select({ userId: memberships.userId })
+    .from(memberships)
+    .where(and(eq(memberships.orgId, orgId), eq(memberships.role, "owner")))
+    .orderBy(asc(memberships.createdAt))
+    .limit(1);
+  return row?.userId;
 }

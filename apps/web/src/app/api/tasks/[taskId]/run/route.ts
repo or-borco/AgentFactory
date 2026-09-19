@@ -1,33 +1,10 @@
 // Tenant-isolation gap: see /api/tasks/route.ts for the documented caveat.
 import { NextResponse } from "next/server";
-import type { Task } from "@agentfactory/core";
-import {
-  attachTaskSession,
-  createMessage,
-  createRun,
-  createSession,
-  getTask,
-  touchSessionActivity,
-} from "@agentfactory/db";
+import { createRun, getTask, startTaskSession } from "@agentfactory/db";
 import { enqueueRunJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
 import { checkTaskSync } from "@/server/task-sync";
-
-function formatTaskBrief(task: Task): string {
-  const lines: string[] = [task.description];
-
-  if (task.acceptanceCriteria.length > 0) {
-    lines.push("", "Acceptance criteria:");
-    for (const c of task.acceptanceCriteria) {
-      lines.push(`- ${c.text}`);
-    }
-  }
-
-  if (task.area) lines.push("", `Code area: ${task.area}`);
-  if (task.codebase) lines.push(`Codebase: ${task.codebase}`);
-
-  return lines.join("\n");
-}
+import { formatTaskBrief } from "@/server/task-brief";
 
 export async function POST(
   req: Request,
@@ -57,18 +34,20 @@ export async function POST(
     }
   }
 
-  const session = await createSession(ctx.orgId, task.assigneeAgentId, task.title);
   const brief = formatTaskBrief(task);
-  const userMessage = await createMessage(session.id, "user", brief);
-  await touchSessionActivity(session.id);
+  const result = await startTaskSession(task.id, ctx.orgId, task.assigneeAgentId, task.title, brief, { origin: "web" });
 
-  const updatedTask = await attachTaskSession(Number(taskId), session.id);
+  if (!result.started) {
+    // Lost the race (e.g. a double-click) — same response shape as the pre-check above, just
+    // detected inside the transaction instead of before it.
+    return NextResponse.json({ error: "Task already has a session" }, { status: 409 });
+  }
 
-  const run = await createRun(session.id, userMessage.id);
+  const run = await createRun(result.session.id, result.userMessageId);
   await enqueueRunJob(run.id);
 
   return NextResponse.json(
-    { task: updatedTask, session, runId: run.id },
+    { task: result.task, session: result.session, runId: run.id },
     { status: 201 },
   );
 }

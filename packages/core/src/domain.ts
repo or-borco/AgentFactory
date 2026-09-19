@@ -159,6 +159,7 @@ export interface Connection {
   health: ConnectionHealth;
   config: Record<string, unknown>;
   auth: ConnectionAuthKind;
+  agentId?: number | null;
   createdAt: ISODateTime;
 }
 
@@ -264,7 +265,7 @@ export interface Task {
 }
 
 // ── Sessions ────────────────────────────────────────────────────────────────────
-export type SessionOrigin = "web" | "slack" | "github" | "jira" | "cron";
+export type SessionOrigin = "web" | "slack" | "github" | "jira" | "cron" | "telegram";
 
 export interface Session {
   id: ID;

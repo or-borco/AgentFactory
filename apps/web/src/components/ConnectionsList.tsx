@@ -19,11 +19,12 @@ type Translate = (key: TranslationKey, vars?: Record<string, string | number>) =
 // is a new array entry, not another branch through the component.
 type ConnectAction =
   | { key: string; kind: "redirect"; labelKey: TranslationKey; href: string }
-  | { key: string; kind: "modal"; labelKey: TranslationKey; modal: "jira" };
+  | { key: string; kind: "modal"; labelKey: TranslationKey; modal: "jira" | "telegram" };
 
 const CONNECT_ACTIONS: ConnectAction[] = [
   { key: "github", kind: "redirect", labelKey: "connections.connectGithub", href: "/api/connections/github/start" },
   { key: "jira", kind: "modal", labelKey: "connections.jira.connect", modal: "jira" },
+  { key: "telegram", kind: "modal", labelKey: "connections.telegram.connect", modal: "telegram" },
 ];
 
 const inputLabelClass = "mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)]";
@@ -93,6 +94,77 @@ function JiraConnectModal({
           </Button>
           <Button type="submit" disabled={submitting}>
             {t("connections.jira.connect")}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function TelegramConnectModal({
+  t,
+  onClose,
+  onConnected,
+}: {
+  t: Translate;
+  onClose: () => void;
+  onConnected: (connection: Connection) => void;
+}) {
+  const { agents } = useAppData();
+  const [botToken, setBotToken] = useState("");
+  const [agentId, setAgentId] = useState<number | "">("");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const connection = await apiFetch<Connection>("/api/connections/telegram", {
+        method: "POST",
+        body: JSON.stringify({ botToken, agentId: agentId === "" ? null : agentId }),
+      });
+      onConnected(connection);
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : t("connections.telegram.verifyFailed"));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal title={t("connections.telegram.modalTitle")} onClose={onClose}>
+      <form className="space-y-4" onSubmit={handleSubmit}>
+        <div>
+          <label className={inputLabelClass}>{t("connections.telegram.botToken")}</label>
+          <TextInput type="password" value={botToken} onChange={(e) => setBotToken(e.target.value)} required />
+          <p className="mt-1 text-xs text-[var(--color-neutral-500)]">{t("connections.telegram.botTokenHelp")}</p>
+        </div>
+        <div>
+          <label className={inputLabelClass}>{t("connections.telegram.agent")}</label>
+          <select
+            className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+            value={agentId}
+            onChange={(e) => setAgentId(e.target.value === "" ? "" : Number(e.target.value))}
+            required
+          >
+            <option value="">{t("connections.telegram.agentPlaceholder")}</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-[var(--color-neutral-500)]">{t("connections.telegram.agentHelp")}</p>
+        </div>
+        {error && <p className="text-sm text-[var(--color-status-red)]">{error}</p>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="secondary" onClick={onClose}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="submit" disabled={submitting}>
+            {t("connections.telegram.connect")}
           </Button>
         </div>
       </form>
@@ -170,6 +242,134 @@ function TaskWriteBackConfig({
   );
 }
 
+interface InviteCodeRow {
+  id: number;
+  code: string;
+  deepLink?: string;
+  expiresAt: string;
+  redeemedAt?: string;
+}
+interface AuthorizedUserRow {
+  id: number;
+  externalUserId: string;
+  authorizedAt: string;
+  revokedAt?: string;
+}
+
+function TelegramChannelConfig({ conn, t }: { conn: Connection; t: Translate }) {
+  const [expanded, setExpanded] = useState(false);
+  const [codes, setCodes] = useState<InviteCodeRow[]>([]);
+  const [users, setUsers] = useState<AuthorizedUserRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [now] = useState(() => Date.now());
+
+  const refresh = async () => {
+    const [codeList, userList] = await Promise.all([
+      apiFetch<InviteCodeRow[]>(`/api/connections/telegram/invite-codes?connectionId=${conn.id}`),
+      apiFetch<AuthorizedUserRow[]>(`/api/connections/telegram/authorized-users?connectionId=${conn.id}`),
+    ]);
+    setCodes(codeList);
+    setUsers(userList);
+  };
+
+  const handleExpand = async () => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next) await refresh().catch(() => setError(t("connections.telegramChannel.generateFailed")));
+  };
+
+  const handleGenerate = async () => {
+    setGenerating(true);
+    setError(null);
+    try {
+      const created = await apiFetch<InviteCodeRow>("/api/connections/telegram/invite-codes", {
+        method: "POST",
+        body: JSON.stringify({ connectionId: conn.id }),
+      });
+      setCodes((prev) => [...prev, created]);
+      if (created.deepLink) await navigator.clipboard.writeText(created.deepLink);
+    } catch {
+      setError(t("connections.telegramChannel.generateFailed"));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const revokeCode = async (codeId: number) => {
+    await apiFetch<void>(`/api/connections/telegram/invite-codes/${codeId}?connectionId=${conn.id}`, { method: "DELETE" });
+    await refresh();
+  };
+
+  const revokeUser = async (userId: number) => {
+    await apiFetch<void>(`/api/connections/telegram/authorized-users/${userId}?connectionId=${conn.id}`, { method: "DELETE" });
+    await refresh();
+  };
+
+  const codeStatus = (row: InviteCodeRow, now: number): TranslationKey => {
+    if (row.redeemedAt) return "connections.telegramChannel.statusRedeemed";
+    if (new Date(row.expiresAt).getTime() <= now) return "connections.telegramChannel.statusExpired";
+    return "connections.telegramChannel.statusOutstanding";
+  };
+
+  return (
+    <div className="mt-3 border-t border-[var(--color-neutral-800)] pt-3">
+      <button
+        type="button"
+        onClick={handleExpand}
+        className="text-xs font-semibold uppercase tracking-[0.05em] text-[var(--color-neutral-500)] transition-colors hover:text-[var(--color-text)]"
+      >
+        {t("connections.telegramChannel.configureLabel")}
+      </button>
+      {expanded && (
+        <div className="mt-3 space-y-4">
+          <div>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-medium text-[var(--color-text)]">{t("connections.telegramChannel.inviteCodesTitle")}</p>
+              <Button type="button" variant="secondary" disabled={generating} onClick={handleGenerate}>
+                {t("connections.telegramChannel.generateCode")}
+              </Button>
+            </div>
+            <div className="mt-2 space-y-1">
+              {codes.map((row) => (
+                <div key={row.id} className="flex items-center justify-between text-xs text-[var(--color-neutral-500)]">
+                  <span className="font-mono">{row.code}</span>
+                  <span>{t(codeStatus(row, now))}</span>
+                  {codeStatus(row, now) === "connections.telegramChannel.statusOutstanding" && (
+                    <button type="button" onClick={() => revokeCode(row.id)} className="hover:text-[var(--color-status-red)]">
+                      {t("connections.telegramChannel.revoke")}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-[var(--color-text)]">{t("connections.telegramChannel.authorizedUsersTitle")}</p>
+            {users.length === 0 ? (
+              <p className="mt-1 text-xs text-[var(--color-neutral-500)]">{t("connections.telegramChannel.noAuthorizedUsers")}</p>
+            ) : (
+              <div className="mt-2 space-y-1">
+                {users.map((row) => (
+                  <div key={row.id} className="flex items-center justify-between text-xs text-[var(--color-neutral-500)]">
+                    <span>{row.externalUserId}</span>
+                    {!row.revokedAt && (
+                      <button type="button" onClick={() => revokeUser(row.id)} className="hover:text-[var(--color-status-red)]">
+                        {t("connections.telegramChannel.revoke")}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {error && <p className="mt-2 text-xs text-[var(--color-status-red)]">{error}</p>}
+    </div>
+  );
+}
+
 function healthTone(health: ConnectionHealth) {
   if (health === "healthy") return "success" as const;
   if (health === "needs-attention") return "warning" as const;
@@ -225,6 +425,7 @@ function ConnectionRow({
         </div>
       </div>
       {conn.kind === "tasks" && <TaskWriteBackConfig conn={conn} t={t} onUpdated={onConfigUpdated} />}
+      {conn.kind === "channel" && conn.provider === "telegram" && <TelegramChannelConfig conn={conn} t={t} />}
     </Card>
   );
 }
@@ -235,7 +436,7 @@ export function ConnectionsList() {
   const { connections: backendConnections, deleteConnection, addConnection } = useAppData();
   const { t } = useTranslation();
   const [pendingDelete, setPendingDelete] = useState<Connection | null>(null);
-  const [activeModal, setActiveModal] = useState<"jira" | null>(null);
+  const [activeModal, setActiveModal] = useState<"jira" | "telegram" | null>(null);
   // useAppData() has no updateConnection — the PATCH write-back toggle applies its result
   // over the fetched list locally rather than reaching into the shared client cache.
   const [configOverrides, setConfigOverrides] = useState<Record<number, Connection>>({});
@@ -309,6 +510,17 @@ export function ConnectionsList() {
 
       {activeModal === "jira" && (
         <JiraConnectModal
+          t={t}
+          onClose={() => setActiveModal(null)}
+          onConnected={(connection) => {
+            addConnection(connection);
+            setActiveModal(null);
+          }}
+        />
+      )}
+
+      {activeModal === "telegram" && (
+        <TelegramConnectModal
           t={t}
           onClose={() => setActiveModal(null)}
           onConnected={(connection) => {

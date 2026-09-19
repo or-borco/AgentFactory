@@ -81,4 +81,18 @@ describe("sessions repository", () => {
 
     await expect(getSession(session.id)).resolves.toBeUndefined();
   });
+
+  it("creates a session with a non-web origin and externalThreadRef when opts are passed", async () => {
+    const org = await insertOrg();
+    const agent = await insertAgent(org.id);
+
+    const session = await createSession(org.id, agent.id, "Telegram — Test Agent", {
+      origin: "telegram",
+      externalThreadRef: "123456789",
+    });
+
+    expect(session.origin).toBe("telegram");
+    expect(session.externalThreadRef).toBe("123456789");
+  });
+
 });

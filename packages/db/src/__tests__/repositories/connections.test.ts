@@ -7,6 +7,7 @@ import { orgs } from "../../schema.js";
 import {
   createConnection,
   deleteConnection,
+  findChannelConnectionByWebhookSecret,
   getConnection,
   listConnections,
   setConnectionHealth,
@@ -64,6 +65,29 @@ describe("connections repository", () => {
     const connection = await createConnection(org.id, { provider: "github", kind: "scm", label: "some-org", config });
 
     expect(connection.config).toEqual(config);
+  });
+
+  it("strips both webhook secrets out of the returned config, on both create and read", async () => {
+    const org = await insertOrg();
+    const connection = await createConnection(org.id, {
+      provider: "telegram",
+      kind: "channel",
+      label: "@test_bot",
+      config: { botUsername: "test_bot", webhookSecret: "should-not-leak", telegramSecretToken: "also-should-not-leak" },
+    });
+
+    expect(connection.config).not.toHaveProperty("webhookSecret");
+    expect(connection.config).not.toHaveProperty("telegramSecretToken");
+    expect(connection.config).toMatchObject({ botUsername: "test_bot" });
+
+    const fetched = await getConnection(org.id, connection.id);
+    expect(fetched?.config).not.toHaveProperty("webhookSecret");
+    expect(fetched?.config).not.toHaveProperty("telegramSecretToken");
+    expect(fetched?.config).toMatchObject({ botUsername: "test_bot" });
+
+    const listed = (await listConnections(org.id)).find((c) => c.id === connection.id);
+    expect(listed?.config).not.toHaveProperty("webhookSecret");
+    expect(listed?.config).not.toHaveProperty("telegramSecretToken");
   });
 
   it("deletes a connection", async () => {
@@ -134,6 +158,40 @@ describe("connections repository", () => {
       expect(result).toBeUndefined();
       await expect(getConnection(org1.id, connection.id)).resolves.toMatchObject({ label: "Acme Jira" });
     });
+  });
+
+  it("finds a channel connection by its webhookSecret across orgs", async () => {
+    const org = await insertOrg();
+    const connection = await createConnection(org.id, {
+      provider: "telegram",
+      kind: "channel",
+      label: "Telegram",
+      config: { botUsername: "test_bot", webhookSecret: "unique-secret-abc", telegramSecretToken: "header-token-xyz" },
+    });
+
+    const found = await findChannelConnectionByWebhookSecret("unique-secret-abc");
+    expect(found?.connection).toEqual(connection);
+    expect(found?.orgId).toBe(org.id);
+    // Handed back out-of-band precisely because toConnection hides it — the webhook route needs
+    // it to check the request header.
+    expect(found?.secretToken).toBe("header-token-xyz");
+  });
+
+  it("reports no secretToken for a channel connection that never stored one", async () => {
+    const org = await insertOrg();
+    await createConnection(org.id, {
+      provider: "telegram",
+      kind: "channel",
+      label: "Telegram",
+      config: { botUsername: "test_bot", webhookSecret: "unique-secret-def" },
+    });
+
+    const found = await findChannelConnectionByWebhookSecret("unique-secret-def");
+    expect(found?.secretToken).toBeUndefined();
+  });
+
+  it("returns undefined for an unknown webhookSecret", async () => {
+    await expect(findChannelConnectionByWebhookSecret("no-such-secret")).resolves.toBeUndefined();
   });
 
   describe("setConnectionHealth", () => {
