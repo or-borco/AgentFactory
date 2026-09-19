@@ -4,7 +4,7 @@ import type { Session } from "@agentfactory/core";
 const mockSend = vi.fn();
 const mockSendTyping = vi.fn(async () => {});
 vi.mock("@agentfactory/db", () => ({
-  listConnections: vi.fn(async () => [{ id: 1, orgId: 9, kind: "channel", provider: "telegram", config: {}, credentialRef: 5 }]),
+  listConnections: vi.fn(async () => [{ id: 1, orgId: 9, kind: "channel", provider: "telegram", config: {}, credentialRef: 5, agentId: 1 }]),
   getConnectionCredentialRef: vi.fn(async () => 5),
   readConnectionSecret: vi.fn(async () => ({ botToken: "t" })),
   setConnectionHealth: vi.fn(),
