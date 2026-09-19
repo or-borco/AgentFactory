@@ -110,7 +110,9 @@ function TelegramConnectModal({
   onClose: () => void;
   onConnected: (connection: Connection) => void;
 }) {
+  const { agents } = useAppData();
   const [botToken, setBotToken] = useState("");
+  const [agentId, setAgentId] = useState<number | "">("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -121,7 +123,7 @@ function TelegramConnectModal({
     try {
       const connection = await apiFetch<Connection>("/api/connections/telegram", {
         method: "POST",
-        body: JSON.stringify({ botToken }),
+        body: JSON.stringify({ botToken, agentId: agentId === "" ? null : agentId }),
       });
       onConnected(connection);
     } catch (err) {
@@ -138,6 +140,23 @@ function TelegramConnectModal({
           <label className={inputLabelClass}>{t("connections.telegram.botToken")}</label>
           <TextInput type="password" value={botToken} onChange={(e) => setBotToken(e.target.value)} required />
           <p className="mt-1 text-xs text-[var(--color-neutral-500)]">{t("connections.telegram.botTokenHelp")}</p>
+        </div>
+        <div>
+          <label className={inputLabelClass}>{t("connections.telegram.agent")}</label>
+          <select
+            className="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:ring-2 focus:ring-[var(--color-primary)]"
+            value={agentId}
+            onChange={(e) => setAgentId(e.target.value === "" ? "" : Number(e.target.value))}
+            required
+          >
+            <option value="">{t("connections.telegram.agentPlaceholder")}</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-[var(--color-neutral-500)]">{t("connections.telegram.agentHelp")}</p>
         </div>
         {error && <p className="text-sm text-[var(--color-status-red)]">{error}</p>}
         <div className="flex justify-end gap-2 pt-2">
