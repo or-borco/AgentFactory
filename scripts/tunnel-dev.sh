@@ -11,6 +11,7 @@ ENV_FILE="$ROOT/.env.local"
 WEB_ENV_FILE="$ROOT/apps/web/.env.local"
 TUNNEL_LOG=$(mktemp /tmp/cloudflared-XXXXXX.log)
 OWN_CLOUDFLARED=0  # 1 only when this script started cloudflared; guards cleanup kill
+TUNNEL_REG_PID=""  # PID of the webhook-registration background subshell
 
 update_env() {
   local file="$1"
@@ -25,9 +26,20 @@ update_env() {
   fi
 }
 
+# Resolves the postgres container name from docker-compose so the script works regardless
+# of which directory the repo was cloned into (Docker Compose names containers
+# <project-name>-<service>-N, where project name defaults to the directory name).
+postgres_container() {
+  docker compose -f "$ROOT/docker-compose.yml" ps -q postgres 2>/dev/null \
+    | xargs -r docker inspect --format '{{.Name}}' 2>/dev/null \
+    | sed 's|^/||' \
+    | head -1
+}
+
 # Runs in a background subshell — does not block pnpm dev:all.
 # Quick-tunnel subdomains can take 2–4+ min to propagate to Telegram's DNS servers,
-# so we retry indefinitely (every 5s) until setWebhook succeeds, then exit silently.
+# so we retry every 5s until setWebhook succeeds. Breaks immediately on HTTP 401 (bad
+# token) rather than looping forever.
 reregister_telegram_webhooks_bg() {
   local new_url="$1"
 
@@ -36,9 +48,13 @@ reregister_telegram_webhooks_bg() {
   conn_key=$(grep '^CONNECTION_SECRET_KEY=' "$ENV_FILE" 2>/dev/null | cut -d'=' -f2- | tr -d '"'"'")
   [ -z "$conn_key" ] && return
 
+  local container
+  container=$(postgres_container)
+  [ -z "$container" ] && return
+
   # Query all active Telegram connections
   local rows
-  rows=$(docker exec agentfactory-postgres-1 psql -U agentfactory -d agentfactory -t -A -F'|' \
+  rows=$(docker exec "$container" psql -U agentfactory -d agentfactory -t -A -F'|' \
     -c "SELECT cs.ciphertext, c.config->>'webhookSecret', c.config->>'telegramSecretToken' \
         FROM connections c \
         JOIN connection_secrets cs ON cs.id = c.credential_ref \
@@ -76,10 +92,11 @@ reregister_telegram_webhooks_bg() {
       }));
     " 2>/dev/null) || continue
 
-    # Retry indefinitely every 5s — DNS propagation can take 2–4+ min.
+    # Retry every 5s — DNS propagation can take 2–4+ min. Breaks immediately on HTTP 401
+    # (invalid bot token) rather than looping forever.
     # Note: the Telegram API requires the bot token in the URL path, so it is briefly visible
     # in `ps aux` during the curl call. Avoid running this script on shared CI machines.
-    local attempt=0 response ok
+    local attempt=0 response ok error_code
     while true; do
       attempt=$((attempt + 1))
       response=$(curl -sf -X POST "https://api.telegram.org/bot${bot_token}/setWebhook" \
@@ -87,10 +104,22 @@ reregister_telegram_webhooks_bg() {
         -d "$payload" 2>/dev/null) || response=""
       ok=$(printf '%s' "$response" | node -e "
         let d='';
-        process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(JSON.parse(d||'{}').ok?'yes':'no'));
+        process.stdin.on('data',c=>d+=c).on('end',()=>{
+          const r=JSON.parse(d||'{}');
+          process.stdout.write(r.ok?'yes':'no');
+        });
       " 2>/dev/null) || ok="no"
       if [ "$ok" = "yes" ]; then
         echo "  [Telegram] Webhook registered after ${attempt} attempt(s): $webhook_url"
+        break
+      fi
+      # 401 = bad token; retrying won't help
+      error_code=$(printf '%s' "$response" | node -e "
+        let d='';
+        process.stdin.on('data',c=>d+=c).on('end',()=>process.stdout.write(String(JSON.parse(d||'{}').error_code||'')));
+      " 2>/dev/null) || error_code=""
+      if [ "$error_code" = "401" ]; then
+        echo "  [Telegram] Webhook registration failed: bot token invalid (401). Skipping." >&2
         break
       fi
       sleep 5
@@ -101,6 +130,9 @@ reregister_telegram_webhooks_bg() {
 cleanup() {
   echo ""
   echo "Shutting down..."
+  if [ -n "$TUNNEL_REG_PID" ]; then
+    kill "$TUNNEL_REG_PID" 2>/dev/null || true
+  fi
   if [ "$OWN_CLOUDFLARED" = "1" ]; then
     kill "$TUNNEL_PID" 2>/dev/null || true
   fi
@@ -155,6 +187,7 @@ else
 
   echo "Re-registering Telegram webhooks in background (DNS propagation can take a few minutes)..."
   reregister_telegram_webhooks_bg "$TUNNEL_URL" &
+  TUNNEL_REG_PID=$!
 fi
 
 echo ""
