@@ -73,7 +73,7 @@ export function startTypingIndicator(orgId: number, session: Session): () => voi
   let stopped = false;
   const tick = async () => {
     if (stopped) return;
-    const resolved = await resolveChannelAdapter(orgId).catch(() => undefined);
+    const resolved = await resolveChannelAdapter(orgId, session.agentId).catch(() => undefined);
     if (!resolved || stopped) return;
     await resolved.adapter.sendTyping(externalThreadRef).catch((err) => {
       log.error("Failed to send typing indicator", { orgId, err });
