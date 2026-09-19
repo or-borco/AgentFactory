@@ -161,6 +161,26 @@ feature itself. Each has its own setup doc:
 - **[Jira](docs/setup/jira.md)** — link tasks to Jira issues, with attachments pulled in and a PR
   comment written back when a run opens one. Entirely self-service from the Connections UI, no
   admin route needed — just a Jira Cloud API token.
+- **Telegram** — connect a bot so users can create and run tasks from Telegram. Requires a public
+  URL so Telegram can deliver webhook updates to your local machine:
+
+  1. Create a bot via [@BotFather](https://t.me/BotFather) and copy the token it gives you.
+  2. Start a tunnel to expose localhost:
+     ```bash
+     cloudflared tunnel --url http://localhost:3000
+     ```
+  3. Copy the `https://….trycloudflare.com` URL it prints and add it to `apps/web/.env.local`:
+     ```
+     PUBLIC_APP_URL=https://….trycloudflare.com
+     ```
+  4. Restart the dev server so it picks up the new URL.
+  5. Go to **Settings → Connect Telegram**, paste the bot token, and select which agent the bot
+     should work on behalf of.
+  6. Under **Manage access**, generate an invite code and send `/start <code>` to your bot in
+     Telegram to authorize yourself.
+
+  Quick-tunnel URLs are temporary and change every time you restart cloudflared. Update
+  `PUBLIC_APP_URL` and reconnect the bot whenever the tunnel URL changes.
 
 ## Running tests
 
