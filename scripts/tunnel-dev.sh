@@ -21,12 +21,21 @@ update_env() {
     file="$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$file")"
   fi
   if [ ! -f "$file" ]; then return; fi
+  # Snapshot vars that must survive the sed rewrite (sed -i.bak replaces the file atomically,
+  # which races with any concurrent writer — save and restore to be safe).
+  # head -1 in case of duplicates: restore writes exactly one copy.
+  local saved_github_key
+  saved_github_key=$(grep '^GITHUB_APP_PRIVATE_KEY=' "$file" 2>/dev/null | head -1 || true)
   # Escape & so sed doesn't expand it as a backreference in the replacement string
   local url_esc="${url//&/\\&}"
   if grep -q "^PUBLIC_APP_URL=" "$file" 2>/dev/null; then
     sed -i.bak "s|^PUBLIC_APP_URL=.*|PUBLIC_APP_URL=$url_esc|" "$file" && rm -f "$file.bak"
   else
     echo "PUBLIC_APP_URL=$url" >> "$file"
+  fi
+  # Re-append the private key if the sed rewrite lost it
+  if [ -n "$saved_github_key" ] && ! grep -q '^GITHUB_APP_PRIVATE_KEY=' "$file" 2>/dev/null; then
+    echo "$saved_github_key" >> "$file"
   fi
 }
 
