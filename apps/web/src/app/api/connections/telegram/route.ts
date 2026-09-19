@@ -62,6 +62,19 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: setWebhookBody.description ?? "Could not register the Telegram webhook." }, { status: 400 });
   }
 
+  // Register slash commands so they appear in Telegram's autocomplete menu when users type /.
+  // Best-effort: a failure here doesn't prevent the connection from working.
+  await fetch(`https://api.telegram.org/bot${botToken}/setMyCommands`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      commands: [
+        { command: "tasks", description: "Show your tasks and start a new one" },
+        { command: "start", description: "Show your tasks and start a new one" },
+      ],
+    }),
+  }).catch(() => {});
+
   const credentialRef = await createConnectionSecret(ctx.orgId, { botToken });
   const connection = await createConnection(ctx.orgId, {
     provider: "telegram",
