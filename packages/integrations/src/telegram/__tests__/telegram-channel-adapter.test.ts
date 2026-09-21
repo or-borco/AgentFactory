@@ -37,6 +37,7 @@ describe("TelegramChannelAdapter", () => {
         externalUserId: "42",
         text: undefined,
         callbackData: "agent:7",
+        callbackQueryId: "cbq-1",
         isStartCommand: false,
         startPayload: undefined,
         isTasksCommand: false,

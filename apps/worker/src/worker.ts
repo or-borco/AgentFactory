@@ -100,7 +100,7 @@ import { processEvalJob } from "./eval-runner";
 import { processMemoryRetrospectiveJob } from "./memory-retrospective";
 import { ingestTaskContextItem, ingestTeamContextItem } from "./context-ingest";
 import { notifyIssueOfPullRequest } from "./task-notify";
-import { notifySessionOfReply, startTypingIndicator } from "./channel-notify";
+import { notifySessionOfPendingReview, notifySessionOfReply, startTypingIndicator } from "./channel-notify";
 import { createLogger } from "@agentfactory/logger";
 
 const log = createLogger("worker");
@@ -646,6 +646,7 @@ const runWorker = new Worker<RunJobData>(
       // first) — it only persists a "pending" draft; apps/web's pr-reviews approve route is what
       // actually calls ScmProvider.postReview.
       let transcriptText = text;
+      let pendingReview: Awaited<ReturnType<typeof createPendingPrReview>> | undefined;
       if (review) {
         try {
           const structured = parseStructuredReview(turnResult.structuredOutput);
@@ -658,7 +659,7 @@ const runWorker = new Worker<RunJobData>(
           // duplicate draft.
           const rangeWasEmpty = review.focusBaseSha === review.focusHeadSha;
           if (!(validated.comments.length === 0 && rangeWasEmpty)) {
-            await createPendingPrReview(agent.orgId, review.taskId, runId, {
+            pendingReview = await createPendingPrReview(agent.orgId, review.taskId, runId, {
               repoFullName: review.repoFullName,
               prNumber: review.prNumber,
               baseSha: review.focusBaseSha,
@@ -703,6 +704,11 @@ const runWorker = new Worker<RunJobData>(
       await createMessage(run.sessionId, "assistant", transcriptText, runId);
       await createEvent(runId, seq++, "text_delta", { text: transcriptText });
       await notifySessionOfReply(agent.orgId, session, transcriptText, (type, data) => createEvent(runId, seq++, type, data));
+      if (pendingReview) {
+        await notifySessionOfPendingReview(agent.orgId, session, pendingReview, (type, data) =>
+          createEvent(runId, seq++, type, data),
+        );
+      }
       await createEvent(runId, seq++, "done", { reason: "completed" });
 
       await updateRunStatus(runId, "finalizing");
