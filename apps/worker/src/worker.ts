@@ -559,8 +559,8 @@ const runWorker = new Worker<RunJobData>(
       attemptModel = task?.model ?? agent.model;
       let turnResult!: AgentTurnResult;
       const stopTyping = startTypingIndicator(agent.orgId, session);
-      // Send one reassurance message if the run is still going after 2 minutes. Cleared in
-      // finally so a fast-completing or failed run never receives a stale "still working" ping.
+      // Re-send a reassurance message to Telegram every 25 seconds for as long as the run is
+      // going. Cleared in finally so a completing or failed run stops receiving pings immediately.
       const REASSURANCE_INTERVAL_MS = 25 * 1000;
       const reassuranceTimer =
         session.origin === "telegram"
