@@ -559,6 +559,21 @@ const runWorker = new Worker<RunJobData>(
       attemptModel = task?.model ?? agent.model;
       let turnResult!: AgentTurnResult;
       const stopTyping = startTypingIndicator(agent.orgId, session);
+      // Re-send a reassurance message to Telegram every 25 seconds for as long as the run is
+      // going. Cleared in finally so a completing or failed run stops receiving pings immediately.
+      const REASSURANCE_INTERVAL_MS = 25 * 1000;
+      const reassuranceTimer =
+        session.origin === "telegram"
+          ? setInterval(() => {
+              const prefix = task ? `[${task.ref}] ` : "";
+              void notifySessionOfReply(
+                agent.orgId,
+                session,
+                `🕐 ${prefix}Still working on this — it's taking a bit longer than usual. I'll send the result when it's ready.`,
+                (type, data) => createEvent(runId, seq++, type, data),
+              ).catch(() => {});
+            }, REASSURANCE_INTERVAL_MS)
+          : undefined;
       try {
         for (;;) {
           try {
@@ -620,6 +635,7 @@ const runWorker = new Worker<RunJobData>(
         }
       } finally {
         stopTyping();
+        if (reassuranceTimer !== undefined) clearInterval(reassuranceTimer);
       }
       const { text, providerSessionRef } = turnResult;
       mark("agent turn");
