@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./env";
 import { Queue, Worker } from "bullmq";
 import {
   TASK_CONTEXT_INGEST_QUEUE_NAME,
