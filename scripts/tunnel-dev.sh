@@ -21,13 +21,28 @@ update_env() {
     file="$(python3 -c "import os,sys; print(os.path.realpath(sys.argv[1]))" "$file")"
   fi
   if [ ! -f "$file" ]; then return; fi
-  # Escape & so sed doesn't expand it as a backreference in the replacement string
-  local url_esc="${url//&/\\&}"
-  if grep -q "^PUBLIC_APP_URL=" "$file" 2>/dev/null; then
-    sed -i.bak "s|^PUBLIC_APP_URL=.*|PUBLIC_APP_URL=$url_esc|" "$file" && rm -f "$file.bak"
-  else
-    echo "PUBLIC_APP_URL=$url" >> "$file"
-  fi
+  # Read the whole file, replace only the PUBLIC_APP_URL line, write back atomically.
+  # This preserves every other variable by construction — no per-variable save/restore needed.
+  python3 - "$file" "$url" <<'PYEOF'
+import os, sys
+file, url = sys.argv[1], sys.argv[2]
+with open(file) as f:
+    lines = f.readlines()
+found = False
+out = []
+for line in lines:
+    if line.startswith('PUBLIC_APP_URL='):
+        out.append(f'PUBLIC_APP_URL={url}\n')
+        found = True
+    else:
+        out.append(line)
+if not found:
+    out.append(f'PUBLIC_APP_URL={url}\n')
+tmp = file + '.tmp.' + str(os.getpid())
+with open(tmp, 'w') as f:
+    f.writelines(out)
+os.rename(tmp, file)
+PYEOF
 }
 
 # Resolves the postgres container name from docker-compose so the script works regardless

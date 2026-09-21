@@ -30,8 +30,10 @@ export async function GET() {
       try {
         const repos = await provider.listRepos(connection);
         return repos.map((r) => ({ ...r, provider: connection.provider }));
-      } catch {
-        // A revoked/broken installation shouldn't take down the whole picker — skip it.
+      } catch (err) {
+        // A revoked/broken installation shouldn't take down the whole picker — skip it,
+        // but log so misconfigured env vars or revoked tokens are diagnosable.
+        console.error(`[connections/repos] listRepos failed for connection ${connection.id} (${connection.provider}):`, err);
         return [];
       }
     }),
