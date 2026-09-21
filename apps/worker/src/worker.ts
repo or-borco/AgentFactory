@@ -800,6 +800,19 @@ const runWorker = new Worker<RunJobData>(
       // it had when the run started, and the "failed" StatusPill can never actually show up.
       const task = await getTaskBySessionId(run.sessionId);
       if (task) await updateTask(task.id, { status: "failed" });
+      // Tell the Telegram user what happened — best-effort, must never mask the original error.
+      const failedSession = await getSession(run.sessionId).catch(() => undefined);
+      if (failedSession?.origin === "telegram") {
+        const failedAgent = await getAgent(failedSession.agentId).catch(() => undefined);
+        if (failedAgent) {
+          const userMsg = message.includes("isn't accessible via any connected GitHub")
+            ? "This repo isn't connected to a GitHub App. Open Settings → Connections to fix it, or start a new task with a connected repo."
+            : "Something went wrong and the run couldn't complete. Reply to try again.";
+          await notifySessionOfReply(failedAgent.orgId, failedSession, userMsg, (type, data) =>
+            createEvent(runId, seq++, type, data),
+          ).catch(() => {});
+        }
+      }
       throw err; // still let BullMQ mark the job failed
     }
   },
