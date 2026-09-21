@@ -5,6 +5,8 @@ export interface InboundMessage {
   externalUserId: string;
   text?: string;
   callbackData?: string;
+  /** Present on callback_query updates; pass to answerCallbackQuery to dismiss the button spinner. */
+  callbackQueryId?: string;
   isStartCommand: boolean;
   startPayload?: string;
   isTasksCommand: boolean;
@@ -24,6 +26,8 @@ export interface ChannelAdapter {
   sendMenu(externalThreadRef: string, prompt: string, options: MenuOption[]): Promise<void>;
   /** Best-effort "still working" signal for the duration of a long-running turn. */
   sendTyping(externalThreadRef: string): Promise<void>;
+  /** Dismisses the loading spinner on an inline button tap. Must be called within 10 s of receiving the callback_query. */
+  answerCallbackQuery(callbackQueryId: string): Promise<void>;
 }
 
 // The one place an adapter is chosen — mirrors createTaskProvider() in ./task-provider.ts.

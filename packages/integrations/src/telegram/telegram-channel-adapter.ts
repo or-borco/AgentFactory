@@ -56,6 +56,7 @@ export class TelegramChannelAdapter implements ChannelAdapter {
       return {
         externalUserId: String(chatId),
         callbackData: update.callback_query.data,
+        callbackQueryId: update.callback_query.id,
         isStartCommand: false,
         isTasksCommand: false,
       };
@@ -111,5 +112,9 @@ export class TelegramChannelAdapter implements ChannelAdapter {
 
   async sendTyping(externalThreadRef: string): Promise<void> {
     await this.call("sendChatAction", { chat_id: externalThreadRef, action: "typing" });
+  }
+
+  async answerCallbackQuery(callbackQueryId: string): Promise<void> {
+    await this.call("answerCallbackQuery", { callback_query_id: callbackQueryId });
   }
 }

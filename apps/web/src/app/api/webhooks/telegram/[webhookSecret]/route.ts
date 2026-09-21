@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import {
+  approvePrReview,
   authorizeExternalUser,
   clearRedemptionAttempts,
   createMessage,
   createRun,
   createTask,
+  discardPrReview,
   findChannelConnectionByWebhookSecret,
   getAgent,
   getAuthorizationStatus,
@@ -12,6 +14,7 @@ import {
   getConnectionCredentialRef,
   getInviteCodeRedeemer,
   getOrgOwnerUserId,
+  getPrReview,
   getSession,
   getTask,
   isInCooldown,
@@ -28,7 +31,7 @@ import {
 } from "@agentfactory/db";
 import { createChannelAdapter, type ChannelAdapter } from "@agentfactory/integrations";
 import { enqueueRepoMapWarmJob, enqueueRunJob } from "@agentfactory/queue";
-import { getScmProvider, type RepoOption } from "@agentfactory/scm";
+import { getScmProvider, resolveScmConnection, type RepoOption } from "@agentfactory/scm";
 import type { Agent, Connection, Session, Task, TaskStatus } from "@agentfactory/core";
 import { createLogger } from "@agentfactory/logger";
 import { formatTaskBrief } from "@/server/task-brief";
@@ -52,6 +55,8 @@ const CODEBASE_CALLBACK_PREFIX = "codebase:";
 // still reads as "no repo" everywhere downstream (startTask's default fallback, the worker's clone
 // check), but it stops the picker from re-prompting on every subsequent message.
 const CODEBASE_DECLINED = "";
+const REVIEW_APPROVE_PREFIX = "review:approve:";
+const REVIEW_DISCARD_PREFIX = "review:discard:";
 const NEW_TASK_LABEL = "Start a new task";
 const DRAFT_TASK_TITLE = "New task";
 const TITLE_MAX_LENGTH = 80;
@@ -172,6 +177,14 @@ async function handleInbound(
     const task = await createTask(orgId, createdBy, { title: DRAFT_TASK_TITLE, description: "", acceptanceCriteria: [], assigneeAgentId: connectionAgentId });
     await setActiveTask(connection.id, externalUserId, task.id);
     await adapter.send(externalUserId, NEW_TASK_PROMPT);
+    return;
+  }
+
+  if (
+    inbound.callbackData?.startsWith(REVIEW_APPROVE_PREFIX) ||
+    inbound.callbackData?.startsWith(REVIEW_DISCARD_PREFIX)
+  ) {
+    await handleReviewCallback(adapter, orgId, inbound.callbackData, inbound.callbackQueryId, externalUserId);
     return;
   }
 
@@ -518,4 +531,74 @@ async function sendCurrentStepPrompt(
   }
   const agent = (await getAgent(activeTask.assigneeAgentId))!;
   await promptCodebaseOrStart(adapter, orgId, externalUserId, activeTask, agent);
+}
+
+async function handleReviewCallback(
+  adapter: ChannelAdapter,
+  orgId: number,
+  callbackData: string,
+  callbackQueryId: string | undefined,
+  externalUserId: string,
+): Promise<void> {
+  const isApprove = callbackData.startsWith(REVIEW_APPROVE_PREFIX);
+  const prefix = isApprove ? REVIEW_APPROVE_PREFIX : REVIEW_DISCARD_PREFIX;
+  const reviewId = parseIntOrNull(callbackData.slice(prefix.length));
+
+  // Dismiss the spinner before doing any async work — Telegram requires a response within 10 s.
+  if (callbackQueryId) {
+    await adapter.answerCallbackQuery(callbackQueryId).catch(() => {});
+  }
+
+  if (reviewId === null) {
+    await adapter.send(externalUserId, "Couldn't find that review — it may have been deleted.");
+    return;
+  }
+
+  const review = await getPrReview(reviewId, orgId);
+  if (!review) {
+    await adapter.send(externalUserId, "Review not found.");
+    return;
+  }
+  if (review.status !== "pending") {
+    await adapter.send(externalUserId, `Review already ${review.status}.`);
+    return;
+  }
+
+  if (!isApprove) {
+    await discardPrReview(review.id, orgId);
+    await adapter.send(externalUserId, "Discarded.");
+    return;
+  }
+
+  // Approve: post the review to GitHub via the org's SCM connection.
+  const resolved = await resolveScmConnection(orgId, review.repoFullName);
+  if (!resolved) {
+    await adapter.send(
+      externalUserId,
+      `No GitHub connection found for ${review.repoFullName} — connect it in the web UI and try again.`,
+    );
+    return;
+  }
+
+  let posted;
+  try {
+    posted = await resolved.provider.postReview(resolved.connection, review.repoFullName, review.prNumber, {
+      summary: review.summary,
+      verdict: review.verdict,
+      comments: review.comments,
+    });
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    log.error("Failed to post PR review to GitHub via Telegram callback", { reviewId: review.id, err });
+    await adapter.send(externalUserId, `Failed to post to GitHub: ${detail} — try again or use the web UI.`);
+    return;
+  }
+
+  await approvePrReview(review.id, orgId, {
+    postedAs: posted.postedAs,
+    githubReviewId: posted.id,
+    url: posted.url,
+  });
+
+  await adapter.send(externalUserId, `✅ Review posted to PR #${review.prNumber}.`);
 }

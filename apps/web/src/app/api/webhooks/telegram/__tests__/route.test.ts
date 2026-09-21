@@ -1,12 +1,14 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import "@agentfactory/db/src/__tests__/setup.js";
-import { insertOrg, insertAgent, insertUser, insertMembership, insertTask } from "@agentfactory/db/src/__tests__/fixtures.js";
+import { insertOrg, insertAgent, insertUser, insertMembership, insertTask, insertSession } from "@agentfactory/db/src/__tests__/fixtures.js";
 import {
   createConnection,
   createConnectionSecret,
+  createPendingPrReview,
   generateInviteCode,
   getAuthorizationStatus,
   getAuthorizedUser,
+  getPrReview,
   authorizeExternalUser,
   revokeAuthorizedUser,
   getTask,
@@ -20,6 +22,7 @@ import {
 // task-10-brief.md), so simulating a transient failure means stubbing one real export, not
 // swapping in a mock module.
 import * as db from "@agentfactory/db";
+import { createRun } from "@agentfactory/db/src/repositories/runs.js";
 import { POST } from "../[webhookSecret]/route";
 
 // The adapter's own send()/sendMenu()/sendTyping() hit the real Telegram API — stubbed here so
@@ -31,10 +34,11 @@ import { POST } from "../[webhookSecret]/route";
 // They resolve rather than returning undefined because the real ChannelAdapter methods are
 // declared Promise-returning and the route awaits them — a bare vi.fn() would make `await` on a
 // non-thenable pass by accident where the real thing would not.
-const { mockSend, mockSendMenu, mockSendTyping } = vi.hoisted(() => ({
+const { mockSend, mockSendMenu, mockSendTyping, mockAnswerCallbackQuery } = vi.hoisted(() => ({
   mockSend: vi.fn().mockResolvedValue(undefined),
   mockSendMenu: vi.fn().mockResolvedValue(undefined),
   mockSendTyping: vi.fn().mockResolvedValue(undefined),
+  mockAnswerCallbackQuery: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@agentfactory/integrations", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@agentfactory/integrations")>();
@@ -46,11 +50,22 @@ vi.mock("@agentfactory/integrations", async (importOriginal) => {
       send: mockSend,
       sendMenu: mockSendMenu,
       sendTyping: mockSendTyping,
+      answerCallbackQuery: mockAnswerCallbackQuery,
     }),
   };
 });
 
-vi.mock("@agentfactory/queue", () => ({ enqueueRunJob: vi.fn() }));
+vi.mock("@agentfactory/queue", () => ({ enqueueRunJob: vi.fn(), enqueueRepoMapWarmJob: vi.fn() }));
+
+const mockResolveScmConnection = vi.fn();
+const mockPostReview = vi.fn();
+vi.mock("@agentfactory/scm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@agentfactory/scm")>();
+  return {
+    ...actual,
+    resolveScmConnection: (...args: unknown[]) => mockResolveScmConnection(...args),
+  };
+});
 
 // The URL path segment and the header value are two independently-generated secrets (see the
 // connect route) — these fixtures keep them distinct so a test that confuses them fails.
@@ -102,7 +117,11 @@ function webhookRequest(
 }
 
 describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockResolveScmConnection.mockReset();
+    mockPostReview.mockReset();
+  });
 
   it("returns 404 for an unknown webhook secret", async () => {
     const res = await POST(webhookRequest("no-such-secret", 1, "/start"), {
@@ -666,6 +685,131 @@ describe("POST /api/webhooks/telegram/[webhookSecret]", () => {
 
       expect(mockSend).not.toHaveBeenCalled();
       expect(mockSendMenu).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("review callbacks", () => {
+    const REVIEW_INPUT = {
+      repoFullName: "acme/platform",
+      prNumber: 42,
+      baseSha: "base1",
+      headSha: "head1",
+      verdict: "comment" as const,
+      summary: "LGTM",
+      comments: [],
+      commentCount: 0,
+      truncated: false,
+    };
+
+    async function setupWithPendingReview() {
+      const { org, connection, agent } = await setupOrgWithBot();
+      const user = await insertUser();
+      await authorizeExternalUser(connection.id, "1");
+      const task = await insertTask(org.id, user.id, { assigneeAgentId: agent.id });
+      const session = await insertSession(org.id, agent.id);
+      const run = await createRun(session.id);
+      const review = await createPendingPrReview(org.id, task.id, run.id, REVIEW_INPUT);
+      return { org, connection, review };
+    }
+
+    it("discard callback marks the review discarded and sends confirmation", async () => {
+      const { review } = await setupWithPendingReview();
+
+      const res = await POST(webhookRequest("wh-secret-1", 1, undefined, `review:discard:${review.id}`), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockAnswerCallbackQuery).toHaveBeenCalledWith("cbq-1");
+      expect(mockSend).toHaveBeenCalledWith("1", "Discarded.");
+      const updated = await getPrReview(review.id, review.orgId);
+      expect(updated?.status).toBe("discarded");
+    });
+
+    it("approve callback posts the review to GitHub and sends confirmation", async () => {
+      const { review } = await setupWithPendingReview();
+      mockResolveScmConnection.mockResolvedValue({
+        connection: { id: 1 },
+        provider: {
+          postReview: mockPostReview.mockResolvedValue({
+            postedAs: "comment",
+            id: "gh-review-1",
+            url: "https://github.com/acme/platform/pull/42#pullrequestreview-1",
+          }),
+        },
+      });
+
+      const res = await POST(webhookRequest("wh-secret-1", 1, undefined, `review:approve:${review.id}`), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockAnswerCallbackQuery).toHaveBeenCalledWith("cbq-1");
+      expect(mockPostReview).toHaveBeenCalledWith(
+        expect.anything(),
+        "acme/platform",
+        42,
+        expect.objectContaining({ summary: "LGTM" }),
+      );
+      expect(mockSend).toHaveBeenCalledWith("1", expect.stringContaining("PR #42"));
+      const updated = await getPrReview(review.id, review.orgId);
+      expect(updated?.status).toBe("posted");
+    });
+
+    it("approve callback sends an error message when no SCM connection exists", async () => {
+      const { review } = await setupWithPendingReview();
+      mockResolveScmConnection.mockResolvedValue(undefined);
+
+      await POST(webhookRequest("wh-secret-1", 1, undefined, `review:approve:${review.id}`), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+
+      expect(mockPostReview).not.toHaveBeenCalled();
+      expect(mockSend).toHaveBeenCalledWith("1", expect.stringContaining("No GitHub connection"));
+      const updated = await getPrReview(review.id, review.orgId);
+      expect(updated?.status).toBe("pending");
+    });
+
+    it("ignores a callback for an already-discarded review", async () => {
+      const { review } = await setupWithPendingReview();
+      // Discard it first
+      await POST(webhookRequest("wh-secret-1", 1, undefined, `review:discard:${review.id}`), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+      vi.clearAllMocks();
+      // Second tap
+      await POST(webhookRequest("wh-secret-1", 1, undefined, `review:discard:${review.id}`), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+
+      expect(mockSend).toHaveBeenCalledWith("1", expect.stringContaining("already"));
+    });
+
+    it("approve callback sends an error message when postReview throws", async () => {
+      const { review } = await setupWithPendingReview();
+      mockResolveScmConnection.mockResolvedValue({
+        connection: { id: 1 },
+        provider: { postReview: mockPostReview.mockRejectedValue(new Error("GitHub API error")) },
+      });
+
+      await POST(webhookRequest("wh-secret-1", 1, undefined, `review:approve:${review.id}`), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+
+      expect(mockSend).toHaveBeenCalledWith("1", expect.stringContaining("Failed to post"));
+      const updated = await getPrReview(review.id, review.orgId);
+      expect(updated?.status).toBe("pending");
+    });
+
+    it("returns 200 and sends an error message for a tampered review id", async () => {
+      await setupWithPendingReview();
+
+      const res = await POST(webhookRequest("wh-secret-1", 1, undefined, "review:discard:99999"), {
+        params: Promise.resolve({ webhookSecret: "wh-secret-1" }),
+      });
+
+      expect(res.status).toBe(200);
+      expect(mockSend).toHaveBeenCalledWith("1", expect.stringContaining("not found"));
     });
   });
 

@@ -1,4 +1,4 @@
-import type { Session } from "@agentfactory/core";
+import type { PrReview, Session } from "@agentfactory/core";
 import { getConnectionCredentialRef, getTaskBySessionId, listConnections, readConnectionSecret, setConnectionHealth } from "@agentfactory/db";
 import { createChannelAdapter } from "@agentfactory/integrations";
 import { createLogger } from "@agentfactory/logger";
@@ -54,6 +54,41 @@ export async function notifySessionOfReply(
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await emitEvent("error", { message: `Couldn't deliver reply to Telegram: ${message}` });
+    if (connectionId !== undefined) {
+      await setConnectionHealth(orgId, connectionId, "needs-attention");
+    }
+  }
+}
+
+// Sends a pending-review notification with approve/discard inline keyboard buttons. Best-effort,
+// like notifySessionOfReply — failures never surface as run errors.
+export async function notifySessionOfPendingReview(
+  orgId: number,
+  session: Session,
+  review: PrReview,
+  emitEvent: (type: string, data: Record<string, unknown>) => Promise<void>,
+): Promise<void> {
+  if (session.origin !== "telegram" || !session.externalThreadRef) return;
+  const externalThreadRef = session.externalThreadRef;
+
+  let connectionId: number | undefined;
+  try {
+    const task = await getTaskBySessionId(session.id);
+    const resolved = await resolveChannelAdapter(orgId, task?.assigneeAgentId);
+    if (!resolved) return;
+    connectionId = resolved.connection.id;
+    const prefix = task ? `[${task.ref}] ` : "";
+    await resolved.adapter.sendMenu(
+      externalThreadRef,
+      `${prefix}📋 PR #${review.prNumber} review ready — post to GitHub or discard?`,
+      [
+        { label: "✅ Post to GitHub", value: `review:approve:${review.id}` },
+        { label: "🗑 Discard", value: `review:discard:${review.id}` },
+      ],
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await emitEvent("error", { message: `Couldn't deliver review action menu to Telegram: ${message}` });
     if (connectionId !== undefined) {
       await setConnectionHealth(orgId, connectionId, "needs-attention");
     }
