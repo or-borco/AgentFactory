@@ -561,10 +561,10 @@ const runWorker = new Worker<RunJobData>(
       const stopTyping = startTypingIndicator(agent.orgId, session);
       // Send one reassurance message if the run is still going after 2 minutes. Cleared in
       // finally so a fast-completing or failed run never receives a stale "still working" ping.
-      const REASSURANCE_DELAY_MS = 2 * 60 * 1000;
+      const REASSURANCE_INTERVAL_MS = 25 * 1000;
       const reassuranceTimer =
         session.origin === "telegram"
-          ? setTimeout(() => {
+          ? setInterval(() => {
               const prefix = task ? `[${task.ref}] ` : "";
               void notifySessionOfReply(
                 agent.orgId,
@@ -572,7 +572,7 @@ const runWorker = new Worker<RunJobData>(
                 `🕐 ${prefix}Still working on this — it's taking a bit longer than usual. I'll send the result when it's ready.`,
                 (type, data) => createEvent(runId, seq++, type, data),
               ).catch(() => {});
-            }, REASSURANCE_DELAY_MS)
+            }, REASSURANCE_INTERVAL_MS)
           : undefined;
       try {
         for (;;) {
@@ -635,7 +635,7 @@ const runWorker = new Worker<RunJobData>(
         }
       } finally {
         stopTyping();
-        if (reassuranceTimer !== undefined) clearTimeout(reassuranceTimer);
+        if (reassuranceTimer !== undefined) clearInterval(reassuranceTimer);
       }
       const { text, providerSessionRef } = turnResult;
       mark("agent turn");
