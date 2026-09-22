@@ -85,6 +85,12 @@ export async function resolveDefaultBranchSha(orgId: number, repoFullName: strin
   return resolved.provider.resolveDefaultBranchSha(resolved.connection, repoFullName);
 }
 
+export async function resolveDetectedLanguage(orgId: number, repoFullName: string): Promise<string | undefined> {
+  const resolved = await resolveScmConnection(orgId, repoFullName);
+  if (!resolved) return undefined;
+  return resolved.provider.detectPrimaryLanguage(resolved.connection, repoFullName);
+}
+
 // The eval judge's artefact when a run committed: the diff of exactly the commits that run
 // pushed. `target` was already resolved (at clone time) against a specific provider — its own
 // `provider` tag is what routes this call back to the right adapter, since there is no
