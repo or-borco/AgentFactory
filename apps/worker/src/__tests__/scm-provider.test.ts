@@ -485,8 +485,28 @@ describe("pushChangesIfDirty", () => {
     const s = script();
     expect(s).toContain('git fetch origin "$BRANCH_NAME"');
     expect(s).toContain('git merge-base --is-ancestor "origin/$BRANCH_NAME" HEAD');
-    expect(s).toContain('git merge --no-edit "origin/$BRANCH_NAME"');
+    expect(s).toContain('merge --no-edit "origin/$BRANCH_NAME"');
     expect(s.indexOf('git fetch origin "$BRANCH_NAME"')).toBeLessThan(s.indexOf("git push --no-verify"));
+  });
+
+  // Regression test: a fresh sandbox has no git identity configured anywhere (only the commit
+  // step sets one, via its own -c flags), and unlike a fast-forward, this merge always needs to
+  // create a real commit once the two sides have diverged — the common case whenever a warm
+  // sandbox gets reaped and recloned between a session's runs (cloneIntoSandbox checks out
+  // BRANCH_NAME fresh off the default branch, with no idea this session already pushed to it).
+  // Without an identity, plain `git merge` fails on "unable to auto-detect email address" even
+  // when the content would merge perfectly cleanly, and since stderr is discarded, that fatal
+  // but unrelated error was silently reclassified as a real conflict — producing the "branch name
+  // was reused by a different session" error on a routine reap/reclone, not an actual conflict.
+  // Verified directly against a real failed run: replaying its exact merge with these flags
+  // added succeeded cleanly (0 conflicting files) where the bare command failed outright.
+  it("gives the merge step a git identity, matching the commit step, so a clean merge isn't misread as a conflict", async () => {
+    mockProvider();
+    const { sandbox, script } = capturingSandbox([{ stream: "stdout", data: "PUSH_OK\n" }]);
+    await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    const s = script();
+    expect(s).toContain('git -c user.email="agent@agentfactory.local" -c user.name="$AUTHOR_NAME" merge --no-edit "origin/$BRANCH_NAME"');
   });
 
   it("aborts cleanly when merging in the remote tip conflicts", async () => {
