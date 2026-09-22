@@ -17,6 +17,7 @@ import { RunContextPanel } from "@/components/RunContextPanel";
 import { RunEvalPanel } from "@/components/RunEvalPanel";
 import { PrReviewPanel } from "@/components/PrReviewPanel";
 import { WriteBackFailureBanner } from "@/components/WriteBackFailureBanner";
+import { TaskReplyBar } from "@/components/TaskReplyBar";
 import type { Run, TaskContextItem, TaskStatus } from "@agentfactory/core";
 import type { ExternalIssue } from "@agentfactory/integrations";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
@@ -1230,61 +1231,16 @@ export default function TaskDetailPage() {
             <PrReviewPanel taskId={task.id} runStatus={runStatus} />
 
             {/* Reply bar — always in DOM, disabled when no session */}
-            <div
-              style={{
-                flexShrink: 0,
-                borderTop: "1px solid var(--color-divider)",
-                padding: "12px 20px",
-                display: "flex",
-                gap: 10,
-                alignItems: "flex-end",
-                background: "var(--color-bg)",
-              }}
-            >
-              <textarea
-                value={reply}
-                onChange={(e) => setReply(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleReply(); }
-                }}
-                placeholder="Reply to the agent… (↵ send · ⇧↵ new line)"
-                disabled={!session || replyDisabled}
-                rows={1}
-                style={{
-                  flex: 1,
-                  resize: "none",
-                  background: "var(--color-surface)",
-                  border: "1px solid var(--color-divider)",
-                  borderRadius: "var(--radius-md)",
-                  color: "var(--color-text)",
-                  fontSize: 13,
-                  lineHeight: 1.5,
-                  padding: "9px 14px",
-                  outline: "none",
-                  fontFamily: "inherit",
-                  opacity: (!session || replyDisabled) ? 0.5 : 1,
-                }}
-              />
-              <button
-                onClick={handleReply}
-                disabled={!session || !reply.trim() || replyDisabled}
-                style={{
-                  flexShrink: 0,
-                  background: "var(--color-accent)",
-                  border: "none",
-                  borderRadius: "var(--radius-md)",
-                  color: "#fff",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  padding: "9px 18px",
-                  cursor: !session || !reply.trim() || replyDisabled ? "not-allowed" : "pointer",
-                  opacity: (!session || !reply.trim() || replyDisabled) ? 0.35 : 1,
-                  transition: "opacity 0.15s",
-                }}
-              >
-                {replying ? "Sending…" : "Send"}
-              </button>
-            </div>
+            <TaskReplyBar
+              value={reply}
+              onChange={setReply}
+              onSubmit={handleReply}
+              onStop={handleStop}
+              disabled={!session || replyDisabled}
+              sending={replying}
+              isRunning={!!isRunning}
+              stopping={stopping}
+            />
           </div>
         )}
 
