@@ -64,6 +64,13 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ task
   if (task.sessionId) {
     await enqueueSandboxTeardownJob(task.sessionId);
   }
+
+  if (task.sessionId && task.assigneeAgentId) {
+    enqueueMemoryRetrospectiveJob(task.orgId, task.assigneeAgentId, task.sessionId).catch((err) => {
+      log.error("Failed to enqueue memory retrospective job", { taskId: task.id, err });
+    });
+  }
+
   await deleteTask(Number(taskId));
 
   return new NextResponse(null, { status: 204 });

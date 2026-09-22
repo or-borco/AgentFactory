@@ -20,10 +20,16 @@ vi.mock("@agentfactory/queue", () => ({
 }));
 vi.mock("@/server/auth", () => ({ requireAuthContext: () => requireAuthContext() }));
 
-import { PATCH } from "../route";
+import { DELETE, PATCH } from "../route";
 
 function patch(taskId: string, body: Record<string, unknown>) {
   return PATCH(new Request(`http://localhost/api/tasks/${taskId}`, { method: "PATCH", body: JSON.stringify(body) }), {
+    params: Promise.resolve({ taskId }),
+  });
+}
+
+function del(taskId: string) {
+  return DELETE(new Request(`http://localhost/api/tasks/${taskId}`, { method: "DELETE" }), {
     params: Promise.resolve({ taskId }),
   });
 }
@@ -88,5 +94,63 @@ describe("PATCH /api/tasks/[taskId], memory retrospective", () => {
     const res = await patch("5", { status: "done" });
 
     expect(res.status).toBe(200);
+  });
+});
+
+describe("DELETE /api/tasks/[taskId], memory retrospective", () => {
+  it.each(["pr_open", "done", "in_progress"] as const)(
+    "enqueues a retrospective job on delete when the task has a session and an assignee, regardless of status (%s)",
+    async (status) => {
+      getTask.mockResolvedValue({ id: 5, orgId: 3, status, sessionId: 9, assigneeAgentId: 7 });
+
+      await del("5");
+
+      expect(enqueueMemoryRetrospectiveJob).toHaveBeenCalledExactlyOnceWith(3, 7, 9);
+    },
+  );
+
+  it("does not enqueue when the task has no session", async () => {
+    getTask.mockResolvedValue({ id: 5, orgId: 3, status: "pr_open", sessionId: null, assigneeAgentId: 7 });
+
+    await del("5");
+
+    expect(enqueueMemoryRetrospectiveJob).not.toHaveBeenCalled();
+  });
+
+  it("does not enqueue when the task has no assignee", async () => {
+    getTask.mockResolvedValue({ id: 5, orgId: 3, status: "pr_open", sessionId: 9, assigneeAgentId: null });
+
+    await del("5");
+
+    expect(enqueueMemoryRetrospectiveJob).not.toHaveBeenCalled();
+  });
+
+  it("still tears down the sandbox and deletes the task", async () => {
+    getTask.mockResolvedValue({ id: 5, orgId: 3, status: "pr_open", sessionId: 9, assigneeAgentId: 7 });
+
+    const res = await del("5");
+
+    expect(enqueueSandboxTeardownJob).toHaveBeenCalledExactlyOnceWith(9);
+    expect(deleteTask).toHaveBeenCalledExactlyOnceWith(5);
+    expect(res.status).toBe(204);
+  });
+
+  it("still returns 204 when the retrospective queue is down", async () => {
+    getTask.mockResolvedValue({ id: 5, orgId: 3, status: "pr_open", sessionId: 9, assigneeAgentId: 7 });
+    enqueueMemoryRetrospectiveJob.mockRejectedValue(new Error("redis down"));
+
+    const res = await del("5");
+
+    expect(res.status).toBe(204);
+  });
+
+  it("returns 404 without enqueueing anything when the task doesn't exist", async () => {
+    getTask.mockResolvedValue(undefined);
+
+    const res = await del("5");
+
+    expect(res.status).toBe(404);
+    expect(enqueueMemoryRetrospectiveJob).not.toHaveBeenCalled();
+    expect(deleteTask).not.toHaveBeenCalled();
   });
 });
