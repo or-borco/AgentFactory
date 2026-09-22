@@ -31,6 +31,7 @@ import {
   getLatestResumeCandidate,
   getMessage,
   getRun,
+  getRunsForSession,
   getSession,
   getTaskBySessionId,
   getTeamForOrg,
@@ -62,6 +63,7 @@ import {
   buildTeamContextSegment,
   composeSystemPrompt,
   formatEnvironmentForPrompt,
+  formatPullRequestFeedbackForPrompt,
   formatExistingReviewCommentsForPrompt,
   formatPriorConversationForPrompt,
   formatPullRequestForPrompt,
@@ -85,6 +87,7 @@ import {
   buildPullRequestBody,
   cloneIntoSandbox,
   fetchIssue,
+  fetchPullRequestFeedback,
   openDraftPullRequest,
   parseIssueReference,
   pushChangesIfDirty,
@@ -410,6 +413,38 @@ const runWorker = new Worker<RunJobData>(
         }
       }
 
+      // Same reasoning as issueContext: once the task has opened a PR, the human's feedback lives
+      // there, and the sandbox can't read it. Fetched on every dev turn rather than when the user
+      // mentions comments, since guessing from phrasing misses more than three API calls cost.
+      // Review runs are excluded: they read the PR through their own path above.
+      let prFeedbackContext = "";
+      let pullRequestEnv: SandboxEnvironment["pullRequest"];
+      if (!review && task?.prNumber && task.codebase) {
+        try {
+          const [feedback, sessionRuns] = await Promise.all([
+            fetchPullRequestFeedback(agent.orgId, task.codebase, task.prNumber),
+            getRunsForSession(session.id),
+          ]);
+          if (feedback) {
+            // getRunsForSession is newest first, and run ids are an identity column, so the first
+            // lower id is the agent's previous turn in this session.
+            const previousRun = sessionRuns.find((r) => r.id < runId);
+            prFeedbackContext = formatPullRequestFeedbackForPrompt(task.prNumber, feedback, previousRun?.createdAt);
+            pullRequestEnv = { number: task.prNumber, feedback: prFeedbackContext ? "included" : "none" };
+          } else {
+            pullRequestEnv = { number: task.prNumber, feedback: "unavailable" };
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          log.error("Failed to fetch PR feedback", { runId, taskRef: task.ref, err });
+          pullRequestEnv = { number: task.prNumber, feedback: "unavailable" };
+          await createEvent(runId, seq++, "error", {
+            message: `Couldn't fetch comments on ${task.codebase}#${task.prNumber}: ${message}`,
+          });
+        }
+        mark(`PR feedback (${pullRequestEnv.feedback})`);
+      }
+
       // Org-scoped, not getTeam(agent.teamId). PATCH /api/agents/[agentId] is unscoped by
       // acknowledged design debt and updateAgent writes teamId unchecked, so an agent in org A
       // can be pointed at a team in org B. For shared_context alone that leaks one fixed 64 KB
@@ -488,6 +523,7 @@ const runWorker = new Worker<RunJobData>(
         hasIssueContext: issueContext.length > 0,
         taskDocuments,
         repoSync,
+        pullRequest: pullRequestEnv,
       });
       // buildRetrievedContextSegment maps the three states a pair of booleans can describe. A
       // retrieval that threw is the fourth, and only retrieveContext knows about it, so its
@@ -603,7 +639,7 @@ const runWorker = new Worker<RunJobData>(
               {
                 systemPrompt,
                 model: attemptModel,
-                userText: (triggeringMessage?.content ?? "") + issueContext,
+                userText: (triggeringMessage?.content ?? "") + issueContext + prFeedbackContext,
                 resumeSessionRef,
                 skillNames,
                 outputSchema: review ? REVIEW_OUTPUT_SCHEMA : undefined,

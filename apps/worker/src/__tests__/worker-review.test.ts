@@ -63,6 +63,7 @@ vi.mock("@agentfactory/db", () => ({
   getLatestResumeCandidate: vi.fn(async () => undefined),
   getMessage: vi.fn(),
   getRun: vi.fn(),
+  getRunsForSession: vi.fn(async () => []),
   getSession: vi.fn(),
   getTaskBySessionId: vi.fn(),
   getTeamForOrg: vi.fn(async () => undefined),
@@ -117,6 +118,7 @@ vi.mock("../scm-provider", () => ({
   buildPullRequestBody: vi.fn(() => ""),
   cloneIntoSandbox: vi.fn(),
   fetchIssue: vi.fn(),
+  fetchPullRequestFeedback: vi.fn(),
   openDraftPullRequest: vi.fn(),
   parseIssueReference: vi.fn(() => undefined),
   pushChangesIfDirty: vi.fn(async () => ({ changedFiles: [], pushed: false })),
@@ -146,10 +148,12 @@ import {
   getAgent,
   getLatestPrReview,
   getRun,
+  getRunsForSession,
   getSession,
   getTaskBySessionId,
   updateTask,
 } from "@agentfactory/db";
+import { fetchPullRequestFeedback, resolveCloneTarget } from "../scm-provider";
 import { parsePullRequestReferenceAcrossProviders, resolveScmConnection } from "@agentfactory/scm";
 import { checkoutPullRequest } from "../pr-review";
 
@@ -399,5 +403,85 @@ describe("review run detection gate", () => {
       expect.objectContaining({ isReviewTurn: false }),
       expect.anything(),
     );
+  });
+});
+
+// Task 342: after the agent opened a PR, the user asked it to read their PR comments and it had
+// to ask for them to be pasted. A dev turn on a task with a PR now gets them in its user message.
+describe("dev run on a task with an open PR", () => {
+  beforeEach(() => {
+    vi.mocked(parsePullRequestReferenceAcrossProviders).mockReturnValue(undefined as never);
+    vi.mocked(getTaskBySessionId).mockResolvedValue({
+      id: 30,
+      ref: "T-3",
+      title: "Add a stop button",
+      description: "Add a stop button near Send.",
+      codebase: "acme/app",
+      prNumber: 7,
+    } as never);
+    vi.mocked(getRunsForSession).mockResolvedValue([
+      { id: 1, createdAt: "2026-09-22T20:40:00Z" },
+      { id: 0, createdAt: "2026-09-22T20:30:00Z" },
+    ] as never);
+    vi.mocked(resolveCloneTarget).mockResolvedValue({
+      cloneUrl: "https://x:tok@github.com/acme/app.git",
+      remoteUrl: "https://github.com/acme/app.git",
+      branch: "agent/session-1",
+      repoFullName: "acme/app",
+      provider: "github",
+      installationRef: 1,
+    });
+    h.runTurn.mockResolvedValue({ text: "Done.", providerSessionRef: "sdk-1" } as never);
+  });
+
+  function turnInput() {
+    expect(h.runTurn).toHaveBeenCalled();
+    return vi.mocked(h.runTurn).mock.calls[0][0];
+  }
+
+  it("appends the PR's comments to the user message, marking ones after the previous turn as new", async () => {
+    vi.mocked(fetchPullRequestFeedback).mockResolvedValue([
+      { kind: "conversation", author: "or", body: "Don't use code comments", createdAt: "2026-09-22T20:35:00Z" },
+    ]);
+
+    await runProcessor({ data: { runId: 1 } });
+
+    expect(fetchPullRequestFeedback).toHaveBeenCalledWith(5, "acme/app", 7);
+    const input = turnInput();
+    expect(input.userText).toContain("## Comments on this task's pull request #7");
+    expect(input.userText).toContain("(new) @or, 2026-09-22T20:35:00Z: Don't use code comments");
+    expect(input.systemPrompt).toContain("This task's pull request is #7. Its current comments");
+  });
+
+  it("records an error event and tells the agent the comments are unavailable when the fetch fails", async () => {
+    vi.mocked(fetchPullRequestFeedback).mockRejectedValue(new Error("GitHub API 502"));
+
+    await runProcessor({ data: { runId: 1 } });
+
+    expect(createEvent).toHaveBeenCalledWith(
+      1,
+      expect.any(Number),
+      "error",
+      expect.objectContaining({ message: expect.stringContaining("Couldn't fetch comments on acme/app#7") }),
+    );
+    const input = turnInput();
+    expect(input.userText).not.toContain("## Comments on this task's pull request");
+    expect(input.systemPrompt).toContain("could not be fetched");
+  });
+
+  it("doesn't fetch anything for a task that hasn't opened a PR yet", async () => {
+    vi.mocked(getTaskBySessionId).mockResolvedValue({
+      id: 30,
+      ref: "T-3",
+      title: "Add a stop button",
+      description: "Add a stop button near Send.",
+      codebase: "acme/app",
+      prNumber: undefined,
+    } as never);
+
+    await runProcessor({ data: { runId: 1 } });
+
+    expect(fetchPullRequestFeedback).not.toHaveBeenCalled();
+    expect(turnInput().systemPrompt).not.toContain("This task's pull request");
   });
 });
