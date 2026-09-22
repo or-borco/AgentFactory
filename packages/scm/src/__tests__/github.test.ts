@@ -572,6 +572,92 @@ describe("fetchReviewThreads", () => {
   });
 });
 
+describe("fetchPullRequestFeedback", () => {
+  // The three list calls run concurrently, so the fake routes by URL rather than call order.
+  function routedFetch(routes: Record<string, Response | Response[]>) {
+    return vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.endsWith("/access_tokens")) return new Response(JSON.stringify({ token: "ghs_feedback" }), { status: 200 });
+      const key = Object.keys(routes).find((k) => url.includes(k));
+      if (!key) throw new Error(`unexpected fetch ${url}`);
+      const route = routes[key];
+      return Array.isArray(route) ? (route.shift() as Response) : route;
+    });
+  }
+
+  it("merges conversation comments, non-empty reviews, and inline comments, oldest first", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/issues/42/comments": new Response(
+          JSON.stringify([{ body: "Don't use code comments", user: { login: "or" }, created_at: "2026-09-22T20:36:00Z" }]),
+          { status: 200 },
+        ),
+        "/pulls/42/reviews": new Response(
+          JSON.stringify([
+            { body: "", user: { login: "bob" }, state: "APPROVED", submitted_at: "2026-09-22T20:30:00Z" },
+            { body: "Needs work", user: { login: "or" }, state: "CHANGES_REQUESTED", submitted_at: "2026-09-22T20:35:00Z" },
+          ]),
+          { status: 200 },
+        ),
+        "/pulls/42/comments": new Response(
+          JSON.stringify([
+            { path: "src/a.tsx", line: null, original_line: 7, body: "extract styles", user: { login: "or" }, created_at: "2026-09-22T20:34:00Z" },
+          ]),
+          { status: 200 },
+        ),
+      }),
+    );
+
+    const feedback = await githubScmProvider.fetchPullRequestFeedback(githubConnection(1, 999), "acme-org/platform", 42);
+
+    expect(feedback).toEqual([
+      { kind: "inline", author: "or", body: "extract styles", createdAt: "2026-09-22T20:34:00Z", path: "src/a.tsx", line: 7 },
+      { kind: "review", author: "or", body: "Needs work", createdAt: "2026-09-22T20:35:00Z", reviewState: "CHANGES_REQUESTED" },
+      { kind: "conversation", author: "or", body: "Don't use code comments", createdAt: "2026-09-22T20:36:00Z" },
+    ]);
+  });
+
+  it("follows the Link header to later pages", async () => {
+    const nextUrl = "https://api.github.com/repos/acme-org/platform/issues/42/comments?per_page=100&page=2";
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/issues/42/comments": [
+          new Response(JSON.stringify([{ body: "one", user: { login: "a" }, created_at: "2026-09-22T00:00:01Z" }]), {
+            status: 200,
+            headers: { link: `<${nextUrl}>; rel="next", <${nextUrl}>; rel="last"` },
+          }),
+          new Response(JSON.stringify([{ body: "two", user: { login: "a" }, created_at: "2026-09-22T00:00:02Z" }]), {
+            status: 200,
+          }),
+        ],
+        "/pulls/42/reviews": new Response("[]", { status: 200 }),
+        "/pulls/42/comments": new Response("[]", { status: 200 }),
+      }),
+    );
+
+    const feedback = await githubScmProvider.fetchPullRequestFeedback(githubConnection(1, 999), "acme-org/platform", 42);
+
+    expect(feedback.map((c) => c.body)).toEqual(["one", "two"]);
+  });
+
+  it("throws with the status when any list call fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "/issues/42/comments": new Response("[]", { status: 200 }),
+        "/pulls/42/reviews": new Response("nope", { status: 403 }),
+        "/pulls/42/comments": new Response("[]", { status: 200 }),
+      }),
+    );
+
+    await expect(
+      githubScmProvider.fetchPullRequestFeedback(githubConnection(1, 999), "acme-org/platform", 42),
+    ).rejects.toThrow(/reviews failed: 403/);
+  });
+});
+
 describe("postReview", () => {
   const review: import("../types").ReviewToPost = {
     summary: "Looks solid overall.",

@@ -1,11 +1,11 @@
 import type { RunCommitRange } from "@agentfactory/core";
 import { getScmProvider, parseIssueReferenceAcrossProviders, resolveScmConnection } from "@agentfactory/scm";
-import type { CloneTarget, OpenedPullRequest, ScmIssue } from "@agentfactory/scm";
+import type { CloneTarget, OpenedPullRequest, PullRequestFeedbackComment, ScmIssue } from "@agentfactory/scm";
 import type { SandboxProvider } from "./sandbox/types";
 import { TASK_DOCUMENT_EXCLUDE_PATTERN } from "./task-document-paths";
 import { SKILL_EXCLUDE_PATTERN } from "./skill-paths";
 
-export type { CloneTarget, OpenedPullRequest };
+export type { CloneTarget, OpenedPullRequest, PullRequestFeedbackComment };
 export type GitHubIssue = ScmIssue;
 
 // Every path a sandbox checkout writes into that must never end up in the user's PR. Anything
@@ -74,6 +74,18 @@ export async function fetchIssue(
   const resolved = await resolveScmConnection(orgId, repoFullName);
   if (!resolved) return undefined;
   return resolved.provider.fetchIssue(resolved.connection, repoFullName, issueNumber);
+}
+
+// Same per-org connection lookup as fetchIssue: the comments on a task's own PR, fetched on the
+// host because the sandbox has no GitHub credentials.
+export async function fetchPullRequestFeedback(
+  orgId: number,
+  repoFullName: string,
+  prNumber: number,
+): Promise<PullRequestFeedbackComment[] | undefined> {
+  const resolved = await resolveScmConnection(orgId, repoFullName);
+  if (!resolved) return undefined;
+  return resolved.provider.fetchPullRequestFeedback(resolved.connection, repoFullName, prNumber);
 }
 
 // Resolves a repo's default branch HEAD sha via the provider's API alone, with no sandbox and

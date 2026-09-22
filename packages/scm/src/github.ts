@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import type { Connection } from "@agentfactory/core";
 import { ScmInstallIncompleteError } from "./types";
-import type { CloneTarget, RepoRef, ScmProvider } from "./types";
+import type { CloneTarget, PullRequestFeedbackComment, RepoRef, ScmProvider } from "./types";
 
 const GITHUB_API = "https://api.github.com";
 
@@ -68,6 +68,30 @@ async function listInstallationRepositories(installationId: number): Promise<{ i
   }
   const body = (await res.json()) as { repositories: Array<{ id: number; full_name: string }> };
   return body.repositories;
+}
+
+// A PR with more comments than this many pages is not one an agent can usefully read in full
+// anyway, and the prompt formatter caps what it keeps; the cap bounds API calls per run.
+const MAX_FEEDBACK_PAGES = 5;
+
+function nextPageUrl(linkHeader: string | null): string | undefined {
+  return linkHeader?.match(/<([^>]+)>;\s*rel="next"/)?.[1];
+}
+
+async function fetchAllPages<T>(url: string, token: string): Promise<T[]> {
+  const items: T[] = [];
+  let next: string | undefined = url;
+  for (let page = 0; next && page < MAX_FEEDBACK_PAGES; page++) {
+    const res = await fetch(next, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+    });
+    if (!res.ok) {
+      throw new Error(`GitHub API ${new URL(next).pathname} failed: ${res.status} ${await res.text().catch(() => "")}`);
+    }
+    items.push(...((await res.json()) as T[]));
+    next = nextPageUrl(res.headers.get("link"));
+  }
+  return items;
 }
 
 const ISSUE_URL_RE = /github\.com\/([^/\s]+\/[^/\s.]+)\/issues\/(\d+)/;
@@ -312,6 +336,60 @@ export const githubScmProvider: ScmProvider = {
       author: c.user?.login ?? "unknown",
       createdAt: c.created_at,
     }));
+  },
+
+  // Everything a human wrote on the PR, from the three places GitHub keeps it: the conversation
+  // tab (an issue-comments list), review summaries, and inline code comments. A review with an
+  // empty body is a bare approve/request-changes click with nothing to read, so it's dropped.
+  async fetchPullRequestFeedback(connection, repoFullName, prNumber) {
+    const token = await getInstallationToken(installationIdOf(connection));
+    const base = `${GITHUB_API}/repos/${repoFullName}`;
+    type User = { login: string } | null;
+    const [conversation, reviews, inline] = await Promise.all([
+      fetchAllPages<{ body: string | null; user: User; created_at: string }>(
+        `${base}/issues/${prNumber}/comments?per_page=100`,
+        token,
+      ),
+      fetchAllPages<{ body: string | null; user: User; state: string; submitted_at: string | null }>(
+        `${base}/pulls/${prNumber}/reviews?per_page=100`,
+        token,
+      ),
+      fetchAllPages<{
+        path: string;
+        line: number | null;
+        original_line: number | null;
+        body: string;
+        user: User;
+        created_at: string;
+      }>(`${base}/pulls/${prNumber}/comments?per_page=100`, token),
+    ]);
+
+    const feedback: PullRequestFeedbackComment[] = [
+      ...conversation.map((c) => ({
+        kind: "conversation" as const,
+        author: c.user?.login ?? "unknown",
+        body: c.body ?? "",
+        createdAt: c.created_at,
+      })),
+      ...reviews
+        .filter((r) => (r.body ?? "").trim() !== "" && r.submitted_at)
+        .map((r) => ({
+          kind: "review" as const,
+          author: r.user?.login ?? "unknown",
+          body: r.body ?? "",
+          createdAt: r.submitted_at as string,
+          reviewState: r.state,
+        })),
+      ...inline.map((c) => ({
+        kind: "inline" as const,
+        author: c.user?.login ?? "unknown",
+        body: c.body,
+        createdAt: c.created_at,
+        path: c.path,
+        line: c.line ?? c.original_line ?? null,
+      })),
+    ];
+    return feedback.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   },
 
   // Posts a review. Comment-only verdicts always go through as COMMENT. A request_changes

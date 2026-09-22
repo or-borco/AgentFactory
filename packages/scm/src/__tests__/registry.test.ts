@@ -62,6 +62,9 @@ function stubBitbucketProvider(): ScmProvider & { seenConnections: Connection[][
     fetchReviewThreads: async () => {
       throw new Error("not implemented");
     },
+    fetchPullRequestFeedback: async () => {
+      throw new Error("not implemented");
+    },
     postReview: async () => {
       throw new Error("not implemented");
     },
