@@ -195,6 +195,20 @@ export const githubScmProvider: ScmProvider = {
     return sha;
   },
 
+  async detectPrimaryLanguage(connection, repoFullName) {
+    const token = await getInstallationToken(installationIdOf(connection));
+    const res = await fetch(`${GITHUB_API}/repos/${repoFullName}/languages`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+    });
+    if (!res.ok) {
+      throw new Error(`GitHub API languages fetch failed: ${res.status} ${await res.text().catch(() => "")}`);
+    }
+    const bytesByLanguage = (await res.json()) as Record<string, number>;
+    const entries = Object.entries(bytesByLanguage);
+    if (entries.length === 0) return undefined;
+    return entries.reduce((max, entry) => (entry[1] > max[1] ? entry : max))[0];
+  },
+
   // The eval judge's artefact when a run committed: the diff of exactly the commits that run
   // pushed, straight from the GitHub compare API in raw diff form. Both ends are commit shas,
   // never the branch name (which may have moved on since), so no ref-encoding question arises.
