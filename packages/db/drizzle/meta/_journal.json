@@ -281,6 +281,13 @@
       "when": 1789747384885,
       "tag": "0039_fat_marvex",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1790096746028,
+      "tag": "0040_medical_paper_doll",
+      "breakpoints": true
     }
   ]
 }

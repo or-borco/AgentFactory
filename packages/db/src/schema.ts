@@ -275,6 +275,7 @@ export const sessions = pgTable(
     // The warm sandbox container id for this session's runs — see Session.sandboxId in
     // packages/core/src/domain.ts for why this is session-scoped, not run-scoped.
     sandboxId: text("sandbox_id"),
+    sandboxImage: text("sandbox_image"),
     // Folded into this session's git branch name (agent/session-<id>-<branchToken> — see
     // sessionBranchName in apps/worker/src/scm-provider.ts) so the branch stays unique even if
     // `id` collides with an unrelated session's id, which does happen: `id` is only unique
