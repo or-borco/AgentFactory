@@ -201,6 +201,19 @@ describe("composeSystemPrompt", () => {
     const segment = buildRememberReminderSegment(false);
     expect(segment).toEqual({ id: "remember_reminder", text: "", omittedReason: "review_turn" });
   });
+
+  // Regression test: the Claude Agent SDK exposes every custom in-process MCP tool as
+  // `mcp__<serverName>__<toolName>` (verified against sdk.mjs's own tool-name construction, and
+  // independently confirmed by a live run: told to "call `remember`", the agent searched its
+  // tool list — including via ToolSearch — for a tool literally named `remember`, found nothing,
+  // and correctly reported back that no such tool existed rather than guessing). Both prompt
+  // constants used to say the bare, non-existent name; assert they never regress to that.
+  it("references the remember tool by its SDK-qualified name, not the bare tool name", () => {
+    expect(PLATFORM_PREAMBLE).toContain("mcp__memory__remember");
+    expect(PLATFORM_PREAMBLE).not.toMatch(/[`'"]remember[`'"]/);
+    expect(REMEMBER_REMINDER).toContain("mcp__memory__remember");
+    expect(REMEMBER_REMINDER).not.toMatch(/[`'"]remember[`'"]/);
+  });
 });
 
 describe("buildAgentMemorySegment", () => {
