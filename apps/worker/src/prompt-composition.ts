@@ -28,6 +28,32 @@ export const REVIEW_PLATFORM_PREAMBLE =
   "comments anchored to specific files and line numbers. The platform posts this as a real " +
   "GitHub review after your turn ends — you never call GitHub yourself.\n\n---\n\n";
 
+// A second, stronger statement of PLATFORM_PREAMBLE's `remember` instruction, placed as the
+// LAST segment in the prompt (see composeSystemPrompt) so it sits immediately before the user's
+// own message rather than buried under the repo map and team context that follow the preamble.
+// Exists because the preamble's one-clause mention wasn't enough in practice: a real run had the
+// user reply mid-session with "please remember to not run integration tests", the agent complied
+// operationally (skipped the tests) and never called `remember` at all — no memory_write event,
+// nothing persisted. Worded to name that exact failure mode rather than repeat the same phrasing
+// and hope repetition alone fixes it. Omitted on review runs, where the `remember` tool is not
+// wired into the sandbox at all (see run-turn-claude.ts's isReviewTurn) — a reminder to call a
+// tool that isn't there would just be noise.
+export const REMEMBER_REMINDER =
+  "## Before You Finish\n\n" +
+  "If anything in this conversation so far — including a reply mid-session, not just the " +
+  "original task — asked you to remember, note, or keep in mind something for future sessions, " +
+  "call the `remember` tool with a concise summary before you finish this turn. Complying with " +
+  "the request for this turn is not a substitute for calling `remember`: if you're not sure " +
+  "whether it counts, call it.\n\n---\n\n";
+
+// `enabled` is false on review runs, where mcpServers omits the memory server entirely (see
+// run-turn-claude.ts's isReviewTurn) — the omitted reason records why, matching the pattern
+// every other optional segment in this file already follows.
+export function buildRememberReminderSegment(enabled: boolean): PromptSegment {
+  if (!enabled) return { id: "remember_reminder", text: "", omittedReason: "review_turn" };
+  return { id: "remember_reminder", text: REMEMBER_REMINDER };
+}
+
 export interface SandboxEnvironment {
   // Absolute path of the checkout inside the sandbox, or undefined when this run has no codebase
   // attached at all (a chat-only session — /workspace exists but holds no repo).
@@ -420,6 +446,12 @@ export function buildAgentMemorySegment(entries: MemorySegmentEntry[]): PromptSe
 //    (unlike rule 2's A/B-tested ordering), a good candidate for that same kind of measurement
 //    later if memory doesn't seem to change behavior in practice.
 //
+// 5. The remember-reminder goes after agent memory, i.e. truly last, immediately before the
+//    user's own message (userText, passed separately to the SDK's query()). Same logic as rule 4,
+//    pushed one step further: this is a one-off instruction for THIS turn ("call `remember` if
+//    the conversation asked you to"), not standing behavioral context, so it earns the position
+//    with the strongest recency, closest to the content it's actually about.
+//
 // Returns the segments alongside the joined prompt so the caller can persist exactly what was
 // sent (runs.prompt_segments) — `prompt` is derived from `segments`, never built separately, so
 // the stored record cannot drift from the sent string.
@@ -432,6 +464,7 @@ export function composeSystemPrompt(
   retrievedContext: PromptSegment,
   agentSystemPrompt: string,
   agentMemory: PromptSegment,
+  rememberReminder: PromptSegment,
 ): ComposedPrompt {
   const segments: PromptSegment[] = [
     { id: "platform_preamble", text: preamble },
@@ -442,6 +475,7 @@ export function composeSystemPrompt(
     teamContext,
     { id: "agent_system_prompt", text: agentSystemPrompt },
     agentMemory,
+    rememberReminder,
   ];
   return { segments, prompt: segments.map((s) => s.text).join("") };
 }

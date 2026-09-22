@@ -104,4 +104,50 @@ describe("processMemoryRetrospectiveJob", () => {
       sessionId: 3,
     });
   });
+
+  // Regression test: the live pipeline never emits a "tool_call" event (run-turn-claude.ts
+  // reports tool invocations as "thinking_delta" events carrying a `tool` field instead — see
+  // its tool_use handling). summarizeEvents used to filter on the stale "tool_call" type, so the
+  // judge always received an empty transcript for real sessions. Assert on what the judge
+  // actually receives, not just its (mocked) output, since that's the only way to catch this.
+  it("includes thinking_delta events that carry a tool field in the transcript given to the judge", async () => {
+    const deps = baseDeps({
+      listEventsForSession: vi.fn().mockResolvedValue([
+        {
+          id: 1,
+          runId: 10,
+          seq: 1,
+          type: "thinking_delta",
+          data: { type: "thinking_delta", tool: "Bash", command: "rm -rf /", text: "[Bash] rm -rf /\n" },
+          createdAt: "2026-09-17T00:00:00.000Z",
+        },
+        {
+          id: 2,
+          runId: 10,
+          seq: 2,
+          type: "thinking_delta",
+          data: { type: "thinking_delta", text: "I'm going to clean up the workspace now.\n" },
+          createdAt: "2026-09-17T00:00:01.000Z",
+        },
+        {
+          id: 3,
+          runId: 10,
+          seq: 3,
+          type: "error",
+          data: { message: "permission denied" },
+          createdAt: "2026-09-17T00:00:02.000Z",
+        },
+      ]),
+    });
+
+    await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
+
+    const [transcriptSummary] = deps.judge.mock.calls[0];
+    expect(transcriptSummary).toContain("Bash");
+    expect(transcriptSummary).toContain("rm -rf /");
+    expect(transcriptSummary).toContain("permission denied");
+    // Plain reasoning (no `tool` field) is noise the judge doesn't need and would otherwise
+    // crowd out the budget — only tool-carrying thinking_delta events are "tool calls".
+    expect(transcriptSummary).not.toContain("clean up the workspace");
+  });
 });

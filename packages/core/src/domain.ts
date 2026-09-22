@@ -356,7 +356,11 @@ export type PromptOmissionReason =
   | "no_prior_conversation"
   // Agent-memory segment only: this agent has no memory entries at all (a brand-new agent, or
   // one that has never had a `remember` call or a completed retrospective).
-  | "no_memory_entries";
+  | "no_memory_entries"
+  // Remember-reminder segment only: this is a review run, where the `remember` tool isn't wired
+  // into the sandbox at all (see run-turn-claude.ts's isReviewTurn) — reminding the agent to call
+  // a tool that doesn't exist on this turn would just be noise.
+  | "review_turn";
 
 // One layer of a run's composed system prompt. Invariant (tested in
 // prompt-composition.test.ts): joining segment texts in order reproduces the

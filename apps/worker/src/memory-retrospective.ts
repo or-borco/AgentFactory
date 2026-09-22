@@ -50,10 +50,16 @@ interface SessionEventRow {
   data: Record<string, unknown>;
 }
 
+// "tool_call" is a RunEvent type in @agentfactory/core but the current pipeline never persists
+// one — run-turn-claude.ts reports tool invocations as "thinking_delta" events carrying a `tool`
+// field instead (see its tool_use handling). Filtering here on a `tool` field, not the event
+// type, is what actually captures them; a plain thinking_delta (reasoning prose, no `tool`
+// field) is noise the judge doesn't need.
 function summarizeEvents(events: SessionEventRow[]): string {
-  const interesting = events.filter((e) =>
-    ["tool_call", "error", "model_escalated", "repo_sync"].includes(e.type),
-  );
+  const interesting = events.filter((e) => {
+    if (e.type === "thinking_delta") return typeof e.data.tool === "string";
+    return ["error", "model_escalated", "repo_sync"].includes(e.type);
+  });
   const lines = interesting.map((e) => `[run ${e.runId}] ${e.type}: ${JSON.stringify(e.data)}`);
   const joined = lines.join("\n");
   return joined.length > MAX_TRANSCRIPT_CHARS
