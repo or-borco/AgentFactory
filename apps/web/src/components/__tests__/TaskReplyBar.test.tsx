@@ -42,12 +42,10 @@ describe("TaskReplyBar", () => {
     const sendButton = screen.getByRole("button", { name: /send/i });
 
     // DOM order: textarea, then Stop, then Send.
-    const position = textarea.compareDocumentPosition(stopButton);
-    // eslint-disable-next-line no-bitwise
-    expect(position & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    const stopToSend = stopButton.compareDocumentPosition(sendButton);
-    // eslint-disable-next-line no-bitwise
-    expect(stopToSend & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const order = [textarea, stopButton, sendButton];
+    const container = textarea.closest("div")!;
+    const allInOrder = Array.from(container.querySelectorAll("textarea, button"));
+    expect(allInOrder).toEqual(order);
   });
 
   it("calls onStop when the Stop button is clicked, and disables it while stopping", () => {
