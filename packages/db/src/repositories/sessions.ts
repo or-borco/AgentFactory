@@ -13,6 +13,7 @@ export function toSession(row: typeof sessions.$inferSelect): Session {
     origin: row.origin,
     externalThreadRef: row.externalThreadRef ?? undefined,
     sandboxId: row.sandboxId ?? undefined,
+    sandboxImage: row.sandboxImage ?? undefined,
     branchToken: row.branchToken ?? undefined,
     createdAt: row.createdAt.toISOString(),
     lastActivityAt: row.lastActivityAt.toISOString(),
@@ -69,6 +70,14 @@ export async function setSessionSandboxId(id: number, sandboxId: string): Promis
 
 export async function clearSessionSandboxId(id: number): Promise<void> {
   await db.update(sessions).set({ sandboxId: null }).where(eq(sessions.id, id));
+}
+
+export async function setSessionSandbox(id: number, sandboxId: string, sandboxImage: string): Promise<void> {
+  await db.update(sessions).set({ sandboxId, sandboxImage }).where(eq(sessions.id, id));
+}
+
+export async function clearSessionSandbox(id: number): Promise<void> {
+  await db.update(sessions).set({ sandboxId: null, sandboxImage: null }).where(eq(sessions.id, id));
 }
 
 // Feeds apps/worker's sandboxReapWorker scan: sessions with a warm sandbox that has sat idle

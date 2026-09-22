@@ -4,9 +4,11 @@ import "../setup.js";
 import { db } from "../../client.js";
 import { agents } from "../../schema.js";
 import {
+  clearSessionSandbox,
   createSession,
   getSession,
   listSessions,
+  setSessionSandbox,
   setSessionSandboxId,
   touchSessionActivity,
 } from "../../repositories/sessions.js";
@@ -70,6 +72,32 @@ describe("sessions repository", () => {
     await setSessionSandboxId(session.id, "sandbox-123");
 
     await expect(getSession(session.id)).resolves.toMatchObject({ sandboxId: "sandbox-123" });
+  });
+
+  it("setSessionSandbox stores both sandboxId and sandboxImage", async () => {
+    const org = await insertOrg();
+    const agent = await insertAgent(org.id);
+    const session = await insertSession(org.id, agent.id);
+
+    await setSessionSandbox(session.id, "container-1", "arata-sandbox-python:local");
+
+    await expect(getSession(session.id)).resolves.toMatchObject({
+      sandboxId: "container-1",
+      sandboxImage: "arata-sandbox-python:local",
+    });
+  });
+
+  it("clearSessionSandbox nulls both sandboxId and sandboxImage", async () => {
+    const org = await insertOrg();
+    const agent = await insertAgent(org.id);
+    const session = await insertSession(org.id, agent.id);
+    await setSessionSandbox(session.id, "container-1", "arata-sandbox-python:local");
+
+    await clearSessionSandbox(session.id);
+
+    const found = await getSession(session.id);
+    expect(found?.sandboxId).toBeUndefined();
+    expect(found?.sandboxImage).toBeUndefined();
   });
 
   it("is deleted when its agent is deleted", async () => {
