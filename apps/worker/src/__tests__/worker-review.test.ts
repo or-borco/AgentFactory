@@ -53,7 +53,7 @@ vi.mock("@agentfactory/queue", () => ({
 }));
 
 vi.mock("@agentfactory/db", () => ({
-  clearSessionSandboxId: vi.fn(),
+  clearSessionSandbox: vi.fn(),
   createEvent: vi.fn(),
   createMessage: vi.fn(),
   createPendingPrReview: vi.fn(),
@@ -72,7 +72,7 @@ vi.mock("@agentfactory/db", () => ({
   listMessages: vi.fn(async () => []),
   readAgentMemoryEntries: vi.fn(async () => []),
   reinforceMemoryEntry: vi.fn(),
-  setSessionSandboxId: vi.fn(),
+  setSessionSandbox: vi.fn(),
   touchSessionActivity: vi.fn(),
   updateRunCommitRange: vi.fn(),
   updateRunStatus: vi.fn(),

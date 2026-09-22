@@ -22,7 +22,7 @@ import {
 } from "@agentfactory/queue";
 import { type ModelSpec, type PromptSegment, type Session, buildModelSpec, formatSharedContextForPrompt } from "@agentfactory/core";
 import {
-  clearSessionSandboxId,
+  clearSessionSandbox,
   createEvent,
   createMessage,
   createPendingPrReview,
@@ -38,7 +38,7 @@ import {
   insertRunContextRetrievals,
   listMessages,
   readAgentMemoryEntries,
-  setSessionSandboxId,
+  setSessionSandbox,
   touchSessionActivity,
   updateRunCommitRange,
   updateRunStatus,
@@ -95,6 +95,7 @@ import {
 } from "./scm-provider";
 import { resolveEscalation } from "./model-escalation";
 import { ensureRepoMap, warmRepoMap } from "./repo-map";
+import { resolveSandboxImage, SANDBOX_IMAGE_NODE } from "./sandbox-image-select";
 import { buildRetrievalQuery, retrieveContext, type RetrievedContext } from "./context-retrieval";
 import { waitForPendingContextIngest } from "./context-ingest-wait";
 import { materialiseTaskDocuments, type MaterialisedTaskDocuments } from "./task-documents";
@@ -108,22 +109,36 @@ import { createLogger } from "@agentfactory/logger";
 
 const log = createLogger("worker");
 
-const SANDBOX_IMAGE = process.env.SANDBOX_IMAGE ?? "agentfactory-sandbox:local";
 const sandboxProvider = new DockerSandboxProvider();
 
 // One sandbox per active session, kept warm across runs (ARCHITECTURE.md §4) — the SDK's own
 // resume mechanism needs the same container's filesystem across turns (see the sessions.sandboxId
 // migration). Idle teardown of long-unused sandboxes is handled separately by sandboxReapWorker
 // below (sandbox-reap.ts), not here.
-async function ensureSandbox(session: Session): Promise<string> {
-  if (session.sandboxId && (await sandboxProvider.exists(session.sandboxId))) {
-    return session.sandboxId;
+async function ensureSandbox(session: Session, orgId: number, repoFullName: string | undefined): Promise<string> {
+  const hasWarmSandbox = Boolean(session.sandboxId) && (await sandboxProvider.exists(session.sandboxId!));
+
+  if (hasWarmSandbox && session.sandboxImage !== SANDBOX_IMAGE_NODE) {
+    return session.sandboxId!;
   }
+
+  const image = await resolveSandboxImage(orgId, repoFullName);
+
+  if (hasWarmSandbox && image === SANDBOX_IMAGE_NODE) {
+    return session.sandboxId!;
+  }
+
+  if (hasWarmSandbox) {
+    await sandboxProvider.destroy(session.sandboxId!).catch((err) => {
+      log.error("Failed to tear down sandbox before image upgrade", { sandboxId: session.sandboxId, err });
+    });
+  }
+
   const sandbox = await sandboxProvider.create({
-    image: SANDBOX_IMAGE,
+    image,
     env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "" },
   });
-  await setSessionSandboxId(session.id, sandbox.id);
+  await setSessionSandbox(session.id, sandbox.id, image);
   return sandbox.id;
 }
 
@@ -169,8 +184,12 @@ const runWorker = new Worker<RunJobData>(
       const runtime = getAgentRuntime(agent.runtimeKind);
       const caps = runtime.capabilities();
 
+      const task = await getTaskBySessionId(session.id);
+      const prRef = task ? parsePullRequestReferenceAcrossProviders(task.description) : undefined;
+      const repoFullNameForImage = prRef?.repoFullName ?? task?.codebase ?? undefined;
+
       await updateRunStatus(runId, "provisioning");
-      const sandboxId = await ensureSandbox(session);
+      const sandboxId = await ensureSandbox(session, agent.orgId, repoFullNameForImage);
       // Shrink back to base before this run starts — a sandbox that grew to handle a heavy
       // task on a prior run shouldn't keep that cap for this one (see docker-sandbox-provider.ts).
       await sandboxProvider.resetMemory(sandboxId);
@@ -195,7 +214,6 @@ const runWorker = new Worker<RunJobData>(
         ? ""
         : formatPriorConversationForPrompt(await listMessages(session.id), run.triggeringMessageId ?? -1);
 
-      const task = await getTaskBySessionId(session.id);
       let workspace: CloneTarget | undefined;
       let repoMap = "";
       let taskDocuments: MaterialisedTaskDocuments = { written: [], omitted: [] };
@@ -229,7 +247,6 @@ const runWorker = new Worker<RunJobData>(
       // eligible; the review this produces is never posted to GitHub automatically — it lands as
       // a "pending" pr_reviews row and only reaches GitHub once a human approves it (see the
       // posting block below and apps/web's pr-reviews approve/discard routes).
-      const prRef = task ? parsePullRequestReferenceAcrossProviders(task.description) : undefined;
       if (prRef && task) {
         const resolved = await resolveScmConnection(agent.orgId, prRef.repoFullName);
         if (!resolved) {
@@ -895,7 +912,7 @@ const sandboxTeardownWorker = new Worker<SandboxTeardownJobData>(
     // Destroying a sandbox out from under a running turn would fail it outright.
     if (await hasNonTerminalRun(sessionId)) return;
     await sandboxProvider.destroy(session.sandboxId);
-    await clearSessionSandboxId(sessionId);
+    await clearSessionSandbox(sessionId);
   },
   { connection: queueConnection },
 );
@@ -962,7 +979,7 @@ const repoMapWarmWorker = new Worker<RepoMapWarmJobData>(
   REPO_MAP_WARM_QUEUE_NAME,
   async (job) => {
     const { orgId, repoFullName } = job.data;
-    await warmRepoMap(sandboxProvider, orgId, repoFullName, SANDBOX_IMAGE);
+    await warmRepoMap(sandboxProvider, orgId, repoFullName);
   },
   { connection: queueConnection },
 );
