@@ -812,11 +812,12 @@ const runWorker = new Worker<RunJobData>(
       log.error("Run failed", { runId, err });
 
       // A Stop request (apps/web's POST /api/tasks/[taskId]/stop) marks the run "cancelled" in
-      // Postgres and then enqueues a job that destroys this run's sandbox — which is exactly
-      // what surfaces here as runtime.runTurn's promise rejecting (its docker exec died with the
-      // container). Re-reading the run's current status is how this catch tells that apart from
-      // a genuine failure: without it, a cancelled run would get silently overwritten back to
-      // "failed" by the generic handling below, the opposite of what the user asked for.
+      // Postgres and then enqueues a job that kills this run's exec inside its sandbox (see
+      // sandboxProvider.interrupt() and runCancelWorker) — the container itself is left running.
+      // That kill is exactly what surfaces here as runtime.runTurn's promise rejecting. Re-reading
+      // the run's current status is how this catch tells that apart from a genuine failure:
+      // without it, a cancelled run would get silently overwritten back to "failed" by the
+      // generic handling below, the opposite of what the user asked for.
       const cancelled = await getRun(runId);
       if (cancelled?.status === "cancelled") {
         await createEvent(runId, seq++, "done", { reason: "cancelled" });
@@ -901,19 +902,20 @@ sandboxTeardownWorker.on("failed", (job, err) => {
 });
 
 // Triggered by the Stop button (apps/web's POST /api/tasks/[taskId]/stop, after it marks the run
-// "cancelled"). The mirror image of sandboxTeardownWorker above: that one deliberately no-ops
-// while a run is in flight (hasNonTerminalRun), because destroying a sandbox out from under a
-// running turn is normally exactly what must not happen. Here it's exactly what must happen —
-// killing this session's sandbox is what makes the in-progress docker exec backing runTurn die,
-// which is what stops the agent's loop (see runWorker's catch block above for how that surfaces).
+// "cancelled"). Deliberately interrupts rather than destroys: the sandbox is what holds the
+// session's warm checkout and SDK resume state, and the point of Stop is "the agent stops
+// working, the conversation stays open for a new message" — not "throw away the container".
+// sandboxProvider.interrupt() kills only the exec backing the in-progress turn, which is what
+// makes runTurn's promise reject (see runWorker's catch block above for how that surfaces as a
+// "cancelled" run instead of a "failed" one). The container itself, and the session's
+// sandboxId, are left exactly as they were.
 const runCancelWorker = new Worker<RunCancelJobData>(
   RUN_CANCEL_QUEUE_NAME,
   async (job) => {
     const { sessionId } = job.data;
     const session = await getSession(sessionId);
     if (!session?.sandboxId) return;
-    await sandboxProvider.destroy(session.sandboxId);
-    await clearSessionSandboxId(sessionId);
+    await sandboxProvider.interrupt(session.sandboxId);
   },
   { connection: queueConnection },
 );

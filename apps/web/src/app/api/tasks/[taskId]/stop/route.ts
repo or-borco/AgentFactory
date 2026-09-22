@@ -6,18 +6,21 @@ import { requireAuthContext } from "@/server/auth";
 
 // Backs the Stop button (TaskRowActions and the task detail page). Cancelling here means two
 // things, both of which have to happen for the agent to actually stop rather than merely look
-// stopped: mark the in-flight run "cancelled" in Postgres (what the UI polls), and enqueue a job
-// the worker uses to kill that run's sandbox — Docker is only reachable from the worker process,
-// so this route can't touch it directly (same reason DELETE and mark-done enqueue a teardown job
-// instead). No non-terminal run (e.g. a double-click, or the run just finished on its own) is a
-// harmless no-op, not an error.
+// stopped: mark the in-flight run "cancelled" in Postgres (what the UI polls — a terminal status,
+// so the reply box re-enables immediately), and enqueue a job the worker uses to interrupt that
+// run's turn — Docker is only reachable from the worker process, so this route can't touch it
+// directly (same reason DELETE and mark-done enqueue a teardown job instead). The sandbox itself
+// is deliberately left running: interrupting kills only the in-progress turn, not the container,
+// so the session's warm checkout survives and the next message reuses the same sandbox. No
+// non-terminal run (e.g. a double-click, or the run just finished on its own) is a harmless
+// no-op, not an error.
 //
 // Best-effort, not a cooperative cancellation point: if the stop request lands while the worker
 // is still provisioning the sandbox (before session.sandboxId is recorded), runCancelWorker has
-// nothing to destroy yet and the run proceeds — there's no polling loop anywhere in the run job
+// nothing to interrupt yet and the run proceeds — there's no polling loop anywhere in the run job
 // for it to check `status === "cancelled"` against. In practice this only matters for the brief
 // provisioning window; once the agent's turn is actually executing (the vast majority of a run's
-// wall-clock time), destroying the sandbox is what kills it.
+// wall-clock time), interrupting it is what stops it.
 export async function POST(_req: Request, { params }: { params: Promise<{ taskId: string }> }) {
   const ctx = await requireAuthContext();
   if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

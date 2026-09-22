@@ -51,6 +51,7 @@ function fakeSandbox(chunks: OutputChunk[]): SandboxProvider {
     destroy: vi.fn(),
     exists: vi.fn(),
     resetMemory: vi.fn(),
+    interrupt: vi.fn(),
   };
 }
 
@@ -70,6 +71,7 @@ function capturingSandbox(chunks: OutputChunk[]): { sandbox: SandboxProvider; sc
       destroy: vi.fn(),
       exists: vi.fn(),
       resetMemory: vi.fn(),
+      interrupt: vi.fn(),
     } as unknown as SandboxProvider,
     script: () => captured,
   };
@@ -280,6 +282,7 @@ describe("cloneIntoSandbox", () => {
       destroy: vi.fn(),
       exists: vi.fn(),
       resetMemory: vi.fn(),
+      interrupt: vi.fn(),
     };
 
     await cloneIntoSandbox(sandbox, "sandbox-1", target);
@@ -358,6 +361,7 @@ describe("syncWithDefaultBranch", () => {
       destroy: vi.fn(),
       exists: vi.fn(),
       resetMemory: vi.fn(),
+      interrupt: vi.fn(),
     };
 
     await syncWithDefaultBranch(sandbox, "sandbox-1", target);
@@ -573,6 +577,7 @@ describe("pushChangesIfDirty", () => {
       destroy: vi.fn(),
       exists: vi.fn(),
       resetMemory: vi.fn(),
+      interrupt: vi.fn(),
     };
 
     await pushChangesIfDirty(sandbox, "sandbox-1", target, "Fix the bug", "Code reviewer");

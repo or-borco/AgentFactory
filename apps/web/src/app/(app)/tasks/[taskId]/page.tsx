@@ -427,10 +427,10 @@ export default function TaskDetailPage() {
     }
   };
 
-  // Cancels the in-flight run and kills its sandbox server-side (see POST
-  // /api/tasks/[taskId]/stop). runStatus is set optimistically here, same as handleRun sets
-  // "queued" before its first poll — the next pollRun/pollRunStatus tick confirms it from the
-  // server a moment later regardless.
+  // Cancels the in-flight run and interrupts the agent's turn server-side, without tearing down
+  // the sandbox (see POST /api/tasks/[taskId]/stop). runStatus is set optimistically here, same
+  // as handleRun sets "queued" before its first poll — the next pollRun/pollRunStatus tick
+  // confirms it from the server a moment later regardless.
   const handleStop = async () => {
     if (!task || stopping) return;
     setStopping(true);

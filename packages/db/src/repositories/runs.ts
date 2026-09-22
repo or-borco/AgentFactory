@@ -78,11 +78,11 @@ export async function getLatestNonTerminalRun(sessionId: number): Promise<Run | 
 }
 
 // Marks a run cancelled — used by the Stop action alongside enqueueRunCancelJob, which is what
-// actually kills the sandbox process running the turn (see apps/worker's runCancelWorker). The
-// WHERE clause re-checks non-terminal at the DB level, not just via the caller's own read: a run
-// that finishes or fails a moment before this write lands must not be clobbered back to
-// "cancelled" by a stop request racing its own completion. Returns undefined (a no-op) when the
-// run had already reached a terminal status.
+// actually interrupts the sandbox process running the turn without tearing down the sandbox
+// itself (see apps/worker's runCancelWorker). The WHERE clause re-checks non-terminal at the DB
+// level, not just via the caller's own read: a run that finishes or fails a moment before this
+// write lands must not be clobbered back to "cancelled" by a stop request racing its own
+// completion. Returns undefined (a no-op) when the run had already reached a terminal status.
 export async function cancelRun(id: number): Promise<Run | undefined> {
   const [row] = await db
     .update(runs)

@@ -34,4 +34,9 @@ export interface SandboxProvider {
   readWorkspace(id: string): Promise<Record<string, string>>;
   destroy(id: string): Promise<void>;
   exists(id: string): Promise<boolean>;
+  // Kills whatever command is currently running via exec() in this sandbox, without touching the
+  // container itself — the Stop button's "leave the sandbox warm, just stop the turn" contract
+  // (see apps/worker/src/worker.ts's runCancelWorker). A no-op if nothing is running right now
+  // (e.g. the turn had already finished by the time the stop request arrived).
+  interrupt(id: string): Promise<void>;
 }

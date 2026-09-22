@@ -22,9 +22,10 @@ export const TASK_CONTEXT_INGEST_QUEUE_NAME = "task-context-ingest";
 // write path's weight-reinforcement dedup), not because the queue collapsed it.
 export const MEMORY_RETROSPECTIVE_QUEUE_NAME = "memory-retrospective";
 // Fires when the Stop button cancels a run in flight (apps/web's POST /api/tasks/[taskId]/stop).
-// Deliberately its own queue rather than reusing SANDBOX_TEARDOWN_QUEUE_NAME: teardown's handler
-// no-ops via hasNonTerminalRun whenever a run is actually in progress, which is exactly the one
-// case a stop request needs to act on — the two queues encode opposite guards on purpose.
+// Deliberately its own queue rather than reusing SANDBOX_TEARDOWN_QUEUE_NAME: teardown destroys
+// the container and no-ops via hasNonTerminalRun whenever a run is actually in progress — the
+// opposite of what Stop needs, which is to interrupt the running turn while leaving the
+// container (and the session's warm checkout) alone. See RunCancelJobData below.
 export const RUN_CANCEL_QUEUE_NAME = "run-cancel";
 
 export interface RunJobData {
@@ -37,9 +38,9 @@ export interface SandboxTeardownJobData {
   sessionId: number;
 }
 
-// See RUN_CANCEL_QUEUE_NAME above. Destroying the sandbox is what actually stops the agent's
-// loop: the running turn's docker exec dies with it, which is what makes runTurn's promise
-// settle (see apps/worker/src/worker.ts's runWorker catch block).
+// See RUN_CANCEL_QUEUE_NAME above. Interrupting the sandbox's in-progress exec is what actually
+// stops the agent's loop — it makes runTurn's promise reject (see apps/worker/src/worker.ts's
+// runWorker catch block) — without destroying the container the session is still attached to.
 export interface RunCancelJobData {
   sessionId: number;
 }
