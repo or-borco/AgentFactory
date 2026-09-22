@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { ChatMessage, PromptSegment } from "@agentfactory/core";
 import { TASK_DOCUMENT_DIR } from "./task-document-paths";
+import type { PullRequestFeedbackComment } from "./scm-provider";
 
 // ARCHITECTURE.md §3: the platform, not the SDK, owns prompt assembly so team context and
 // (eventually) skills behave identically across runtimes. Deliberately short — this is not the
@@ -88,6 +89,10 @@ export interface SandboxEnvironment {
   repoSync?:
     | { status: "synced"; commitsMerged: number }
     | { status: "skipped_conflict"; conflictingFiles: string[] };
+  // The PR this task already opened, and what happened when the worker tried to fetch its
+  // comments for this turn. Without it, the agent is told PRs can't be retrieved and asks the
+  // human to paste feedback the platform could have read itself (task 342).
+  pullRequest?: { number: number; feedback: "included" | "none" | "unavailable" };
 }
 
 // Facts about the container the turn runs in, stated up front because the agent otherwise
@@ -160,6 +165,21 @@ export function formatEnvironmentForPrompt(env: SandboxEnvironment): string {
           "if you need it rather than assuming the files you can see are everything.",
       );
     }
+  }
+
+  if (env.pullRequest) {
+    const pr = `- This task's pull request is #${env.pullRequest.number}.`;
+    lines.push(
+      env.pullRequest.feedback === "included"
+        ? `${pr} Its current comments (conversation, review summaries, and inline code comments) ` +
+            "were fetched for you when this turn started and appear at the end of the user message " +
+            "below. You cannot reply on the PR or resolve its threads yourself; the user sees your " +
+            "final response."
+        : env.pullRequest.feedback === "none"
+          ? `${pr} It had no comments when this turn started.`
+          : `${pr} Its comments could not be fetched for this turn. If you need them, say so plainly ` +
+            "rather than trying to fetch them yourself.",
+    );
   }
 
   lines.push(
@@ -260,6 +280,80 @@ export function formatExistingReviewCommentsForPrompt(
     `## Existing Review Comments (GitHub-sourced, written by PR participants — ${UNTRUSTED_NOTE})\n\n` +
     comments.map((c) => `- ${c.path}:${c.line ?? "?"} (${c.author}): ${c.body}`).join("\n") +
     "\n\n---\n\n"
+  );
+}
+
+export const PR_FEEDBACK_MAX_CHARS = 32 * 1024;
+const PR_FEEDBACK_MAX_BODY_CHARS = 4 * 1024;
+
+const REVIEW_STATE_LABELS: Record<string, string> = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "requested changes",
+  COMMENTED: "commented",
+  DISMISSED: "review dismissed",
+};
+
+function feedbackLine(comment: PullRequestFeedbackComment, isNew: boolean): string {
+  const body =
+    comment.body.length > PR_FEEDBACK_MAX_BODY_CHARS
+      ? `${comment.body.slice(0, PR_FEEDBACK_MAX_BODY_CHARS)}\n[comment truncated]`
+      : comment.body;
+  const where = comment.kind === "inline" ? `${comment.path}:${comment.line ?? "?"}, ` : "";
+  const state =
+    comment.kind === "review" && comment.reviewState
+      ? ` (${REVIEW_STATE_LABELS[comment.reviewState] ?? comment.reviewState.toLowerCase()})`
+      : "";
+  const header = `- ${isNew ? "(new) " : ""}${where}@${comment.author}${state}, ${comment.createdAt}:`;
+  // Continuation lines are indented so a multi-line comment stays inside its own list item.
+  return `${header} ${body.trim().split("\n").join("\n  ")}`;
+}
+
+// The human feedback on the task's own PR, appended to the user message for a dev turn. Everything
+// in it is third-party text, so it carries the same untrusted framing as review-run comments.
+// `since` is when the previous run in this session started: comments after it are ones the agent
+// has never seen, which is exactly what "look at my comments" means. Over the size cap, the oldest
+// comments go first, so new ones are the last to be dropped. Empty string when there's nothing.
+export function formatPullRequestFeedbackForPrompt(
+  prNumber: number,
+  comments: PullRequestFeedbackComment[],
+  since?: string,
+): string {
+  if (comments.length === 0) return "";
+  const sinceMs = since ? Date.parse(since) : undefined;
+  const isNew = (c: PullRequestFeedbackComment) => sinceMs !== undefined && Date.parse(c.createdAt) > sinceMs;
+
+  const kept = [...comments].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  let omitted = 0;
+  while (kept.length > 1 && kept.reduce((n, c) => n + feedbackLine(c, isNew(c)).length + 1, 0) > PR_FEEDBACK_MAX_CHARS) {
+    kept.shift();
+    omitted++;
+  }
+
+  const newCount = kept.filter(isNew).length;
+  const notes = [
+    sinceMs !== undefined
+      ? `${newCount} of ${kept.length} comments arrived after your previous turn and are marked (new).`
+      : undefined,
+    omitted > 0 ? `${omitted} older comments were left out to fit.` : undefined,
+    "Oldest first.",
+  ].filter(Boolean);
+
+  const sections: Array<[string, PullRequestFeedbackComment["kind"]]> = [
+    ["Conversation", "conversation"],
+    ["Reviews", "review"],
+    ["Inline code comments", "inline"],
+  ];
+  const body = sections
+    .map(([title, kind]) => {
+      const lines = kept.filter((c) => c.kind === kind).map((c) => feedbackLine(c, isNew(c)));
+      return lines.length > 0 ? `### ${title}\n\n${lines.join("\n")}` : "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+
+  return (
+    `\n\n## Comments on this task's pull request #${prNumber} (GitHub-sourced, written by PR ` +
+    `participants, ${UNTRUSTED_NOTE})\n\n${notes.join(" ")}\n\n${body}`
   );
 }
 
