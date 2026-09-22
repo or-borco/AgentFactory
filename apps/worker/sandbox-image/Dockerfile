@@ -1,4 +1,4 @@
-FROM node:22-slim AS base
+FROM node:22-slim AS node
 
 # git per ARCHITECTURE.md §4's "prebuilt image containing Node, git, and the Agent SDK" — unused
 # by this slice (no repo cloning yet) but avoids a second image rebuild when workspace/repo
@@ -38,7 +38,7 @@ WORKDIR /workspace
 # be exec'd into more than once per session.
 CMD ["tail", "-f", "/dev/null"]
 
-FROM base AS python
+FROM node AS python
 USER root
 ENV PIPX_HOME=/opt/pipx
 ENV PIPX_BIN_DIR=/opt/pipx/bin
@@ -50,7 +50,7 @@ RUN apt-get update \
     && chown -R node:node /opt/pipx
 USER node
 
-FROM base AS java
+FROM node AS java
 USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openjdk-17-jdk maven \
