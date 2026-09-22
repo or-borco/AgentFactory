@@ -6,14 +6,23 @@ import { TASK_DOCUMENT_DIR } from "./task-document-paths";
 // (eventually) skills behave identically across runtimes. Deliberately short — this is not the
 // place for elaborate prompt engineering, just identity, safety/scope framing, and output
 // conventions the runtime can't otherwise assume.
+//
+// Names the `remember` tool by its SDK-qualified name, `mcp__memory__remember`, not the bare
+// `remember` the tool was originally described as here. The Claude Agent SDK exposes every
+// custom in-process MCP tool as `mcp__<serverName>__<toolName>` (createSdkMcpServer's "memory"
+// server + the "remember" tool in run-turn-claude.ts, so `mcp__memory__remember`) — there is no
+// tool literally named `remember`. A live run caught this directly: told to "call `remember`",
+// the agent searched its tool list (including via ToolSearch) for that exact name, found
+// nothing, and correctly reported back that no such tool existed "despite the system prompt
+// referencing one" — it never even attempted the real tool.
 export const PLATFORM_PREAMBLE =
   "You are an AgentFactory agent, an autonomous coding assistant delegated real engineering " +
   "work by a team. You run inside a sandboxed git checkout with no human approving actions in " +
   "real time, so stay within the scope of the task you were given. When your work is ready, " +
   "commit it and open a pull request rather than pushing directly to a protected branch. Keep " +
   "your final response concise — it is shown to the team as the run's summary. If the user " +
-  "explicitly asks you to remember something for future sessions, call `remember` with a " +
-  "concise summary of what to remember.\n\n---\n\n";
+  "explicitly asks you to remember something for future sessions, call the `mcp__memory__remember` " +
+  "tool with a concise summary of what to remember.\n\n---\n\n";
 
 // Sibling to PLATFORM_PREAMBLE for review runs — deliberately does NOT say "commit and open a
 // PR": a review run never commits, pushes, or has push credentials in the sandbox at all. It
@@ -28,23 +37,28 @@ export const REVIEW_PLATFORM_PREAMBLE =
   "comments anchored to specific files and line numbers. The platform posts this as a real " +
   "GitHub review after your turn ends — you never call GitHub yourself.\n\n---\n\n";
 
-// A second, stronger statement of PLATFORM_PREAMBLE's `remember` instruction, placed as the
-// LAST segment in the prompt (see composeSystemPrompt) so it sits immediately before the user's
-// own message rather than buried under the repo map and team context that follow the preamble.
-// Exists because the preamble's one-clause mention wasn't enough in practice: a real run had the
-// user reply mid-session with "please remember to not run integration tests", the agent complied
-// operationally (skipped the tests) and never called `remember` at all — no memory_write event,
-// nothing persisted. Worded to name that exact failure mode rather than repeat the same phrasing
-// and hope repetition alone fixes it. Omitted on review runs, where the `remember` tool is not
-// wired into the sandbox at all (see run-turn-claude.ts's isReviewTurn) — a reminder to call a
-// tool that isn't there would just be noise.
+// A second, stronger statement of PLATFORM_PREAMBLE's `mcp__memory__remember` instruction,
+// placed as the LAST segment in the prompt (see composeSystemPrompt) so it sits immediately
+// before the user's own message rather than buried under the repo map and team context that
+// follow the preamble. Exists because the preamble's one-clause mention wasn't enough in
+// practice: a real run had the user reply mid-session with "please remember to not run
+// integration tests", the agent complied operationally (skipped the tests) and never called the
+// tool at all — no memory_write event, nothing persisted. Worded to name that exact failure mode
+// rather than repeat the same phrasing and hope repetition alone fixes it. Also names the tool by
+// its exact SDK-qualified name (see PLATFORM_PREAMBLE's comment) rather than the bare `remember`
+// this used to say — that mismatch is a second, independently confirmed failure mode: a later
+// run, prompted more insistently, searched for a tool literally named `remember`, found none, and
+// gave up rather than trying the real one. Omitted on review runs, where the memory MCP server
+// isn't registered in the sandbox at all (see run-turn-claude.ts's isReviewTurn) — a reminder to
+// call a tool that isn't there would just be noise.
 export const REMEMBER_REMINDER =
   "## Before You Finish\n\n" +
   "If anything in this conversation so far — including a reply mid-session, not just the " +
   "original task — asked you to remember, note, or keep in mind something for future sessions, " +
-  "call the `remember` tool with a concise summary before you finish this turn. Complying with " +
-  "the request for this turn is not a substitute for calling `remember`: if you're not sure " +
-  "whether it counts, call it.\n\n---\n\n";
+  "call the `mcp__memory__remember` tool with a concise summary before you finish this turn. " +
+  "Complying with the request for this turn is not a substitute for calling it: if you're not " +
+  "sure whether it counts, call it. If your tool list doesn't show it directly, search for it — " +
+  "it is registered, under exactly that name.\n\n---\n\n";
 
 // `enabled` is false on review runs, where mcpServers omits the memory server entirely (see
 // run-turn-claude.ts's isReviewTurn) — the omitted reason records why, matching the pattern
