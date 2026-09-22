@@ -372,6 +372,7 @@ const en = {
     startingRun: "Starting…",
     stopAgent: "Stop agent",
     stoppingAgent: "Stopping…",
+    stopReply: "Stop",
     markDone: "Mark as done",
     markingDone: "Marking done…",
     deleteTask: "Delete task",
