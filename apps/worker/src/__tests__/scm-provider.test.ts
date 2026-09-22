@@ -17,6 +17,7 @@ const {
   cloneIntoSandbox,
   fetchCommitRangeDiff,
   fetchIssue,
+  fetchPullRequestFeedback,
   openDraftPullRequest,
   parseIssueReference,
   pushChangesIfDirty,
@@ -116,6 +117,23 @@ describe("fetchIssue (thin wrapper over the registry)", () => {
   it("returns undefined when no connection resolves", async () => {
     resolveScmConnectionMock.mockResolvedValue(undefined);
     await expect(fetchIssue(1, "acme/widgets", 37)).resolves.toBeUndefined();
+  });
+});
+
+describe("fetchPullRequestFeedback (thin wrapper over the registry)", () => {
+  it("delegates to the resolved provider's fetchPullRequestFeedback", async () => {
+    const connection = fakeConnection(1);
+    const feedback = [{ kind: "conversation", author: "or", body: "B", createdAt: "2026-09-22T00:00:00Z" }];
+    const providerFn = vi.fn().mockResolvedValue(feedback);
+    resolveScmConnectionMock.mockResolvedValue({ connection, provider: { fetchPullRequestFeedback: providerFn } });
+
+    await expect(fetchPullRequestFeedback(1, "acme/widgets", 300)).resolves.toEqual(feedback);
+    expect(providerFn).toHaveBeenCalledWith(connection, "acme/widgets", 300);
+  });
+
+  it("returns undefined when no connection resolves", async () => {
+    resolveScmConnectionMock.mockResolvedValue(undefined);
+    await expect(fetchPullRequestFeedback(1, "acme/widgets", 300)).resolves.toBeUndefined();
   });
 });
 

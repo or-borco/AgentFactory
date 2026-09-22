@@ -51,6 +51,21 @@ export interface ReviewComment {
   createdAt: string;
 }
 
+// Human-readable feedback on a PR as a dev agent needs it: general conversation comments, review
+// summary bodies, and inline code comments, flattened into one list sorted oldest first. Distinct
+// from ReviewComment, which is inline-only and exists for review runs' de-duplication.
+export interface PullRequestFeedbackComment {
+  kind: "conversation" | "review" | "inline";
+  author: string;
+  body: string;
+  createdAt: string;
+  // inline only
+  path?: string;
+  line?: number | null;
+  // review only: GitHub's review state (APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED)
+  reviewState?: string;
+}
+
 export interface ReviewToPost {
   summary: string;
   verdict: "comment" | "request_changes";
@@ -108,6 +123,11 @@ export interface ScmProvider {
   parseIssueReference(text: string): { repoFullName: string; issueNumber: number } | undefined;
   fetchPullRequest(connection: Connection, repoFullName: string, prNumber: number): Promise<PullRequestInfo>;
   fetchReviewThreads(connection: Connection, repoFullName: string, prNumber: number): Promise<ReviewComment[]>;
+  fetchPullRequestFeedback(
+    connection: Connection,
+    repoFullName: string,
+    prNumber: number,
+  ): Promise<PullRequestFeedbackComment[]>;
   postReview(
     connection: Connection,
     repoFullName: string,
