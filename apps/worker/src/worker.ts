@@ -5,6 +5,7 @@ import {
   TEAM_CONTEXT_INGEST_QUEUE_NAME,
   EVAL_QUEUE_NAME,
   MEMORY_RETROSPECTIVE_QUEUE_NAME,
+  RUN_CANCEL_QUEUE_NAME,
   RUN_QUEUE_NAME,
   REPO_MAP_WARM_QUEUE_NAME,
   SANDBOX_REAP_QUEUE_NAME,
@@ -14,6 +15,7 @@ import {
   type EvalJobData,
   type MemoryRetrospectiveJobData,
   type RepoMapWarmJobData,
+  type RunCancelJobData,
   type RunJobData,
   type SandboxTeardownJobData,
   type TaskContextIngestJobData,
@@ -808,6 +810,20 @@ const runWorker = new Worker<RunJobData>(
       await touchSessionActivity(session.id);
     } catch (err) {
       log.error("Run failed", { runId, err });
+
+      // A Stop request (apps/web's POST /api/tasks/[taskId]/stop) marks the run "cancelled" in
+      // Postgres and then enqueues a job that kills this run's exec inside its sandbox (see
+      // sandboxProvider.interrupt() and runCancelWorker) — the container itself is left running.
+      // That kill is exactly what surfaces here as runtime.runTurn's promise rejecting. Re-reading
+      // the run's current status is how this catch tells that apart from a genuine failure:
+      // without it, a cancelled run would get silently overwritten back to "failed" by the
+      // generic handling below, the opposite of what the user asked for.
+      const cancelled = await getRun(runId);
+      if (cancelled?.status === "cancelled") {
+        await createEvent(runId, seq++, "done", { reason: "cancelled" });
+        return;
+      }
+
       // Persist the failure to the event log (the source of truth for what happened during a
       // run, per this repo's domain model) — without this, the only record of why a run died
       // was this stdout line, gone the moment the worker's logs rotate or the process restarts.
@@ -883,6 +899,29 @@ const sandboxTeardownWorker = new Worker<SandboxTeardownJobData>(
 
 sandboxTeardownWorker.on("failed", (job, err) => {
   log.error("Sandbox teardown job failed", { jobId: job?.id, err });
+});
+
+// Triggered by the Stop button (apps/web's POST /api/tasks/[taskId]/stop, after it marks the run
+// "cancelled"). Deliberately interrupts rather than destroys: the sandbox is what holds the
+// session's warm checkout and SDK resume state, and the point of Stop is "the agent stops
+// working, the conversation stays open for a new message" — not "throw away the container".
+// sandboxProvider.interrupt() kills only the exec backing the in-progress turn, which is what
+// makes runTurn's promise reject (see runWorker's catch block above for how that surfaces as a
+// "cancelled" run instead of a "failed" one). The container itself, and the session's
+// sandboxId, are left exactly as they were.
+const runCancelWorker = new Worker<RunCancelJobData>(
+  RUN_CANCEL_QUEUE_NAME,
+  async (job) => {
+    const { sessionId } = job.data;
+    const session = await getSession(sessionId);
+    if (!session?.sandboxId) return;
+    await sandboxProvider.interrupt(session.sandboxId);
+  },
+  { connection: queueConnection },
+);
+
+runCancelWorker.on("failed", (job, err) => {
+  log.error("Run cancel job failed", { jobId: job?.id, err });
 });
 
 // Idle-reap: the other two teardown triggers (task done, task deleted) are event-driven and
@@ -998,6 +1037,7 @@ taskContextIngestWorker.on("failed", (job, err) => {
 log.info("apps/worker listening", {
   queues: [
     RUN_QUEUE_NAME,
+    RUN_CANCEL_QUEUE_NAME,
     SANDBOX_TEARDOWN_QUEUE_NAME,
     SANDBOX_REAP_QUEUE_NAME,
     REPO_MAP_WARM_QUEUE_NAME,

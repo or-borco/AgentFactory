@@ -107,6 +107,13 @@ async function extractTar(stream: NodeJS.ReadableStream): Promise<Record<string,
 
 const docker = new Docker();
 
+// The PID (in the container's own pid namespace, shared by every exec into it) of each
+// sandbox's currently-running exec() command — set at the start of exec() below, cleared once
+// it finishes. interrupt() reads this to kill precisely the running turn without touching the
+// container. Only one exec runs at a time per sandbox in practice (every call site in
+// worker.ts awaits one exec before starting the next), so "current" never needs to be a stack.
+const activeExecPid = new Map<string, number>();
+
 function toEnvList(env: Record<string, string>): string[] {
   return Object.entries(env).map(([key, value]) => `${key}=${value}`);
 }
@@ -187,11 +194,56 @@ export class DockerSandboxProvider implements SandboxProvider {
     // Tty:false on both create and start — required for demuxStream's multiplexed-frame format
     // below; with Tty:true Docker returns a single raw stream and demuxing hangs.
     const stream = await dockerExec.start({ Tty: false });
+    // Best-effort: if inspect() fails, interrupt() simply has nothing to target for this
+    // sandbox, same as if the command had already finished — never lets a stop request fail the
+    // command actually running.
+    const pid = await dockerExec.inspect().then(
+      (info) => info.Pid,
+      () => undefined,
+    );
+    if (pid) activeExecPid.set(id, pid);
     const stopWatchingMemory = watchMemory(container, id);
     try {
       yield* demux(stream);
     } finally {
       stopWatchingMemory();
+      if (activeExecPid.get(id) === pid) activeExecPid.delete(id);
+    }
+  }
+
+  // Kills the sandbox's currently-running exec() command in place — the container, its
+  // filesystem, and every other exec into it are untouched. Used by the Stop button (see
+  // apps/worker/src/worker.ts's runCancelWorker) instead of destroy(), so a stopped turn still
+  // leaves a warm sandbox behind for the session's next message to resume into.
+  //
+  // Runs `kill` through `/bin/sh -c` rather than execing a `kill`/`pkill` binary directly: the
+  // sandbox image (node:22-slim) has no procps package, but every POSIX shell — including
+  // node:22-slim's dash — implements `kill` as a builtin, so this works without adding a
+  // dependency to the image. The new exec runs inside the same container, hence the same pid
+  // namespace the target PID was recorded from, so the numeric PID is still valid here.
+  async interrupt(id: string): Promise<void> {
+    const pid = activeExecPid.get(id);
+    if (!pid) return; // nothing running right now — the turn already finished on its own
+    try {
+      const container = docker.getContainer(id);
+      const killExec = await container.exec({
+        Cmd: ["/bin/sh", "-c", `kill -9 ${pid}`],
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+      });
+      const stream = await killExec.start({ Tty: false });
+      // Drain to completion rather than just firing the exec: docker doesn't consider an exec
+      // done until its output stream ends, and leaving it unconsumed would leak the exec
+      // instance. The kill's own stdout/stderr carry nothing worth keeping.
+      await new Promise<void>((resolve) => {
+        stream.on("end", resolve);
+        stream.on("close", resolve);
+        stream.on("error", resolve);
+        stream.resume();
+      });
+    } catch (err) {
+      log.error("Failed to interrupt sandbox exec", { sandboxId: id, pid, err });
     }
   }
 

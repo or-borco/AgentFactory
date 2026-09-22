@@ -52,6 +52,7 @@ export default function TaskDetailPage() {
     messagesForSession,
     loadMessages,
     runTask,
+    stopTask,
     sendMessage,
     updateTask,
     refreshTask,
@@ -61,6 +62,7 @@ export default function TaskDetailPage() {
   const { t } = useTranslation();
 
   const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [markingDone, setMarkingDone] = useState(false);
   const [savingAssignee, setSavingAssignee] = useState(false);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
@@ -422,6 +424,21 @@ export default function TaskDetailPage() {
       notify("toast.taskAssigneeUpdated");
     } finally {
       setSavingAssignee(false);
+    }
+  };
+
+  // Cancels the in-flight run and interrupts the agent's turn server-side, without tearing down
+  // the sandbox (see POST /api/tasks/[taskId]/stop). runStatus is set optimistically here, same
+  // as handleRun sets "queued" before its first poll — the next pollRun/pollRunStatus tick
+  // confirms it from the server a moment later regardless.
+  const handleStop = async () => {
+    if (!task || stopping) return;
+    setStopping(true);
+    try {
+      await stopTask(task.id);
+      setRunStatus("cancelled");
+    } finally {
+      setStopping(false);
     }
   };
 
@@ -1001,7 +1018,11 @@ export default function TaskDetailPage() {
                 </ToolbarIconButton>
               )}
               {task.sessionId && !DESTRUCTIVE_STATUSES.includes(task.status) && (
-                <ToolbarIconButton label={t("taskDetail.stopAgent")} onClick={() => {}}>
+                <ToolbarIconButton
+                  label={stopping ? t("taskDetail.stoppingAgent") : t("taskDetail.stopAgent")}
+                  onClick={handleStop}
+                  disabled={stopping}
+                >
                   <StopIcon size={15} />
                 </ToolbarIconButton>
               )}

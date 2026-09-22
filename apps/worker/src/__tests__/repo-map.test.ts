@@ -50,6 +50,7 @@ function fakeSandbox(execResults: Record<string, OutputChunk[]>): SandboxProvide
     destroy: vi.fn(),
     exists: vi.fn(),
     resetMemory: vi.fn(),
+    interrupt: vi.fn(),
   };
 }
 
@@ -120,6 +121,7 @@ describe("ensureRepoMap", () => {
       destroy: vi.fn(),
       exists: vi.fn(),
       resetMemory: vi.fn(),
+      interrupt: vi.fn(),
     };
 
     const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets", { sleep: instantSleep });
@@ -142,6 +144,7 @@ describe("ensureRepoMap", () => {
       destroy: vi.fn(),
       exists: vi.fn(),
       resetMemory: vi.fn(),
+      interrupt: vi.fn(),
     };
 
     const result = await ensureRepoMap(sandbox, "sandbox-1", 1, "acme/widgets");
@@ -246,6 +249,7 @@ describe("warmRepoMap", () => {
       destroy: vi.fn(),
       exists: vi.fn(),
       resetMemory: vi.fn(),
+      interrupt: vi.fn(),
     };
 
     await warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local");
@@ -285,6 +289,7 @@ describe("warmRepoMap", () => {
       destroy,
       exists: vi.fn(),
       resetMemory: vi.fn(),
+      interrupt: vi.fn(),
     };
 
     await warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local");
@@ -317,6 +322,7 @@ describe("warmRepoMap", () => {
       destroy,
       exists: vi.fn(),
       resetMemory: vi.fn(),
+      interrupt: vi.fn(),
     };
 
     await expect(warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local")).resolves.toBeUndefined();
@@ -347,6 +353,7 @@ describe("warmRepoMap", () => {
       destroy,
       exists: vi.fn(),
       resetMemory: vi.fn(),
+      interrupt: vi.fn(),
     };
 
     await expect(warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local")).resolves.toBeUndefined();
@@ -374,6 +381,7 @@ describe("warmRepoMap", () => {
       destroy,
       exists: vi.fn(),
       resetMemory: vi.fn(),
+      interrupt: vi.fn(),
     };
 
     await expect(warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local")).resolves.toBeUndefined();

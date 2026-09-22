@@ -34,6 +34,7 @@ function fakeSandbox(chunks: OutputChunk[]): FakeSandbox {
     destroy: vi.fn(),
     exists: vi.fn(),
     resetMemory: vi.fn(),
+    interrupt: vi.fn(),
   };
 }
 

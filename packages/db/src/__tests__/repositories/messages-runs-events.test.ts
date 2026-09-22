@@ -6,7 +6,9 @@ import { events } from "../../schema.js";
 import { createEvent, listEventsForSession } from "../../repositories/events.js";
 import { createMessage, getFinalAssistantMessageForRun, getMessage, listMessages } from "../../repositories/messages.js";
 import {
+  cancelRun,
   createRun,
+  getLatestNonTerminalRun,
   getLatestResumeCandidate,
   getRun,
   getRunPrompt,
@@ -85,6 +87,50 @@ describe("runs repository", () => {
     });
 
     expect(updated).toMatchObject({ status: "done", providerSessionRef: "provider-ref-1", sandboxId: "sandbox-1" });
+    await expect(getRun(run.id)).resolves.toMatchObject({ status: "done" });
+  });
+
+  // Backs the Stop button: it only has a task/session in scope, not a runId, so it needs to look
+  // up which run a stop request should actually cancel.
+  it("finds the session's latest non-terminal run", async () => {
+    const session = await setupSession();
+    const done = await createRun(session.id);
+    await updateRunStatus(done.id, "done", { finishedAt: new Date() });
+    const running = await createRun(session.id);
+    await updateRunStatus(running.id, "running");
+
+    await expect(getLatestNonTerminalRun(session.id)).resolves.toMatchObject({ id: running.id, status: "running" });
+  });
+
+  it("returns undefined when every run on the session is terminal", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+    await updateRunStatus(run.id, "done", { finishedAt: new Date() });
+
+    await expect(getLatestNonTerminalRun(session.id)).resolves.toBeUndefined();
+  });
+
+  it("cancels a non-terminal run", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+    await updateRunStatus(run.id, "running");
+
+    const cancelled = await cancelRun(run.id);
+
+    expect(cancelled).toMatchObject({ status: "cancelled" });
+    await expect(getRun(run.id)).resolves.toMatchObject({ status: "cancelled" });
+  });
+
+  // The Stop route races the worker's own completion: a run can finish between the Stop route's
+  // read of "is there a non-terminal run" and this write. cancelRun's WHERE clause is the guard
+  // against clobbering a run that got to "done"/"failed" a moment earlier — this is what proves
+  // it, rather than trusting the caller's own pre-check.
+  it("does not cancel a run that already reached a terminal status", async () => {
+    const session = await setupSession();
+    const run = await createRun(session.id);
+    await updateRunStatus(run.id, "done", { finishedAt: new Date() });
+
+    await expect(cancelRun(run.id)).resolves.toBeUndefined();
     await expect(getRun(run.id)).resolves.toMatchObject({ status: "done" });
   });
 

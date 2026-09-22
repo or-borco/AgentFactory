@@ -18,6 +18,7 @@ function fakeSandbox(chunks: OutputChunk[]) {
     readWorkspace: async () => ({}),
     destroy: async () => {},
     exists: async () => true,
+    interrupt: async () => {},
   };
   return { sandboxProvider, execCalls };
 }
