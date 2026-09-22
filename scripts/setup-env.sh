@@ -84,19 +84,25 @@ ensure_docker() {
   fi
 }
 
-# The worker's sandbox image — built from the repo's own Dockerfile, no external inputs, so this
-# can just build it non-interactively like everything else here. Skipped if it's already present
-# (same idempotent pattern as ensure_docker) since a rebuild after every edit to sandbox-image/ is
-# the developer's call, not this script's.
+# The worker's sandbox images — built from the repo's own multi-stage Dockerfile, no external
+# inputs, so this can just build them non-interactively like everything else here. Each tag is
+# skipped independently if already present (same idempotent pattern as ensure_docker) since a
+# rebuild after every edit to sandbox-image/ is the developer's call, not this script's.
 ensure_sandbox_image() {
   if ! have docker; then
     return
   fi
-  if docker image inspect agentfactory-sandbox:local >/dev/null 2>&1; then
-    return
-  fi
-  echo "Building agentfactory-sandbox:local (needed to run the worker)..."
-  docker build -t agentfactory-sandbox:local apps/worker/sandbox-image
+  build_sandbox_target() {
+    local target="$1" tag="$2"
+    if docker image inspect "$tag" >/dev/null 2>&1; then
+      return
+    fi
+    echo "Building $tag (needed to run the worker)..."
+    docker build --target "$target" -t "$tag" apps/worker/sandbox-image
+  }
+  build_sandbox_target node arata-sandbox-node:local
+  build_sandbox_target python arata-sandbox-python:local
+  build_sandbox_target java arata-sandbox-java:local
 }
 
 ensure_node
