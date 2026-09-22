@@ -56,6 +56,7 @@ import {
   REVIEW_PLATFORM_PREAMBLE,
   buildAgentMemorySegment,
   buildPriorConversationSegment,
+  buildRememberReminderSegment,
   buildRepoMapSegment,
   buildRetrievedContextSegment,
   buildTeamContextSegment,
@@ -513,6 +514,7 @@ const runWorker = new Worker<RunJobData>(
             review.existingComments +
             formatReviewDiffForPrompt(review.focusBaseSha, review.focusHeadSha, review.focusDiffText),
           agentMemorySegment,
+          buildRememberReminderSegment(false),
         );
       } else {
         composed = composeSystemPrompt(
@@ -524,6 +526,7 @@ const runWorker = new Worker<RunJobData>(
           retrievedContextSegment,
           agent.systemPrompt,
           agentMemorySegment,
+          buildRememberReminderSegment(true),
         );
       }
       const systemPrompt = composed.prompt;

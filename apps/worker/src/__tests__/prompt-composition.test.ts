@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { ChatMessage, PromptSegment } from "@agentfactory/core";
 import {
   PLATFORM_PREAMBLE,
+  REMEMBER_REMINDER,
   REVIEW_PLATFORM_PREAMBLE,
   buildAgentMemorySegment,
   buildPriorConversationSegment,
+  buildRememberReminderSegment,
   buildRepoMapSegment,
   buildRetrievedContextSegment,
   buildTeamContextSegment,
@@ -24,6 +26,7 @@ const repoSeg = (text: string): PromptSegment => ({ id: "repo_map", text });
 const retrievedSeg = (text: string): PromptSegment => ({ id: "retrieved_context", text });
 const priorSeg = (text: string): PromptSegment => ({ id: "prior_conversation", text });
 const noMemory: PromptSegment = { id: "agent_memory", text: "", omittedReason: "no_memory_entries" };
+const noReminder: PromptSegment = { id: "remember_reminder", text: "", omittedReason: "review_turn" };
 const chatMessage = (id: number, role: "user" | "assistant", content: string): ChatMessage => ({
   id,
   sessionId: 1,
@@ -48,6 +51,7 @@ describe("composeSystemPrompt", () => {
       retrievedSeg("## Retrieved Context\n\nPage the on-call.\n\n---\n\n"),
       "You are a reviewer.",
       noMemory,
+      noReminder,
     );
 
     const preambleIndex = prompt.indexOf(PLATFORM_PREAMBLE);
@@ -77,6 +81,7 @@ describe("composeSystemPrompt", () => {
       retrievedSeg(""),
       "You are a reviewer.",
       noMemory,
+      noReminder,
     );
     expect(prompt).toBe(PLATFORM_PREAMBLE + "You are a reviewer.");
   });
@@ -91,6 +96,7 @@ describe("composeSystemPrompt", () => {
       retrievedSeg(""),
       "You are a reviewer.",
       noMemory,
+      noReminder,
     );
     expect(prompt).toBe(PLATFORM_PREAMBLE + "## Team Context\n\nUse pnpm.\n\n---\n\n" + "You are a reviewer.");
   });
@@ -108,6 +114,7 @@ describe("composeSystemPrompt", () => {
       retrievedSeg("## Retrieved Context\n\nRETRIEVED-BULK\n\n---\n\n"),
       "You are a reviewer.",
       noMemory,
+      noReminder,
     );
 
     const between = prompt.slice(prompt.indexOf("Use pnpm."), prompt.indexOf("You are a reviewer."));
@@ -134,6 +141,7 @@ describe("composeSystemPrompt", () => {
         c.retrieved,
         "You are a reviewer.",
         noMemory,
+        noReminder,
       );
       expect(segments.map((s) => s.text).join("")).toBe(prompt);
       expect(segments.map((s) => s.id)).toEqual([
@@ -145,6 +153,7 @@ describe("composeSystemPrompt", () => {
         "team_context",
         "agent_system_prompt",
         "agent_memory",
+        "remember_reminder",
       ]);
     }
   });
@@ -159,6 +168,7 @@ describe("composeSystemPrompt", () => {
       { id: "retrieved_context", text: "", omittedReason: "retrieval_failed" },
       "You are a reviewer.",
       noMemory,
+      noReminder,
     );
     const byId = new Map(segments.map((s) => [s.id, s]));
     expect(byId.get("prior_conversation")?.omittedReason).toBe("resume_valid");
@@ -168,6 +178,28 @@ describe("composeSystemPrompt", () => {
     expect(byId.get("platform_preamble")?.omittedReason).toBeUndefined();
     expect(byId.get("environment")?.omittedReason).toBeUndefined();
     expect(byId.get("agent_system_prompt")?.omittedReason).toBeUndefined();
+  });
+
+  it("puts the remember reminder last, immediately before nothing else follows it", () => {
+    const { segments, prompt } = composeSystemPrompt(
+      PLATFORM_PREAMBLE,
+      "",
+      priorSeg(""),
+      teamSeg(""),
+      repoSeg(""),
+      retrievedSeg(""),
+      "You are a reviewer.",
+      noMemory,
+      buildRememberReminderSegment(true),
+    );
+    expect(segments.at(-1)?.id).toBe("remember_reminder");
+    expect(prompt.endsWith(REMEMBER_REMINDER)).toBe(true);
+    expect(prompt.indexOf("You are a reviewer.")).toBeLessThan(prompt.indexOf(REMEMBER_REMINDER));
+  });
+
+  it("omits the remember reminder on review turns", () => {
+    const segment = buildRememberReminderSegment(false);
+    expect(segment).toEqual({ id: "remember_reminder", text: "", omittedReason: "review_turn" });
   });
 });
 
@@ -540,6 +572,7 @@ describe("REVIEW_PLATFORM_PREAMBLE", () => {
       retrievedSeg(""),
       "You are a reviewer.",
       noMemory,
+      noReminder,
     );
     expect(prompt.startsWith(REVIEW_PLATFORM_PREAMBLE)).toBe(true);
     expect(prompt).not.toContain(PLATFORM_PREAMBLE);
