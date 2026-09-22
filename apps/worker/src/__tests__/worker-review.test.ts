@@ -41,6 +41,7 @@ vi.mock("bullmq", () => ({
 // Imported for its queue-name constants only; importing it for real opens an ioredis connection.
 vi.mock("@agentfactory/queue", () => ({
   RUN_QUEUE_NAME: "runs",
+  RUN_CANCEL_QUEUE_NAME: "run-cancel",
   SANDBOX_TEARDOWN_QUEUE_NAME: "sandbox-teardown",
   SANDBOX_REAP_QUEUE_NAME: "sandbox-reap",
   REPO_MAP_WARM_QUEUE_NAME: "repo-map-warm",

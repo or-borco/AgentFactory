@@ -31,14 +31,21 @@ function makeTask(overrides: Partial<Task> = {}): Task {
 
 function renderActions(taskOverrides: Partial<Task> = {}) {
   const onRun = vi.fn().mockResolvedValue(undefined);
+  const onStop = vi.fn().mockResolvedValue(undefined);
   const onMarkDone = vi.fn().mockResolvedValue(undefined);
   const onDelete = vi.fn().mockResolvedValue(undefined);
   render(
     <I18nProvider>
-      <TaskRowActions task={makeTask(taskOverrides)} onRun={onRun} onMarkDone={onMarkDone} onDelete={onDelete} />
+      <TaskRowActions
+        task={makeTask(taskOverrides)}
+        onRun={onRun}
+        onStop={onStop}
+        onMarkDone={onMarkDone}
+        onDelete={onDelete}
+      />
     </I18nProvider>,
   );
-  return { onRun, onMarkDone, onDelete };
+  return { onRun, onStop, onMarkDone, onDelete };
 }
 
 describe("TaskRowActions", () => {
@@ -98,6 +105,12 @@ describe("TaskRowActions", () => {
   it("disables stop once the task reaches a terminal status", () => {
     renderActions({ status: "done", sessionId: 99 });
     expect(screen.getByRole("button", { name: "Stop agent" })).toBeDisabled();
+  });
+
+  it("calls onStop when a running task's stop button is clicked", async () => {
+    const { onStop } = renderActions({ status: "in_progress", sessionId: 99 });
+    fireEvent.click(screen.getByRole("button", { name: "Stop agent" }));
+    await waitFor(() => expect(onStop).toHaveBeenCalled());
   });
 
   it("calls onMarkDone when clicked on a non-done task", async () => {

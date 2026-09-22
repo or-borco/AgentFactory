@@ -11,6 +11,7 @@ import { EditIcon, RunIcon, StopIcon, CheckIcon, TrashIcon } from "@/lib/icons";
 interface TaskRowActionsProps {
   task: Task;
   onRun: () => Promise<void>;
+  onStop: () => Promise<void>;
   onMarkDone: () => Promise<void>;
   onDelete: () => Promise<void>;
 }
@@ -64,10 +65,11 @@ function ActionButton({
 // Actions.pdf. The parent <tr> carries `className="group"`; this cluster fades in on
 // `group-hover`/`group-focus-within` rather than unmounting, so disabled buttons keep
 // their slot (the design's "disabled, not hidden" rule) and Tab can reach them.
-export function TaskRowActions({ task, onRun, onMarkDone, onDelete }: TaskRowActionsProps) {
+export function TaskRowActions({ task, onRun, onStop, onMarkDone, onDelete }: TaskRowActionsProps) {
   const { t } = useTranslation();
   const router = useRouter();
   const [running, setRunning] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [markingDone, setMarkingDone] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -94,6 +96,16 @@ export function TaskRowActions({ task, onRun, onMarkDone, onDelete }: TaskRowAct
       // Run navigates away on success (see the parent's onRun), so there is nothing to
       // reset there; only reset the busy state on failure, when we stay on this page.
       setRunning(false);
+    }
+  };
+
+  const handleStop = async () => {
+    if (!canStop || stopping) return;
+    setStopping(true);
+    try {
+      await onStop();
+    } finally {
+      setStopping(false);
     }
   };
 
@@ -143,8 +155,8 @@ export function TaskRowActions({ task, onRun, onMarkDone, onDelete }: TaskRowAct
         <ActionButton
           icon={<StopIcon size={15} />}
           label={t("tasks.rowActions.stop")}
-          onClick={() => {}}
-          disabled={!canStop}
+          onClick={handleStop}
+          disabled={!canStop || stopping}
         />
 
         <ActionButton

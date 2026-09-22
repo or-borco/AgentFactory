@@ -63,6 +63,35 @@ export async function hasNonTerminalRun(sessionId: number): Promise<boolean> {
   return row !== undefined;
 }
 
+// The Stop button (task-scoped — that's all its call sites have) needs to know which run a
+// stop request actually cancels. Non-terminal runs are unique per session in practice (the
+// worker never starts a second one while the first is in flight), but this orders by
+// createdAt desc anyway rather than assuming that invariant holds forever.
+export async function getLatestNonTerminalRun(sessionId: number): Promise<Run | undefined> {
+  const [row] = await db
+    .select(RUN_COLUMNS)
+    .from(runs)
+    .where(and(eq(runs.sessionId, sessionId), inArray(runs.status, NON_TERMINAL_RUN_STATUSES)))
+    .orderBy(desc(runs.createdAt))
+    .limit(1);
+  return row ? toRun(row) : undefined;
+}
+
+// Marks a run cancelled — used by the Stop action alongside enqueueRunCancelJob, which is what
+// actually kills the sandbox process running the turn (see apps/worker's runCancelWorker). The
+// WHERE clause re-checks non-terminal at the DB level, not just via the caller's own read: a run
+// that finishes or fails a moment before this write lands must not be clobbered back to
+// "cancelled" by a stop request racing its own completion. Returns undefined (a no-op) when the
+// run had already reached a terminal status.
+export async function cancelRun(id: number): Promise<Run | undefined> {
+  const [row] = await db
+    .update(runs)
+    .set({ status: "cancelled", finishedAt: new Date() })
+    .where(and(eq(runs.id, id), inArray(runs.status, NON_TERMINAL_RUN_STATUSES)))
+    .returning();
+  return row ? toRun(row) : undefined;
+}
+
 export async function getRunsForSession(sessionId: number): Promise<Run[]> {
   const rows = await db
     .select(RUN_COLUMNS)

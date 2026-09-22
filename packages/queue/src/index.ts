@@ -21,6 +21,11 @@ export const TASK_CONTEXT_INGEST_QUEUE_NAME = "task-context-ingest";
 // warm request, a redelivered or duplicate retrospective pass is safe on its own merits (the
 // write path's weight-reinforcement dedup), not because the queue collapsed it.
 export const MEMORY_RETROSPECTIVE_QUEUE_NAME = "memory-retrospective";
+// Fires when the Stop button cancels a run in flight (apps/web's POST /api/tasks/[taskId]/stop).
+// Deliberately its own queue rather than reusing SANDBOX_TEARDOWN_QUEUE_NAME: teardown's handler
+// no-ops via hasNonTerminalRun whenever a run is actually in progress, which is exactly the one
+// case a stop request needs to act on — the two queues encode opposite guards on purpose.
+export const RUN_CANCEL_QUEUE_NAME = "run-cancel";
 
 export interface RunJobData {
   runId: number;
@@ -29,6 +34,13 @@ export interface RunJobData {
 // Docker is only reachable from the worker process (see DockerSandboxProvider), so the web app
 // can't destroy a session's sandbox directly — it enqueues this job and the worker does it.
 export interface SandboxTeardownJobData {
+  sessionId: number;
+}
+
+// See RUN_CANCEL_QUEUE_NAME above. Destroying the sandbox is what actually stops the agent's
+// loop: the running turn's docker exec dies with it, which is what makes runTurn's promise
+// settle (see apps/worker/src/worker.ts's runWorker catch block).
+export interface RunCancelJobData {
   sessionId: number;
 }
 
@@ -66,6 +78,7 @@ const runQueue = new Queue<RunJobData>(RUN_QUEUE_NAME, { connection: queueConnec
 const sandboxTeardownQueue = new Queue<SandboxTeardownJobData>(SANDBOX_TEARDOWN_QUEUE_NAME, {
   connection: queueConnection,
 });
+const runCancelQueue = new Queue<RunCancelJobData>(RUN_CANCEL_QUEUE_NAME, { connection: queueConnection });
 const repoMapWarmQueue = new Queue<RepoMapWarmJobData>(REPO_MAP_WARM_QUEUE_NAME, { connection: queueConnection });
 const evalQueue = new Queue<EvalJobData>(EVAL_QUEUE_NAME, { connection: queueConnection });
 const contextIngestQueue = new Queue<ContextIngestJobData>(TEAM_CONTEXT_INGEST_QUEUE_NAME, {
@@ -84,6 +97,10 @@ export async function enqueueRunJob(runId: number): Promise<void> {
 
 export async function enqueueSandboxTeardownJob(sessionId: number): Promise<void> {
   await sandboxTeardownQueue.add("teardown-sandbox", { sessionId });
+}
+
+export async function enqueueRunCancelJob(sessionId: number): Promise<void> {
+  await runCancelQueue.add("cancel-run", { sessionId });
 }
 
 // jobId collapses duplicate warm requests for the same org+repo (e.g. an agent's and a team's

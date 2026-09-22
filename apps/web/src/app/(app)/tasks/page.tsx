@@ -10,7 +10,7 @@ import { TaskRowActions } from "@/components/TaskRowActions";
 import { TasksIcon, AlertIcon } from "@/lib/icons";
 
 export default function TasksPage() {
-  const { tasks, agents, runTask, updateTask, deleteTask, notify } = useAppData();
+  const { tasks, agents, runTask, updateTask, deleteTask, stopTask, notify } = useAppData();
   const { t } = useTranslation();
   const router = useRouter();
 
@@ -169,6 +169,7 @@ export default function TasksPage() {
                         if (result.stale) notify("toast.taskRunNeedsRefresh");
                         router.push(`/tasks/${task.id}`);
                       }}
+                      onStop={() => stopTask(task.id)}
                       onMarkDone={async () => {
                         await updateTask(task.id, { status: "done" });
                         notify("toast.taskMarkedDone");

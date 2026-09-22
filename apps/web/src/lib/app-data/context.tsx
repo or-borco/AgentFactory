@@ -100,6 +100,9 @@ interface AppDataContextValue extends AppDataState {
    *  `{ stale: true, latest }` (never throws for this case) when the route responds 409
    *  `{ code: "task_stale" }` — see the `RunTaskResult` comment above. */
   runTask: (taskId: number, body?: { acknowledgeStale?: boolean }) => Promise<RunTaskResult>;
+  /** Cancels the task's in-flight run, if any (see POST /api/tasks/[taskId]/stop) — this is what
+   *  the Stop action calls. A no-op, not an error, when nothing is actually running. */
+  stopTask: (taskId: number) => Promise<void>;
   deleteConnection: (connectionId: number) => Promise<void>;
   /** Merges a just-created connection into the client cache (e.g. after `POST /api/connections/jira`
    *  succeeds) without a full re-fetch, mirroring how `deleteConnection` updates the same list. */
@@ -302,6 +305,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [showToast],
   );
 
+  const stopTask = useCallback(
+    async (taskId: number) => {
+      const task = await apiFetch<Task>(`/api/tasks/${taskId}/stop`, { method: "POST" });
+      setState((s) => ({ ...s, tasks: s.tasks.map((tk) => (tk.id === taskId ? task : tk)) }));
+      showToast("toast.taskStopped");
+    },
+    [showToast],
+  );
+
   const deleteConnection = useCallback(
     async (connectionId: number) => {
       await apiFetch<void>(`/api/connections/${connectionId}`, { method: "DELETE" });
@@ -460,6 +472,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     refreshTask,
     deleteTask,
     runTask,
+    stopTask,
     deleteConnection,
     addConnection,
   };
