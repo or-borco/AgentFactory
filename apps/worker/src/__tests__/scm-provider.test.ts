@@ -22,6 +22,7 @@ const {
   pushChangesIfDirty,
   resolveCloneTarget,
   resolveDefaultBranchSha,
+  resolveDetectedLanguage,
   sessionBranchName,
   syncWithDefaultBranch,
 } = await import("../scm-provider");
@@ -131,6 +132,22 @@ describe("resolveDefaultBranchSha (thin wrapper over the registry)", () => {
   it("returns undefined when no connection resolves", async () => {
     resolveScmConnectionMock.mockResolvedValue(undefined);
     await expect(resolveDefaultBranchSha(1, "acme/widgets")).resolves.toBeUndefined();
+  });
+});
+
+describe("resolveDetectedLanguage (thin wrapper over the registry)", () => {
+  it("delegates to the resolved provider's detectPrimaryLanguage", async () => {
+    const connection = fakeConnection(1);
+    const providerFn = vi.fn().mockResolvedValue("Python");
+    resolveScmConnectionMock.mockResolvedValue({ connection, provider: { detectPrimaryLanguage: providerFn } });
+
+    await expect(resolveDetectedLanguage(1, "acme/widgets")).resolves.toBe("Python");
+    expect(providerFn).toHaveBeenCalledWith(connection, "acme/widgets");
+  });
+
+  it("returns undefined when no connection resolves", async () => {
+    resolveScmConnectionMock.mockResolvedValue(undefined);
+    await expect(resolveDetectedLanguage(1, "acme/widgets")).resolves.toBeUndefined();
   });
 });
 
