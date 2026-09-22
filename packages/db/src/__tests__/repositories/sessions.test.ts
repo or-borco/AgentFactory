@@ -9,7 +9,6 @@ import {
   getSession,
   listSessions,
   setSessionSandbox,
-  setSessionSandboxId,
   touchSessionActivity,
 } from "../../repositories/sessions.js";
 import { insertAgent, insertOrg, insertSession } from "../fixtures.js";
@@ -62,16 +61,6 @@ describe("sessions repository", () => {
     expect(new Date(second!.lastActivityAt).getTime()).toBeGreaterThan(
       new Date(first!.lastActivityAt).getTime(),
     );
-  });
-
-  it("sets the sandbox id", async () => {
-    const org = await insertOrg();
-    const agent = await insertAgent(org.id);
-    const session = await insertSession(org.id, agent.id);
-
-    await setSessionSandboxId(session.id, "sandbox-123");
-
-    await expect(getSession(session.id)).resolves.toMatchObject({ sandboxId: "sandbox-123" });
   });
 
   it("setSessionSandbox stores both sandboxId and sandboxImage", async () => {
