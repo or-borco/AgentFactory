@@ -3,6 +3,7 @@ import { getRepoMap, insertRepoMap } from "@agentfactory/db";
 import { createLogger } from "@agentfactory/logger";
 import type { SandboxProvider } from "./sandbox/types";
 import { cloneIntoSandbox, resolveCloneTarget, resolveDefaultBranchSha } from "./scm-provider";
+import { resolveSandboxImage } from "./sandbox-image-select";
 
 const log = createLogger("repo-map");
 
@@ -175,7 +176,6 @@ export async function warmRepoMap(
   sandboxProvider: SandboxProvider,
   orgId: number,
   repoFullName: string,
-  sandboxImage: string,
 ): Promise<void> {
   try {
     const sha = await resolveDefaultBranchSha(orgId, repoFullName);
@@ -189,8 +189,9 @@ export async function warmRepoMap(
     const workspace = await resolveCloneTarget(orgId, repoFullName, `repo-map-warm-${Date.now()}`);
     if (!workspace) return;
 
+    const image = await resolveSandboxImage(orgId, repoFullName);
     const sandbox = await sandboxProvider.create({
-      image: sandboxImage,
+      image,
       env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "" },
     });
     try {

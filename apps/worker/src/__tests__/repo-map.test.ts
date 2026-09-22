@@ -26,6 +26,11 @@ vi.mock("../scm-provider", () => ({
   cloneIntoSandbox: (...args: unknown[]) => cloneIntoSandboxMock(...args),
 }));
 
+const resolveSandboxImageMock = vi.fn();
+vi.mock("../sandbox-image-select", () => ({
+  resolveSandboxImage: (...args: unknown[]) => resolveSandboxImageMock(...args),
+}));
+
 const { CACHE_POLL_INTERVAL_MS, CACHE_POLL_TIMEOUT_MS, ensureRepoMap, warmRepoMap } = await import(
   "../repo-map"
 );
@@ -252,7 +257,7 @@ describe("warmRepoMap", () => {
       interrupt: vi.fn(),
     };
 
-    await warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local");
+    await warmRepoMap(sandbox, 1, "acme/widgets");
 
     expect(create).not.toHaveBeenCalled();
   });
@@ -270,6 +275,7 @@ describe("warmRepoMap", () => {
       installationRef: 1,
     });
     cloneIntoSandboxMock.mockReset().mockResolvedValue(undefined);
+    resolveSandboxImageMock.mockReset().mockResolvedValue("arata-sandbox-node:local");
     const destroy = vi.fn();
     const create = vi.fn().mockResolvedValue({ id: "warm-sandbox-1" });
     const sandbox: SandboxProvider = {
@@ -292,9 +298,9 @@ describe("warmRepoMap", () => {
       interrupt: vi.fn(),
     };
 
-    await warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local");
+    await warmRepoMap(sandbox, 1, "acme/widgets");
 
-    expect(create).toHaveBeenCalledWith({ image: "agentfactory-sandbox:local", env: expect.any(Object) });
+    expect(create).toHaveBeenCalledWith({ image: "arata-sandbox-node:local", env: expect.any(Object) });
     expect(cloneIntoSandboxMock).toHaveBeenCalled();
     expect(insertRepoMapMock).toHaveBeenCalledWith(expect.objectContaining({ content: "warmed map" }));
     expect(destroy).toHaveBeenCalledWith("warm-sandbox-1");
@@ -312,6 +318,7 @@ describe("warmRepoMap", () => {
       installationRef: 1,
     });
     cloneIntoSandboxMock.mockReset().mockRejectedValue(new Error("clone failed"));
+    resolveSandboxImageMock.mockReset().mockResolvedValue("arata-sandbox-node:local");
     const destroy = vi.fn();
     const create = vi.fn().mockResolvedValue({ id: "warm-sandbox-2" });
     const sandbox: SandboxProvider = {
@@ -325,7 +332,7 @@ describe("warmRepoMap", () => {
       interrupt: vi.fn(),
     };
 
-    await expect(warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local")).resolves.toBeUndefined();
+    await expect(warmRepoMap(sandbox, 1, "acme/widgets")).resolves.toBeUndefined();
     expect(destroy).toHaveBeenCalledWith("warm-sandbox-2");
   });
 
@@ -341,6 +348,7 @@ describe("warmRepoMap", () => {
       installationRef: 1,
     });
     cloneIntoSandboxMock.mockReset().mockResolvedValue(undefined);
+    resolveSandboxImageMock.mockReset().mockResolvedValue("arata-sandbox-node:local");
     const destroy = vi.fn().mockRejectedValue(new Error("docker teardown failed"));
     const create = vi.fn().mockResolvedValue({ id: "warm-sandbox-3" });
     const sandbox: SandboxProvider = {
@@ -356,7 +364,7 @@ describe("warmRepoMap", () => {
       interrupt: vi.fn(),
     };
 
-    await expect(warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local")).resolves.toBeUndefined();
+    await expect(warmRepoMap(sandbox, 1, "acme/widgets")).resolves.toBeUndefined();
     expect(destroy).toHaveBeenCalledWith("warm-sandbox-3");
   });
 
@@ -371,6 +379,7 @@ describe("warmRepoMap", () => {
       provider: "github",
       installationRef: 1,
     });
+    resolveSandboxImageMock.mockReset().mockResolvedValue("arata-sandbox-node:local");
     const destroy = vi.fn();
     const create = vi.fn().mockRejectedValue(new Error("docker unavailable"));
     const sandbox: SandboxProvider = {
@@ -384,7 +393,7 @@ describe("warmRepoMap", () => {
       interrupt: vi.fn(),
     };
 
-    await expect(warmRepoMap(sandbox, 1, "acme/widgets", "agentfactory-sandbox:local")).resolves.toBeUndefined();
+    await expect(warmRepoMap(sandbox, 1, "acme/widgets")).resolves.toBeUndefined();
     expect(destroy).not.toHaveBeenCalled();
   });
 });
