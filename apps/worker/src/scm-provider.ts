@@ -371,7 +371,20 @@ else
   git fetch origin "$BRANCH_NAME" --quiet
   MERGE_CONFLICT=0
   if git rev-parse --verify "origin/$BRANCH_NAME" >/dev/null 2>&1 && ! git merge-base --is-ancestor "origin/$BRANCH_NAME" HEAD 2>/dev/null; then
-    if git merge --no-edit "origin/$BRANCH_NAME" >/dev/null 2>&1; then
+    # Same -c user.email/user.name as the commit step above, and for the same reason: a fresh
+    # sandbox has no git identity configured anywhere (nothing runs 'git config --global' here),
+    # and unlike a fast-forward, this merge always needs to create a real commit whenever the two
+    # sides have actually diverged (a warm sandbox got reaped and recloned between runs is the
+    # common case — see cloneIntoSandbox, which checks out BRANCH_NAME fresh off the default
+    # branch with no awareness this session may have already pushed to it earlier). Without an
+    # identity, plain 'git merge' here always failed with "unable to auto-detect email address"
+    # even when the content merged perfectly cleanly — and stderr is discarded (>/dev/null 2>&1)
+    # right below, so that fatal error was silently reclassified as MERGE_CONFLICT, producing the
+    # misleading "branch name was reused by a different session" error on a routine reap/reclone,
+    # not a real conflict. Confirmed directly: replaying the exact merge from a real failed run
+    # with these flags added succeeded cleanly (0 conflicting files) where the original command
+    # (no identity) failed outright.
+    if git -c user.email="agent@agentfactory.local" -c user.name="$AUTHOR_NAME" merge --no-edit "origin/$BRANCH_NAME" >/dev/null 2>&1; then
       echo MERGE_OK
     else
       git diff --name-only --diff-filter=U | sed 's/^/CONFLICT_FILE:/'
