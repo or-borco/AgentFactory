@@ -395,7 +395,9 @@ interface SandboxProvider {
 ```
 
 `DockerSandboxProvider` (dockerode against the local daemon) is the first implementation: one container per active
-session from a prebuilt image containing Node, git, and the Agent SDK. This runs identically on a dev laptop and on
+session from one of three prebuilt images (node: git + the Agent SDK; python/java: the same base plus that
+language's toolchain), selected per session by detecting the target repo's primary language via the GitHub API
+before the sandbox is created. This runs identically on a dev laptop and on
 a single deploy host, which is exactly the right trade for M1–M4. Swapping in Fly Machines / E2B / gVisor later is a
 new class behind the same interface.
 
