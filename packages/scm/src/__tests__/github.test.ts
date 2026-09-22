@@ -324,6 +324,50 @@ describe("resolveDefaultBranchSha", () => {
   });
 });
 
+describe("detectPrimaryLanguage", () => {
+  it("returns the language with the highest byte count", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_api" }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({ Python: 48213, Dockerfile: 421 }), { status: 200 })),
+    );
+
+    await expect(githubScmProvider.detectPrimaryLanguage(githubConnection(1, 999), "acme-org/platform")).resolves.toBe(
+      "Python",
+    );
+  });
+
+  it("returns undefined for an empty languages map", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_api" }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 })),
+    );
+
+    await expect(
+      githubScmProvider.detectPrimaryLanguage(githubConnection(1, 999), "acme-org/platform"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("throws when the languages fetch fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_api" }), { status: 200 }))
+        .mockResolvedValueOnce(new Response("not found", { status: 404 })),
+    );
+
+    await expect(
+      githubScmProvider.detectPrimaryLanguage(githubConnection(1, 999), "acme-org/platform"),
+    ).rejects.toThrow("GitHub API languages fetch failed: 404");
+  });
+});
+
 describe("fetchCommitRangeDiff", () => {
   const target = {
     cloneUrl: "x",

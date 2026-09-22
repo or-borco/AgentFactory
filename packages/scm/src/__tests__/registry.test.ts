@@ -50,6 +50,7 @@ function stubBitbucketProvider(): ScmProvider & { seenConnections: Connection[][
       throw new Error("not implemented");
     },
     resolveDefaultBranchSha: async () => "",
+    detectPrimaryLanguage: async () => undefined,
     fetchCommitRangeDiff: async () => "",
     openDraftPullRequest: async () => {
       throw new Error("not implemented");

@@ -96,6 +96,7 @@ export interface ScmProvider {
   mintPushToken(target: CloneTarget): Promise<string>;
   fetchIssue(connection: Connection, repoFullName: string, issueNumber: number): Promise<ScmIssue>;
   resolveDefaultBranchSha(connection: Connection, repoFullName: string): Promise<string>;
+  detectPrimaryLanguage(connection: Connection, repoFullName: string): Promise<string | undefined>;
   fetchCommitRangeDiff(target: CloneTarget, range: RunCommitRange): Promise<string>;
   openDraftPullRequest(
     connection: Connection,
