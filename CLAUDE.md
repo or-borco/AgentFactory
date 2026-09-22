@@ -101,6 +101,10 @@ literal `AgentRuntime` class expecting to find one):
 - **`shared_context` is always injected; `context_items` are retrieved on demand.** The 64 KB cap on `teams.sharedContext` is enforced both at the API layer and as a constraint — it exists because this text goes into every prompt. Real, and the retrieval pipeline (`team_context_items`/`context_chunks`, plus a task-scoped equivalent) is fully built with pgvector.
 - **Content-addressed storage.** Blobs are addressed by SHA-256 via `content_blobs` (local filesystem in dev, S3 in prod through `packages/storage`). Postgres holds what you query, join, or inject into a prompt. Real.
 
+## Code Comments
+
+Do not use code comments in this repo. Write code and identifiers clear enough that comments aren't needed.
+
 ## `packages/shared` Components
 
 These are plain Tailwind components (no shadcn dependency yet). Use them for all new UI:

@@ -98,12 +98,6 @@ describe("PATCH /api/tasks/[taskId], memory retrospective", () => {
 });
 
 describe("DELETE /api/tasks/[taskId], memory retrospective", () => {
-  // Deleting a task is itself the terminal event for its session, whatever TaskStatus the task
-  // happened to be in — unlike PATCH, there's no "new status" to gate on here, and a task can be
-  // deleted from a non-terminal status too (e.g. "pr_open", after real work already happened but
-  // before the task was ever marked done/failed/cancelled). Parametrized over both a terminal and
-  // a non-terminal status to prove the DELETE path doesn't reuse PATCH's TERMINAL_TASK_STATUSES
-  // gate.
   it.each(["pr_open", "done", "in_progress"] as const)(
     "enqueues a retrospective job on delete when the task has a session and an assignee, regardless of status (%s)",
     async (status) => {

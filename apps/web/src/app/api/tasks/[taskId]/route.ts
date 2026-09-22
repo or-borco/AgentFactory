@@ -65,12 +65,6 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ task
     await enqueueSandboxTeardownJob(task.sessionId);
   }
 
-  // Unlike the PATCH handler above, there's no "new status" to gate this on: deletion is itself
-  // the terminal event for this task's session, whatever TaskStatus it happened to be in when
-  // deleted (e.g. "pr_open" — real work already happened, but the task was never marked
-  // done/failed/cancelled first). Fire-and-forget, same style as PATCH's call: the delete below
-  // is going to happen regardless, so a transient queue failure here must not turn it into an
-  // apparent 500.
   if (task.sessionId && task.assigneeAgentId) {
     enqueueMemoryRetrospectiveJob(task.orgId, task.assigneeAgentId, task.sessionId).catch((err) => {
       log.error("Failed to enqueue memory retrospective job", { taskId: task.id, err });
