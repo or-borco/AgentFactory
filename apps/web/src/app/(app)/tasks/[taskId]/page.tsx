@@ -1191,14 +1191,19 @@ export default function TaskDetailPage() {
 
                   {/* Live thinking for the in-progress turn — its assistant message
                       doesn't exist yet, so it renders here at the bottom where the
-                      auto-scroll keeps it in view as it streams. */}
+                      auto-scroll keeps it in view as it streams. Only the single most
+                      recent unanswered run is shown: rawEvents spans the whole session,
+                      so a past run that was abandoned without ever getting an assistant
+                      reply would otherwise leave its own stray box rendered forever
+                      alongside the one that's actually running. */}
                   {showThinking && (() => {
                     const answeredRunIds = new Set(
                       messages.filter((m) => m.role === "assistant" && m.runId != null).map((m) => m.runId),
                     );
-                    return [...thinkingByRun.entries()]
+                    const latestUnanswered = [...thinkingByRun.entries()]
                       .filter(([runId]) => !answeredRunIds.has(runId))
-                      .map(([runId, steps]) => <ThinkingBlock key={`live-${runId}`} steps={steps} />);
+                      .sort(([a], [b]) => b - a)[0];
+                    return latestUnanswered ? <ThinkingBlock key={`live-${latestUnanswered[0]}`} steps={latestUnanswered[1]} /> : null;
                   })()}
 
                   {/* A run that failed via the top-level catch never reaches createMessage, so
