@@ -4,7 +4,7 @@ import "../setup.js";
 import { db } from "../../client.js";
 import { sessions } from "../../schema.js";
 import { createRun, hasNonTerminalRun, updateRunStatus } from "../../repositories/runs.js";
-import { listIdleSandboxSessions, setSessionSandboxId } from "../../repositories/sessions.js";
+import { listIdleSandboxSessions, setSessionSandbox } from "../../repositories/sessions.js";
 import { insertAgent, insertOrg, insertSession } from "../fixtures.js";
 import type { Session } from "@agentfactory/core";
 
@@ -14,7 +14,7 @@ async function setupIdleSandboxSession(): Promise<Session> {
   const org = await insertOrg();
   const agent = await insertAgent(org.id);
   const session = await insertSession(org.id, agent.id);
-  await setSessionSandboxId(session.id, "sandbox-123");
+  await setSessionSandbox(session.id, "sandbox-123", "arata-sandbox-node:local");
   await backdateLastActivity(session.id, 3 * HOUR);
   return session;
 }
@@ -77,7 +77,7 @@ describe("listIdleSandboxSessions", () => {
     const org = await insertOrg();
     const agent = await insertAgent(org.id);
     const session = await insertSession(org.id, agent.id);
-    await setSessionSandboxId(session.id, "sandbox-123");
+    await setSessionSandbox(session.id, "sandbox-123", "arata-sandbox-node:local");
     await backdateLastActivity(session.id, 5 * 60 * 1000); // 5 minutes ago
 
     const idle = await listIdleSandboxSessions(new Date(Date.now() - 2 * HOUR));

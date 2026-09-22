@@ -64,14 +64,6 @@ export async function touchSessionActivity(id: number): Promise<void> {
   await db.update(sessions).set({ lastActivityAt: new Date() }).where(eq(sessions.id, id));
 }
 
-export async function setSessionSandboxId(id: number, sandboxId: string): Promise<void> {
-  await db.update(sessions).set({ sandboxId }).where(eq(sessions.id, id));
-}
-
-export async function clearSessionSandboxId(id: number): Promise<void> {
-  await db.update(sessions).set({ sandboxId: null }).where(eq(sessions.id, id));
-}
-
 export async function setSessionSandbox(id: number, sandboxId: string, sandboxImage: string): Promise<void> {
   await db.update(sessions).set({ sandboxId, sandboxImage }).where(eq(sessions.id, id));
 }
