@@ -1,4 +1,4 @@
-FROM node:22-slim
+FROM node:22-slim AS base
 
 # git per ARCHITECTURE.md §4's "prebuilt image containing Node, git, and the Agent SDK" — unused
 # by this slice (no repo cloning yet) but avoids a second image rebuild when workspace/repo
@@ -37,3 +37,22 @@ WORKDIR /workspace
 # docker-sandbox-provider.ts), not as this container's main process, so the same container can
 # be exec'd into more than once per session.
 CMD ["tail", "-f", "/dev/null"]
+
+FROM base AS python
+USER root
+ENV PIPX_HOME=/opt/pipx
+ENV PIPX_BIN_DIR=/opt/pipx/bin
+ENV PATH="${PIPX_BIN_DIR}:${PATH}"
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip python3-venv pipx \
+    && rm -rf /var/lib/apt/lists/* \
+    && mkdir -p /opt/pipx \
+    && chown -R node:node /opt/pipx
+USER node
+
+FROM base AS java
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-17-jdk maven \
+    && rm -rf /var/lib/apt/lists/*
+USER node
