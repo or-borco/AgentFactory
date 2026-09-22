@@ -115,7 +115,7 @@ const sandboxProvider = new DockerSandboxProvider();
 // resume mechanism needs the same container's filesystem across turns (see the sessions.sandboxId
 // migration). Idle teardown of long-unused sandboxes is handled separately by sandboxReapWorker
 // below (sandbox-reap.ts), not here.
-async function ensureSandbox(session: Session, orgId: number, repoFullName: string | undefined): Promise<string> {
+export async function ensureSandbox(session: Session, orgId: number, repoFullName: string | undefined): Promise<string> {
   const hasWarmSandbox = Boolean(session.sandboxId) && (await sandboxProvider.exists(session.sandboxId!));
 
   if (hasWarmSandbox && session.sandboxImage !== SANDBOX_IMAGE_NODE) {
