@@ -13,7 +13,7 @@ const en = {
     tasks: "Tasks",
     activity: "Activity",
     skills: "Skills",
-    settings: "Settings",
+    settings: "Configuration",
     workspaceFooter: "Team workspace",
     logout: "Log out",
   },
