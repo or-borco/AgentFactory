@@ -1,9 +1,14 @@
+import { createHash } from "node:crypto";
 import type { SandboxVolume } from "./sandbox/types";
 
 export const DEPENDENCY_CACHE_DIR = "/cache";
+const REPO_SLUG_MAX_CHARS = 40;
 
-export function dependencyCacheVolume(orgId: number): SandboxVolume {
-  return { name: `arata-deps-cache-org-${orgId}`, target: DEPENDENCY_CACHE_DIR };
+export function dependencyCacheVolume(orgId: number, repoFullName: string): SandboxVolume {
+  const normalized = repoFullName.toLowerCase();
+  const slug = normalized.replace(/[^a-z0-9_.-]+/g, "-").slice(0, REPO_SLUG_MAX_CHARS);
+  const hash = createHash("sha256").update(normalized).digest("hex").slice(0, 12);
+  return { name: `arata-deps-cache-org-${orgId}-${slug}-${hash}`, target: DEPENDENCY_CACHE_DIR };
 }
 
 export function dependencyCacheEnv(): Record<string, string> {

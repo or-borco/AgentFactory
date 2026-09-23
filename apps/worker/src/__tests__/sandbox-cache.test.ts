@@ -2,9 +2,21 @@ import { describe, expect, it } from "vitest";
 import { DEPENDENCY_CACHE_DIR, dependencyCacheEnv, dependencyCacheVolume } from "../sandbox-cache";
 
 describe("dependencyCacheVolume", () => {
-  it("gives each org its own volume mounted at the cache dir", () => {
-    expect(dependencyCacheVolume(7)).toMatchObject({ name: "arata-deps-cache-org-7", target: "/cache" });
-    expect(dependencyCacheVolume(7).name).not.toBe(dependencyCacheVolume(8).name);
+  it("scopes the volume to one repo within one org", () => {
+    const volume = dependencyCacheVolume(7, "Acme/Widgets");
+    expect(volume.target).toBe("/cache");
+    expect(volume.name).toMatch(/^arata-deps-cache-org-7-acme-widgets-[0-9a-f]{12}$/);
+    expect(dependencyCacheVolume(7, "acme/widgets").name).toBe(volume.name);
+    expect(dependencyCacheVolume(8, "acme/widgets").name).not.toBe(volume.name);
+    expect(dependencyCacheVolume(7, "acme/gadgets").name).not.toBe(volume.name);
+  });
+
+  it("keeps repos distinct even when their slugs collide", () => {
+    expect(dependencyCacheVolume(7, "acme/a+b").name).not.toBe(dependencyCacheVolume(7, "acme/a-b").name);
+  });
+
+  it("produces a valid Docker volume name for unusual repo names", () => {
+    expect(dependencyCacheVolume(7, `acme/${"x".repeat(200)}`).name).toMatch(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,100}$/);
   });
 });
 
