@@ -1,8 +1,8 @@
 import { and, cosineDistance, desc, eq, sql } from "drizzle-orm";
-import type { AgentMemoryEntry, MemorySource } from "@agentfactory/core";
+import type { AgentMemoryEntry, MemorySource, MemoryWriteKind } from "@agentfactory/core";
 import { db } from "../client";
 import { CURRENT_KEY_VERSION, decryptSecret, encryptSecret } from "../crypto";
-import { agentMemoryEntries, agentMemoryWrites } from "../schema";
+import { agentMemoryEntries, agentMemoryWrites, tasks, users } from "../schema";
 
 function toEntry(row: typeof agentMemoryEntries.$inferSelect): AgentMemoryEntry {
   return {
@@ -188,4 +188,74 @@ export async function deleteMemoryEntry(orgId: number, id: number): Promise<void
   await db
     .delete(agentMemoryEntries)
     .where(and(eq(agentMemoryEntries.orgId, orgId), eq(agentMemoryEntries.id, id)));
+}
+
+export const MEMORY_WRITE_HISTORY_LIMIT = 20;
+
+export interface MemoryWriteHistoryItem {
+  id: number;
+  kind: MemoryWriteKind;
+  source?: MemorySource;
+  createdAt: string;
+  lesson?: string;
+  reason?: string;
+  session?: { id: number };
+  task?: { id: number; ref: string; title: string };
+  editedBy?: { id: number; name: string };
+  decryptError?: true;
+}
+
+export async function memoryEntryBelongsToAgent(orgId: number, agentId: number, entryId: number): Promise<boolean> {
+  const [row] = await db
+    .select({ id: agentMemoryEntries.id })
+    .from(agentMemoryEntries)
+    .where(
+      and(
+        eq(agentMemoryEntries.orgId, orgId),
+        eq(agentMemoryEntries.agentId, agentId),
+        eq(agentMemoryEntries.id, entryId),
+      ),
+    );
+  return row !== undefined;
+}
+
+function decryptWrite(ciphertext: string): Pick<MemoryWriteHistoryItem, "lesson" | "reason" | "decryptError"> {
+  try {
+    const { lesson, reason } = decryptSecret(ciphertext);
+    return reason ? { lesson, reason } : { lesson };
+  } catch {
+    return { decryptError: true };
+  }
+}
+
+export async function listMemoryEntryWrites(
+  orgId: number,
+  entryId: number,
+  limit = MEMORY_WRITE_HISTORY_LIMIT,
+): Promise<MemoryWriteHistoryItem[]> {
+  const rows = await db
+    .select({
+      write: agentMemoryWrites,
+      taskId: tasks.id,
+      taskRef: tasks.ref,
+      taskTitle: tasks.title,
+      userName: users.name,
+    })
+    .from(agentMemoryWrites)
+    .leftJoin(tasks, and(eq(tasks.sessionId, agentMemoryWrites.sessionId), eq(tasks.orgId, agentMemoryWrites.orgId)))
+    .leftJoin(users, eq(users.id, agentMemoryWrites.userId))
+    .where(and(eq(agentMemoryWrites.orgId, orgId), eq(agentMemoryWrites.entryId, entryId)))
+    .orderBy(desc(agentMemoryWrites.createdAt), desc(agentMemoryWrites.id))
+    .limit(limit);
+
+  return rows.map(({ write, taskId, taskRef, taskTitle, userName }) => ({
+    id: write.id,
+    kind: write.kind,
+    ...(write.source ? { source: write.source } : {}),
+    createdAt: write.createdAt.toISOString(),
+    ...decryptWrite(write.ciphertext),
+    ...(write.sessionId !== null ? { session: { id: write.sessionId } } : {}),
+    ...(taskId !== null && taskRef !== null && taskTitle !== null ? { task: { id: taskId, ref: taskRef, title: taskTitle } } : {}),
+    ...(write.userId !== null && userName !== null ? { editedBy: { id: write.userId, name: userName } } : {}),
+  }));
 }

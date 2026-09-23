@@ -3,15 +3,18 @@ import "../setup.js";
 import { eq } from "drizzle-orm";
 import { db } from "../../client.js";
 import { decryptSecret } from "../../crypto.js";
-import { agentMemoryEntries, agentMemoryWrites } from "../../schema.js";
+import { agentMemoryEntries, agentMemoryWrites, tasks } from "../../schema.js";
 import {
+  MEMORY_WRITE_HISTORY_LIMIT,
   deleteMemoryEntry,
   insertMemoryEntryWithWrite,
+  listMemoryEntryWrites,
+  memoryEntryBelongsToAgent,
   reinforceMemoryEntryWithWrite,
   updateMemoryEntryContent,
 } from "../../repositories/agent-memory.js";
 import { createRun } from "../../repositories/runs.js";
-import { insertAgent, insertOrg, insertSession, insertUser } from "../fixtures.js";
+import { insertAgent, insertOrg, insertSession, insertTask, insertUser } from "../fixtures.js";
 
 const DIMENSIONS = 384;
 const EMBEDDING_MODEL = "Xenova/bge-small-en-v1.5";
@@ -176,5 +179,96 @@ describe("agent memory write log", () => {
     const orphaned = await db.select().from(agentMemoryWrites).where(eq(agentMemoryWrites.agentId, agent.id));
     expect(orphaned).toHaveLength(1);
     expect(orphaned[0].entryId).toBeNull();
+  });
+});
+
+describe("listMemoryEntryWrites", () => {
+  it("returns decrypted writes newest first", async () => {
+    const { org, agent, entryId } = await setup();
+    const user = await insertUser({ name: "Dana" });
+    const laterSession = await insertSession(org.id, agent.id);
+    await reinforceMemoryEntryWithWrite(org.id, agent.id, entryId, { source: "manual", lesson: "Run tests.", sessionId: laterSession.id });
+    await updateMemoryEntryContent(org.id, entryId, "Run the full suite.", user.id);
+
+    const items = await listMemoryEntryWrites(org.id, entryId);
+
+    expect(items.map((i) => i.kind)).toEqual(["edit", "reinforce", "insert"]);
+    expect(items[0]).toMatchObject({ lesson: "Run the full suite.", editedBy: { id: user.id, name: "Dana" } });
+    expect(items[0].source).toBeUndefined();
+    expect(items[1]).toMatchObject({ source: "manual", lesson: "Run tests.", session: { id: laterSession.id } });
+    expect(items[1].reason).toBeUndefined();
+    expect(items[2]).toMatchObject({
+      source: "retrospective",
+      lesson: "Run the tests before opening a PR.",
+      reason: "The first PR in run 10 failed CI.",
+    });
+  });
+
+  it("attaches the session's task, and falls back to the session when the task is gone", async () => {
+    const { org, session, entryId } = await setup();
+    const user = await insertUser();
+    const task = await insertTask(org.id, user.id, { title: "Add divide()" });
+    await db.update(tasks).set({ sessionId: session.id }).where(eq(tasks.id, task.id));
+
+    const [withTask] = await listMemoryEntryWrites(org.id, entryId);
+    expect(withTask.task).toEqual({ id: task.id, ref: task.ref, title: "Add divide()" });
+    expect(withTask.session).toEqual({ id: session.id });
+
+    await db.delete(tasks).where(eq(tasks.id, task.id));
+
+    const [withoutTask] = await listMemoryEntryWrites(org.id, entryId);
+    expect(withoutTask.task).toBeUndefined();
+    expect(withoutTask.session).toEqual({ id: session.id });
+  });
+
+  it("caps the result at the history limit", async () => {
+    const { org, agent, entryId } = await setup();
+    for (let i = 0; i < MEMORY_WRITE_HISTORY_LIMIT + 2; i++) {
+      const s = await insertSession(org.id, agent.id);
+      await reinforceMemoryEntryWithWrite(org.id, agent.id, entryId, { source: "manual", lesson: `Lesson ${i}`, sessionId: s.id });
+    }
+
+    const items = await listMemoryEntryWrites(org.id, entryId);
+
+    expect(items).toHaveLength(MEMORY_WRITE_HISTORY_LIMIT);
+    expect(items[0].lesson).toBe(`Lesson ${MEMORY_WRITE_HISTORY_LIMIT + 1}`);
+  });
+
+  it("isolates a decrypt failure to its own row", async () => {
+    const { org, agent, entryId } = await setup();
+    const laterSession = await insertSession(org.id, agent.id);
+    await reinforceMemoryEntryWithWrite(org.id, agent.id, entryId, { source: "manual", lesson: "Fine.", sessionId: laterSession.id });
+    const [insertRow] = (await writesFor(entryId)).filter((r) => r.kind === "insert");
+    const buf = Buffer.from(insertRow.ciphertext, "base64");
+    buf[Math.floor(buf.length / 2)] ^= 0xff;
+    await db.update(agentMemoryWrites).set({ ciphertext: buf.toString("base64") }).where(eq(agentMemoryWrites.id, insertRow.id));
+
+    const items = await listMemoryEntryWrites(org.id, entryId);
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toMatchObject({ kind: "reinforce", lesson: "Fine." });
+    expect(items[1]).toMatchObject({ kind: "insert", decryptError: true });
+    expect(items[1].lesson).toBeUndefined();
+    expect(items[1].reason).toBeUndefined();
+  });
+
+  it("returns nothing for another org", async () => {
+    const { entryId } = await setup();
+    const otherOrg = await insertOrg();
+
+    expect(await listMemoryEntryWrites(otherOrg.id, entryId)).toEqual([]);
+  });
+});
+
+describe("memoryEntryBelongsToAgent", () => {
+  it("is true only for the owning org and agent", async () => {
+    const { org, agent, entryId } = await setup();
+    const otherAgent = await insertAgent(org.id);
+    const otherOrg = await insertOrg();
+
+    expect(await memoryEntryBelongsToAgent(org.id, agent.id, entryId)).toBe(true);
+    expect(await memoryEntryBelongsToAgent(org.id, otherAgent.id, entryId)).toBe(false);
+    expect(await memoryEntryBelongsToAgent(otherOrg.id, agent.id, entryId)).toBe(false);
+    expect(await memoryEntryBelongsToAgent(org.id, agent.id, entryId + 999)).toBe(false);
   });
 });
