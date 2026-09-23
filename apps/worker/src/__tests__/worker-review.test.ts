@@ -21,7 +21,12 @@ const h = vi.hoisted(() => {
     resetMemory: vi.fn(),
   };
   const runTurn = vi.fn();
-  return { workers, sandbox, runTurn };
+  const revokeModelCredential = vi.fn();
+  const issueModelCredential = vi.fn((_context: unknown) => ({
+    endpoint: { baseUrl: "http://host.docker.internal:8787/anthropic", token: "arata-run-test" },
+    revoke: revokeModelCredential,
+  }));
+  return { workers, sandbox, runTurn, revokeModelCredential, issueModelCredential };
 });
 
 vi.mock("bullmq", () => ({
@@ -130,6 +135,10 @@ vi.mock("../scm-provider", () => ({
 }));
 
 vi.mock("../repo-map", () => ({ ensureRepoMap: vi.fn(async () => ""), warmRepoMap: vi.fn() }));
+vi.mock("../sandbox-model-access", () => ({
+  startModelProxy: vi.fn(async () => ({})),
+  issueSandboxModelCredential: h.issueModelCredential,
+}));
 vi.mock("../context-retrieval", () => ({
   buildRetrievalQuery: vi.fn(() => ""),
   retrieveContext: vi.fn(async () => ({ text: "", retrievals: [] })),
@@ -383,6 +392,34 @@ describe("review run detection gate", () => {
       expect.objectContaining({ isReviewTurn: true }),
       expect.anything(),
     );
+  });
+
+  it("hands the turn a per-run model credential and revokes it once the turn ends", async () => {
+    h.revokeModelCredential.mockClear();
+    h.issueModelCredential.mockClear();
+
+    await runProcessor({ data: { runId: 1 } });
+
+    expect(h.issueModelCredential).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: 1, purpose: "run", provider: "anthropic" }),
+    );
+    expect(h.runTurn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelEndpoint: { baseUrl: "http://host.docker.internal:8787/anthropic", token: "arata-run-test" },
+      }),
+      expect.anything(),
+    );
+    expect(h.revokeModelCredential).toHaveBeenCalledTimes(1);
+  });
+
+  it("revokes the model credential even when the turn fails", async () => {
+    h.revokeModelCredential.mockClear();
+    h.runTurn.mockRejectedValueOnce(new Error("sandbox died"));
+
+    await runProcessor({ data: { runId: 1 } }).catch(() => undefined);
+
+    expect(h.runTurn).toHaveBeenCalled();
+    expect(h.revokeModelCredential).toHaveBeenCalledTimes(1);
   });
 
   it("creates a review sandbox without the shared dependency cache", async () => {

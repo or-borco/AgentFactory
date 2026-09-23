@@ -31,6 +31,11 @@ export interface MemoryWriteRuntimeEvent {
 
 export type RuntimeEvent = ThinkingDeltaRuntimeEvent | MemoryWriteRuntimeEvent;
 
+export interface ModelEndpoint {
+  baseUrl: string;
+  token: string;
+}
+
 export interface RuntimeCapabilities {
   supportsSkills: boolean;
   // Present iff supportsSkills — the workspace-relative directory worker.ts materialises pinned
@@ -51,6 +56,7 @@ export interface RunInput {
   // `remember` MCP tool for review turns - otherwise a crafted PR body could induce the agent to
   // persist attacker-chosen "lessons" that later get injected into every future run's prompt.
   isReviewTurn?: boolean;
+  modelEndpoint?: ModelEndpoint;
 }
 
 export interface AgentRuntime {

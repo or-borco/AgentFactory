@@ -121,6 +121,10 @@ vi.mock("../scm-provider", () => ({
 }));
 
 vi.mock("../repo-map", () => ({ ensureRepoMap: vi.fn(async () => ""), warmRepoMap: vi.fn() }));
+vi.mock("../sandbox-model-access", () => ({
+  startModelProxy: vi.fn(async () => ({})),
+  issueSandboxModelCredential: vi.fn(() => ({ endpoint: { baseUrl: "", token: "" }, revoke: vi.fn() })),
+}));
 vi.mock("../context-retrieval", () => ({
   buildRetrievalQuery: vi.fn(() => ""),
   retrieveContext: vi.fn(async () => ({ text: "", retrievals: [] })),
