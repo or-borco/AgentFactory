@@ -15,7 +15,7 @@ vi.mock("@agentfactory/db", () => ({
   reinforceMemoryEntryWithWrite: vi.fn(),
 }));
 
-const { processMemoryRetrospectiveJob } = await import("../memory-retrospective");
+const { parseReportLessons, processMemoryRetrospectiveJob } = await import("../memory-retrospective");
 
 function baseDeps(overrides: Record<string, unknown> = {}) {
   return {
@@ -25,7 +25,9 @@ function baseDeps(overrides: Record<string, unknown> = {}) {
       { id: 2, runId: 10, seq: 2, type: "error", data: { message: "permission denied" }, createdAt: "2026-09-17T00:00:01.000Z" },
     ]),
     listEvalsForRun: vi.fn().mockResolvedValue([]),
-    judge: vi.fn().mockResolvedValue({ lessons: ["Don't run destructive shell commands without confirmation."] }),
+    judge: vi.fn().mockResolvedValue({
+      lessons: [{ lesson: "Don't run destructive shell commands without confirmation.", why: "Run 10 ran rm -rf / and hit permission denied." }],
+    }),
     writeMemoryEntry: vi.fn().mockResolvedValue({ reinforced: false }),
     ...overrides,
   };
@@ -43,12 +45,13 @@ describe("processMemoryRetrospectiveJob", () => {
       "Don't run destructive shell commands without confirmation.",
       "retrospective",
       { runId: 10, sessionId: 3 },
+      { reason: "Run 10 ran rm -rf / and hit permission denied." },
     );
   });
 
   it("calls writeMemoryEntry once per lesson when the judge returns multiple", async () => {
     const deps = baseDeps({
-      judge: vi.fn().mockResolvedValue({ lessons: ["Lesson one.", "Lesson two."] }),
+      judge: vi.fn().mockResolvedValue({ lessons: [{ lesson: "Lesson one.", why: "a" }, { lesson: "Lesson two.", why: "b" }] }),
     });
 
     await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
@@ -96,7 +99,7 @@ describe("processMemoryRetrospectiveJob", () => {
 
   it("never throws when a writeMemoryEntry call fails partway through", async () => {
     const deps = baseDeps({
-      judge: vi.fn().mockResolvedValue({ lessons: ["Lesson one.", "Lesson two."] }),
+      judge: vi.fn().mockResolvedValue({ lessons: [{ lesson: "Lesson one.", why: "w" }, { lesson: "Lesson two.", why: "w" }] }),
       writeMemoryEntry: vi.fn().mockRejectedValueOnce(new Error("db down")).mockResolvedValueOnce({ reinforced: false }),
     });
 
@@ -113,10 +116,14 @@ describe("processMemoryRetrospectiveJob", () => {
 
     await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
 
-    expect(deps.writeMemoryEntry).toHaveBeenCalledWith(1, 2, expect.any(String), "retrospective", {
-      runId: 11,
-      sessionId: 3,
-    });
+    expect(deps.writeMemoryEntry).toHaveBeenCalledWith(
+      1,
+      2,
+      expect.any(String),
+      "retrospective",
+      { runId: 11, sessionId: 3 },
+      { reason: expect.any(String) },
+    );
   });
 
   // Regression test: the live pipeline never emits a "tool_call" event (run-turn-claude.ts
@@ -163,5 +170,52 @@ describe("processMemoryRetrospectiveJob", () => {
     // Plain reasoning (no `tool` field) is noise the judge doesn't need and would otherwise
     // crowd out the budget — only tool-carrying thinking_delta events are "tool calls".
     expect(transcriptSummary).not.toContain("clean up the workspace");
+  });
+
+  it("passes no reason when the judge gave no why", async () => {
+    const deps = baseDeps({ judge: vi.fn().mockResolvedValue({ lessons: [{ lesson: "Keep me." }] }) });
+
+    await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
+
+    expect(deps.writeMemoryEntry).toHaveBeenCalledExactlyOnceWith(1, 2, "Keep me.", "retrospective", { runId: 10, sessionId: 3 }, { reason: undefined });
+  });
+});
+
+describe("parseReportLessons", () => {
+  it("keeps each lesson with its why", () => {
+    expect(
+      parseReportLessons({
+        reasoning: "Two corrections.",
+        lessons: [
+          { lesson: "Use pnpm.", why: "npm was corrected twice." },
+          { lesson: "Validate numbers.", why: "A NaN slipped through." },
+        ],
+      }),
+    ).toEqual({
+      reasoning: "Two corrections.",
+      lessons: [
+        { lesson: "Use pnpm.", why: "npm was corrected twice." },
+        { lesson: "Validate numbers.", why: "A NaN slipped through." },
+      ],
+    });
+  });
+
+  it("drops items with an empty or missing lesson", () => {
+    const { lessons } = parseReportLessons({
+      reasoning: "r",
+      lessons: [{ lesson: "  ", why: "w" }, { why: "w" }, "a bare string", null, { lesson: "Keep me.", why: "w" }],
+    });
+
+    expect(lessons).toEqual([{ lesson: "Keep me.", why: "w" }]);
+  });
+
+  it("keeps a lesson whose why is empty, with no why", () => {
+    const { lessons } = parseReportLessons({ reasoning: "r", lessons: [{ lesson: "Keep me.", why: " " }, { lesson: "Me too." }] });
+
+    expect(lessons).toEqual([{ lesson: "Keep me." }, { lesson: "Me too." }]);
+  });
+
+  it("throws when there is no lessons array", () => {
+    expect(() => parseReportLessons({ reasoning: "r" })).toThrow("judge output has no lessons array");
   });
 });
