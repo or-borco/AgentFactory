@@ -102,6 +102,7 @@ import { ensureRepoMap, warmRepoMap } from "./repo-map";
 import { runDependencySetup, type DependencySetupOutcome } from "./dependency-setup";
 import { resolveSandboxImage, SANDBOX_IMAGE_NODE } from "./sandbox-image-select";
 import { dependencyCacheEnv, dependencyCacheVolume } from "./sandbox-cache";
+import { issueSandboxModelCredential, startModelProxy } from "./sandbox-model-access";
 import { buildRetrievalQuery, retrieveContext, type RetrievedContext } from "./context-retrieval";
 import { waitForPendingContextIngest } from "./context-ingest-wait";
 import { materialiseTaskDocuments, type MaterialisedTaskDocuments } from "./task-documents";
@@ -665,6 +666,12 @@ const runWorker = new Worker<RunJobData>(
               ).catch(() => {});
             }, REASSURANCE_INTERVAL_MS)
           : undefined;
+      const modelCredential = issueSandboxModelCredential({
+        orgId: agent.orgId,
+        runId,
+        purpose: "run",
+        provider: attemptModel.family,
+      });
       try {
         for (;;) {
           try {
@@ -679,6 +686,7 @@ const runWorker = new Worker<RunJobData>(
                 // Gates the `remember` MCP tool off inside the sandbox for review turns - see
                 // RunInput.isReviewTurn.
                 isReviewTurn: Boolean(review),
+                modelEndpoint: modelCredential.endpoint,
               },
               {
                 sandboxProvider,
@@ -725,6 +733,7 @@ const runWorker = new Worker<RunJobData>(
           }
         }
       } finally {
+        modelCredential.revoke();
         stopTyping();
         if (reassuranceTimer !== undefined) clearInterval(reassuranceTimer);
       }
@@ -1121,6 +1130,11 @@ const taskContextIngestWorker = new Worker<TaskContextIngestJobData>(
 
 taskContextIngestWorker.on("failed", (job, err) => {
   log.error("Task context ingest job failed", { jobId: job?.id, err });
+});
+
+startModelProxy().catch((err: unknown) => {
+  log.error("Model proxy failed to start; sandboxes cannot reach the model", { err });
+  process.exit(1);
 });
 
 log.info("apps/worker listening", {

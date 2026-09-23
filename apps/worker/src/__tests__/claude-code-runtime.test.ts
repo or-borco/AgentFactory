@@ -57,16 +57,24 @@ describe("claudeCodeRuntime", () => {
     expect(execCalls[0].env?.MODEL_ID).toBe("claude-haiku-4-5");
   });
 
-  it("gives the model credential to the turn's own exec, the only place the SDK runs", async () => {
+  it("maps the provider-neutral model endpoint onto the Claude SDK's own env vars, never the worker's key", async () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "sk-platform");
     const { sandboxProvider, execCalls } = fakeSandbox([
       { stream: "stdout", data: `__RESULT__${JSON.stringify({ text: "Hi", providerSessionRef: "ref-1" })}\n` },
     ]);
+    const modelEndpoint = { baseUrl: "http://host.docker.internal:8787/anthropic", token: "arata-run-abc" };
 
+    await claudeCodeRuntime.runTurn({ ...baseInput(), modelEndpoint }, { sandboxProvider, sandboxId: "sandbox-1" });
     await claudeCodeRuntime.runTurn(baseInput(), { sandboxProvider, sandboxId: "sandbox-1" });
     vi.unstubAllEnvs();
 
-    expect(execCalls[0].env?.ANTHROPIC_API_KEY).toBe("sk-platform");
+    expect(execCalls[0].env).toMatchObject({
+      ANTHROPIC_BASE_URL: "http://host.docker.internal:8787/anthropic",
+      ANTHROPIC_API_KEY: "arata-run-abc",
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+    });
+    expect(execCalls[1].env?.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(JSON.stringify(execCalls)).not.toContain("sk-platform");
   });
 
   it("passes resumeSessionRef and skillNames through as env vars", async () => {

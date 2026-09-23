@@ -176,6 +176,7 @@ export class DockerSandboxProvider implements SandboxProvider {
         NanoCpus: (spec.cpuLimit ?? 1) * 1e9,
         PidsLimit: spec.pidsLimit ?? 128,
         AutoRemove: false,
+        ExtraHosts: ["host.docker.internal:host-gateway"],
         Mounts: (spec.volumes ?? []).map((volume) => ({
           Type: "volume" as const,
           Source: volume.name,
