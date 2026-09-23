@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Connection } from "@agentfactory/core";
 import { ScmInstallIncompleteError } from "../types";
-import { githubScmProvider } from "../github";
+import { githubScmProvider, repoScope } from "../github";
 
 // signAppJwt() needs a real asymmetric key to actually sign with — irrelevant to what these
 // tests check, so stub jsonwebtoken entirely.
@@ -184,9 +184,14 @@ describe("findRepoAccess", () => {
 
 describe("resolveCloneTarget", () => {
   it("returns a clone target with a fresh embedded token and a plain remote URL", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_clone" }), { status: 200 })));
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_clone" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
 
     const target = await githubScmProvider.resolveCloneTarget(githubConnection(1, 999), "acme-org/platform", "agent/session-42");
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.github.com/app/installations/999/access_tokens");
+    expect(JSON.parse(String(init.body))).toEqual({ repositories: ["platform"], permissions: { contents: "read" } });
 
     expect(target).toEqual({
       cloneUrl: "https://x-access-token:ghs_clone@github.com/acme-org/platform.git",
@@ -206,9 +211,23 @@ describe("resolveCloneTarget", () => {
   });
 });
 
+describe("repoScope", () => {
+  it("names only the repo, since GitHub scopes installation tokens by repository name", () => {
+    expect(repoScope("acme-org/platform", "read")).toEqual({
+      repositories: ["platform"],
+      permissions: { contents: "read" },
+    });
+  });
+
+  it("rejects a name without an owner", () => {
+    expect(() => repoScope("platform", "write")).toThrow(/owner\/repo/);
+  });
+});
+
 describe("mintPushToken", () => {
-  it("mints a fresh token from the target's installationRef", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_push" }), { status: 200 })));
+  it("mints a fresh token from the target's installationRef, limited to writing that one repo", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ token: "ghs_push" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
 
     const target = {
       cloneUrl: "x",
@@ -219,6 +238,9 @@ describe("mintPushToken", () => {
       installationRef: 999,
     };
     await expect(githubScmProvider.mintPushToken(target)).resolves.toBe("ghs_push");
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.github.com/app/installations/999/access_tokens");
+    expect(JSON.parse(String(init.body))).toEqual({ repositories: ["platform"], permissions: { contents: "write" } });
   });
 
   it("throws when installationRef is not a number", async () => {
