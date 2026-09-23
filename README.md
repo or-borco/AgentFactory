@@ -1,5 +1,7 @@
 # AgentFactory
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 AgentFactory is a platform for running coding agents against your team's repos. It's a pnpm
 workspace monorepo: `apps/web` (Next.js UI + API), `apps/worker` (the process that actually runs
 agent turns in a sandboxed Docker container), and shared `packages/*` (domain types, DB access via
@@ -243,3 +245,7 @@ pnpm typecheck   # tsc --noEmit across all packages
 A pre-push hook (via husky) runs `pnpm test` (unit, DB integration, queue integration, and E2E —
 see "Running tests" above for the local setup each of those needs) before every `git push`. Skip
 it for a single push with `git push --no-verify` if needed.
+
+## License
+
+This project is licensed under the [Apache License 2.0](LICENSE).
