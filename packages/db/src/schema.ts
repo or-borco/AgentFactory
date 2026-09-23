@@ -915,8 +915,6 @@ export const agentMemoryEntries = pgTable(
     weight: integer("weight").notNull().default(1),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     lastReinforcedAt: timestamp("last_reinforced_at", { withTimezone: true }).notNull().defaultNow(),
-    lastSourceRunId: integer("last_source_run_id").references(() => runs.id, { onDelete: "set null" }),
-    lastSourceSessionId: integer("last_source_session_id").references(() => sessions.id, { onDelete: "set null" }),
   },
   (table) => [
     // findSimilarMemoryEntry filters WHERE org_id = ? AND agent_id = ? before ranking by
@@ -924,5 +922,36 @@ export const agentMemoryEntries = pgTable(
     // call and every retrospective lesson.
     index("agent_memory_entries_agent_id_idx").on(table.agentId),
     index("agent_memory_entries_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
+  ],
+);
+
+export const memoryWriteKindEnum = pgEnum("memory_write_kind", ["insert", "reinforce", "edit"]);
+
+export const agentMemoryWrites = pgTable(
+  "agent_memory_writes",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    agentId: integer("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    entryId: integer("entry_id").references(() => agentMemoryEntries.id, { onDelete: "set null" }),
+    kind: memoryWriteKindEnum("kind").notNull(),
+    source: memorySourceEnum("source"),
+    ciphertext: text("ciphertext").notNull(),
+    keyVersion: integer("key_version").notNull().default(1),
+    sessionId: integer("session_id").references(() => sessions.id, { onDelete: "set null" }),
+    runId: integer("run_id").references(() => runs.id, { onDelete: "set null" }),
+    userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("agent_memory_writes_entry_created_idx").on(table.entryId, table.createdAt.desc()),
+    index("agent_memory_writes_agent_created_idx").on(table.agentId, table.createdAt.desc()),
+    uniqueIndex("agent_memory_writes_reinforce_once_per_session")
+      .on(table.entryId, table.sessionId, table.source)
+      .where(sql`${table.kind} = 'reinforce'`),
   ],
 );
