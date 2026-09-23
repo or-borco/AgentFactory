@@ -10,8 +10,8 @@
 > container per session and runs the Claude Agent SDK **inside** it
 > (`apps/worker/sandbox-image/run-turn.ts`) with `permissionMode: "bypassPermissions"` — i.e. the
 > SandboxProvider port (§4) is real, but there is no `AgentRuntime` port/adapter yet (§1) and no
-> policy engine gating tool calls, no budget/`usage_records` enforcement, and no
-> `resolveCredentials` (the platform Anthropic key is read straight from env) — those are M1's
+> policy engine gating tool calls, no budget/`usage_records` enforcement, and only a stub
+> `resolveCredentials` (the platform key, kept out of sandboxes behind a model proxy, §9) — those are M1's
 > unfinished half, tracked in §6. `skills` and `connections` are real and DB-backed, not mock:
 > skills are materialized into the sandbox and loaded via the SDK's `skills` option; GitHub is a
 > real GitHub App (`ScmProvider`, clone → `agent/<task-ref>-<title-slug>-<token>` branch → draft PR); Jira is a real
@@ -623,10 +623,21 @@ A single `resolveCredentials(orgId)` step in the orchestrator is meant to return
   at connect time and surfaced as a connection health state, since an expired BYO key fails every run silently.
 
 Both paths are meant to converge before `AgentRuntime.start()`, so adapters never learn which mode they're in.
-**Current reality**: none of this exists. `apps/worker/src/agent-runtime.ts` reads the platform `ANTHROPIC_API_KEY`
-from the worker's own environment for every run, with a comment marking `resolveCredentials(orgId)` as the
-still-open TODO (§6). There is no BYO-key connection kind, no per-run metering, and no budget check before
-dispatch.
+**Current reality**: the key is kept out of sandboxes, but the rest is not built. The worker runs a host-side model
+proxy (`apps/worker/src/model-proxy.ts`); each agent turn and repo-map generation gets a short-lived, revocable
+per-run token bound to its org and model provider (`run-credentials.ts`), and reaches the model API only through
+that proxy, which swaps the token for `resolveCredentials(orgId, provider)`'s key and logs every request with its
+org and run. The proxy is provider-aware: `MODEL_PROVIDERS` in `model-proxy.ts` maps each `ModelSpec.family` to its
+upstream, allowed paths and key header, routed by prefix (`/anthropic/v1/messages`). The worker hands each runtime a
+neutral `ModelEndpoint` (`{ baseUrl, token }`) and the adapter maps it onto its SDK's own settings
+(`ClaudeCodeRuntime` sets `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY`), so a second runtime needs a provider entry, a
+platform key variable, and its own mapping, never a worker change. Repo-map generation follows the same rule: it
+uses the default runtime's optional `repoMap` generator (`AgentRuntime.repoMap`, which declares its model and
+therefore its provider), so `repo-map.ts` never names an SDK. Only `anthropic` exists today. That
+`resolveCredentials` (`sandbox-model-access.ts`) is a stub returning the platform key for the provider from the
+worker's environment. There is no BYO-key connection kind, no per-run metering into `usage_records`, and no
+budget check before dispatch; the proxy is the intended place for all three. Design:
+or-borco/ArataContext `superpowers/specs/2026-09-23-sandbox-model-proxy-design.md`.
 
 ---
 

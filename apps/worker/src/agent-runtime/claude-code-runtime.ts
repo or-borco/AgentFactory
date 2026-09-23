@@ -1,14 +1,36 @@
 import type { SandboxProvider } from "../sandbox/types";
 import { SKILL_DIR } from "../skill-paths";
 import { readAgentTurnOutput } from "./marker-protocol";
+import { buildModelSpec } from "@agentfactory/core";
 import type {
   AgentRuntime,
   AgentTurnResult,
   ModelEndpoint,
+  RepoMapGenerator,
+  RepoMapResult,
   RunInput,
   RuntimeCapabilities,
   RuntimeEvent,
 } from "./types";
+
+const REPO_MAP_RESULT_MARKER = "__RESULT__";
+
+const claudeRepoMapGenerator: RepoMapGenerator = {
+  model: buildModelSpec("claude-haiku-4-5"),
+  async generate({ sandboxProvider, sandboxId, modelEndpoint }) {
+    let stdout = "";
+    for await (const chunk of sandboxProvider.exec(
+      sandboxId,
+      ["/agent/node_modules/.bin/tsx", "/agent/generate-repo-map.ts"],
+      { env: { ...claudeModelEnv(modelEndpoint), MODEL_ID: claudeRepoMapGenerator.model.id } },
+    )) {
+      if (chunk.stream === "stdout") stdout += chunk.data;
+    }
+    const resultLine = stdout.split("\n").find((line) => line.startsWith(REPO_MAP_RESULT_MARKER));
+    if (!resultLine) return undefined;
+    return JSON.parse(resultLine.slice(REPO_MAP_RESULT_MARKER.length)) as RepoMapResult;
+  },
+};
 
 export function claudeModelEnv(endpoint: ModelEndpoint): Record<string, string> {
   return {
@@ -23,6 +45,7 @@ export function claudeModelEnv(endpoint: ModelEndpoint): Record<string, string> 
 // second adapter (e.g. Codex) can reuse it. No behavior change.
 class ClaudeCodeRuntime implements AgentRuntime {
   readonly kind = "claude-code" as const;
+  readonly repoMap = claudeRepoMapGenerator;
 
   capabilities(): RuntimeCapabilities {
     return { supportsSkills: true, skillDir: SKILL_DIR, supportsResume: true };

@@ -57,9 +57,12 @@ ARCHITECTURE.md's status header for the full picture.
 
 **What's still missing matters for anything touching runs or tool access**: there is no policy engine gating tool
 calls — the sandbox currently runs the SDK with `permissionMode: "bypassPermissions"` and full, unrestricted tool
-access — no budget/cost enforcement, and no `resolveCredentials` (the platform Anthropic key is read straight from
-`process.env` in `apps/worker/src/agent-runtime.ts`). Don't assume a `PolicyEngine`, budget caps, or credential
-resolution exist anywhere in the code just because `agents.toolPolicy` is a schema column — see ARCHITECTURE.md §6.
+access — and no budget/cost enforcement. The platform Anthropic key never enters a sandbox: agent turns and repo-map
+generation reach the model through a host-side proxy (`apps/worker/src/model-proxy.ts`) using a short-lived per-run
+token, and `resolveCredentials(orgId)` in `apps/worker/src/sandbox-model-access.ts` is a stub that still returns the
+single platform key from `process.env` (no BYO keys, no metering). Don't assume a `PolicyEngine`, budget caps, or
+BYO-key credential resolution exist anywhere in the code just because `agents.toolPolicy` is a schema column — see
+ARCHITECTURE.md §6.
 
 **Client data access:** `apps/web/src/lib/app-data/context.tsx` exports `AppDataProvider` and `useAppData()` —
 renamed from `MockBackendProvider`/`useMockBackend()` now that the original UI-mock phase is fully gone (there's no

@@ -59,8 +59,24 @@ export interface RunInput {
   modelEndpoint?: ModelEndpoint;
 }
 
+export interface RepoMapResult {
+  text: string;
+  costUsd: number;
+  tokens: number;
+}
+
+export interface RepoMapGenerator {
+  model: ModelSpec;
+  generate(ctx: {
+    sandboxProvider: SandboxProvider;
+    sandboxId: string;
+    modelEndpoint: ModelEndpoint;
+  }): Promise<RepoMapResult | undefined>;
+}
+
 export interface AgentRuntime {
   readonly kind: RuntimeKind;
+  readonly repoMap?: RepoMapGenerator;
   capabilities(): RuntimeCapabilities;
   runTurn(
     input: RunInput,
