@@ -4,6 +4,7 @@ import { createLogger } from "@agentfactory/logger";
 import type { SandboxProvider } from "./sandbox/types";
 import { cloneIntoSandbox, resolveCloneTarget, resolveDefaultBranchSha } from "./scm-provider";
 import { resolveSandboxImage } from "./sandbox-image-select";
+import { sandboxModelEnv } from "./sandbox-model-env";
 
 const log = createLogger("repo-map");
 
@@ -36,9 +37,14 @@ interface GeneratedMap {
   tokens: number;
 }
 
-async function execToString(sandboxProvider: SandboxProvider, sandboxId: string, cmd: string[]): Promise<string> {
+async function execToString(
+  sandboxProvider: SandboxProvider,
+  sandboxId: string,
+  cmd: string[],
+  env?: Record<string, string>,
+): Promise<string> {
   let stdout = "";
-  for await (const chunk of sandboxProvider.exec(sandboxId, cmd)) {
+  for await (const chunk of sandboxProvider.exec(sandboxId, cmd, env ? { env } : undefined)) {
     if (chunk.stream === "stdout") stdout += chunk.data;
   }
   return stdout;
@@ -55,7 +61,12 @@ async function getSandboxHeadSha(sandboxProvider: SandboxProvider, sandboxId: st
 async function generateRepoMap(sandboxProvider: SandboxProvider, sandboxId: string): Promise<GeneratedMap | undefined> {
   try {
     const stdout = await Promise.race([
-      execToString(sandboxProvider, sandboxId, ["/agent/node_modules/.bin/tsx", "/agent/generate-repo-map.ts"]),
+      execToString(
+        sandboxProvider,
+        sandboxId,
+        ["/agent/node_modules/.bin/tsx", "/agent/generate-repo-map.ts"],
+        sandboxModelEnv(),
+      ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Repo map generation timed out")), GENERATION_TIMEOUT_MS),
       ),
@@ -190,10 +201,7 @@ export async function warmRepoMap(
     if (!workspace) return;
 
     const image = await resolveSandboxImage(orgId, repoFullName);
-    const sandbox = await sandboxProvider.create({
-      image,
-      env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "" },
-    });
+    const sandbox = await sandboxProvider.create({ image, env: {} });
     try {
       await cloneIntoSandbox(sandboxProvider, sandbox.id, workspace);
       await generateAndCacheRepoMap(sandboxProvider, sandbox.id, orgId, repoFullName);

@@ -1,4 +1,5 @@
 import type { SandboxProvider } from "../sandbox/types";
+import { sandboxModelEnv } from "../sandbox-model-env";
 import { SKILL_DIR } from "../skill-paths";
 import { readAgentTurnOutput } from "./marker-protocol";
 import type { AgentRuntime, AgentTurnResult, RunInput, RuntimeCapabilities, RuntimeEvent } from "./types";
@@ -21,9 +22,7 @@ class ClaudeCodeRuntime implements AgentRuntime {
       SYSTEM_PROMPT: input.systemPrompt,
       USER_TEXT: input.userText,
       MODEL_ID: input.model.id,
-      // Platform key passthrough for now — see ARCHITECTURE.md §9: this becomes
-      // resolveCredentials(orgId) once BYO-key connections exist.
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
+      ...sandboxModelEnv(),
     };
     if (input.resumeSessionRef) env.RESUME_SESSION_REF = input.resumeSessionRef;
     if (input.skillNames && input.skillNames.length > 0) env.SKILL_NAMES = input.skillNames.join(",");

@@ -147,7 +147,7 @@ export async function ensureSandbox(
 
   const sandbox = await sandboxProvider.create({
     image,
-    env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "", ...dependencyCacheEnv() },
+    env: dependencyCacheEnv(),
     volumes: dependencyCacheRepo ? [dependencyCacheVolume(orgId, dependencyCacheRepo)] : [],
   });
   await setSessionSandbox(session.id, sandbox.id, image);

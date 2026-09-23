@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { OutputChunk, SandboxProvider } from "../sandbox/types";
 import { claudeCodeRuntime } from "../agent-runtime/claude-code-runtime";
 import { InsufficientCreditError, PromptTooLongError } from "../agent-runtime/errors";
@@ -55,6 +55,18 @@ describe("claudeCodeRuntime", () => {
     expect(execCalls[0].cmd).toEqual(["/agent/node_modules/.bin/tsx", "/agent/run-turn-claude.ts"]);
     expect(execCalls[0].env?.SYSTEM_PROMPT).toBe("Be helpful.");
     expect(execCalls[0].env?.MODEL_ID).toBe("claude-haiku-4-5");
+  });
+
+  it("gives the model credential to the turn's own exec, the only place the SDK runs", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-platform");
+    const { sandboxProvider, execCalls } = fakeSandbox([
+      { stream: "stdout", data: `__RESULT__${JSON.stringify({ text: "Hi", providerSessionRef: "ref-1" })}\n` },
+    ]);
+
+    await claudeCodeRuntime.runTurn(baseInput(), { sandboxProvider, sandboxId: "sandbox-1" });
+    vi.unstubAllEnvs();
+
+    expect(execCalls[0].env?.ANTHROPIC_API_KEY).toBe("sk-platform");
   });
 
   it("passes resumeSessionRef and skillNames through as env vars", async () => {

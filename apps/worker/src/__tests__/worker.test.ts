@@ -168,6 +168,18 @@ describe("ensureSandbox", () => {
     expect(setSessionSandboxMock).toHaveBeenCalledWith(10, "new-sandbox", "arata-sandbox-python:local");
   });
 
+  it("never puts the platform Anthropic key in the container environment", async () => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-platform");
+    resolveSandboxImageMock.mockResolvedValue("arata-sandbox-python:local");
+
+    await ensureSandbox(fakeSession({ sandboxId: undefined, sandboxImage: undefined }), 5, "acme/widgets", "acme/widgets");
+    vi.unstubAllEnvs();
+
+    const [spec] = h.sandbox.create.mock.calls[0] as unknown as [{ env: Record<string, string> }];
+    expect(Object.keys(spec.env)).not.toContain("ANTHROPIC_API_KEY");
+    expect(Object.values(spec.env)).not.toContain("sk-platform");
+  });
+
   it("reuses an already language-specific sandbox without re-resolving the image", async () => {
     const session = fakeSession({ sandboxId: "existing-sandbox", sandboxImage: "arata-sandbox-python:local" });
 
