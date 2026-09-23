@@ -276,11 +276,14 @@ describe("warmRepoMap", () => {
     });
     cloneIntoSandboxMock.mockReset().mockResolvedValue(undefined);
     resolveSandboxImageMock.mockReset().mockResolvedValue("arata-sandbox-node:local");
+    vi.stubEnv("ANTHROPIC_API_KEY", "sk-platform");
     const destroy = vi.fn();
     const create = vi.fn().mockResolvedValue({ id: "warm-sandbox-1" });
+    const execEnvs = new Map<string, Record<string, string> | undefined>();
     const sandbox: SandboxProvider = {
       create,
-      exec: (async function* (_id: string, cmd: string[]) {
+      exec: (async function* (_id: string, cmd: string[], opts?: { env?: Record<string, string> }) {
+        execEnvs.set(cmd.join(" "), opts?.env);
         if (cmd.join(" ") === "git -C /workspace rev-parse HEAD") {
           yield { stream: "stdout", data: "abc123\n" } as OutputChunk;
           return;
@@ -300,7 +303,10 @@ describe("warmRepoMap", () => {
 
     await warmRepoMap(sandbox, 1, "acme/widgets");
 
-    expect(create).toHaveBeenCalledWith({ image: "arata-sandbox-node:local", env: expect.any(Object) });
+    expect(create).toHaveBeenCalledWith({ image: "arata-sandbox-node:local", env: {} });
+    expect(execEnvs.get(GENERATE_CMD)).toEqual({ ANTHROPIC_API_KEY: "sk-platform" });
+    expect(execEnvs.get(HEAD_CMD)).toBeUndefined();
+    vi.unstubAllEnvs();
     expect(cloneIntoSandboxMock).toHaveBeenCalled();
     expect(insertRepoMapMock).toHaveBeenCalledWith(expect.objectContaining({ content: "warmed map" }));
     expect(destroy).toHaveBeenCalledWith("warm-sandbox-1");
