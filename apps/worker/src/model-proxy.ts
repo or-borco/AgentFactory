@@ -2,13 +2,33 @@ import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Serv
 import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
 import { createLogger } from "@agentfactory/logger";
-import type { RunCredentialContext, RunCredentialStore } from "./run-credentials";
+import type { ModelProvider, RunCredentialContext, RunCredentialStore } from "./run-credentials";
 
 const log = createLogger("model-proxy");
 
-export const MODEL_PROXY_ALLOWED_PATHS: ReadonlySet<string> = new Set(["/v1/messages", "/v1/messages/count_tokens"]);
-export const DEFAULT_UPSTREAM_BASE_URL = "https://api.anthropic.com";
 export const DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024;
+
+export interface ModelProviderProfile {
+  upstreamBaseUrl: string;
+  allowedPaths: ReadonlySet<string>;
+  healthPaths: ReadonlySet<string>;
+  attachKey: (headers: Record<string, string>, apiKey: string) => void;
+}
+
+export const MODEL_PROVIDERS: Record<ModelProvider, ModelProviderProfile> = {
+  anthropic: {
+    upstreamBaseUrl: "https://api.anthropic.com",
+    allowedPaths: new Set(["/v1/messages", "/v1/messages/count_tokens"]),
+    healthPaths: new Set(["/api/hello"]),
+    attachKey: (headers, apiKey) => {
+      headers["x-api-key"] = apiKey;
+    },
+  },
+};
+
+export function modelProxyRoutePrefix(provider: ModelProvider): string {
+  return `/${provider}`;
+}
 
 const STRIPPED_REQUEST_HEADERS = new Set([
   "host",
@@ -36,12 +56,21 @@ const STRIPPED_RESPONSE_HEADERS = new Set([
 
 export interface ModelProxyOptions {
   store: RunCredentialStore;
-  resolveCredentials: (orgId: number) => Promise<string | undefined> | string | undefined;
-  upstreamBaseUrl?: string;
+  resolveCredentials: (
+    orgId: number,
+    provider: ModelProvider,
+  ) => Promise<string | undefined> | string | undefined;
+  providers?: Readonly<Record<string, ModelProviderProfile>>;
   maxBodyBytes?: number;
 }
 
 class BodyTooLargeError extends Error {}
+
+interface ProviderRoute {
+  provider: ModelProvider;
+  profile: ModelProviderProfile;
+  path: string;
+}
 
 function sendError(res: ServerResponse, status: number, type: string, message: string): void {
   if (res.headersSent) {
@@ -60,13 +89,28 @@ export function presentedToken(headers: IncomingHttpHeaders): string | undefined
   return bearer?.[1]?.trim() || undefined;
 }
 
-function forwardedRequestHeaders(headers: IncomingHttpHeaders, apiKey: string): Record<string, string> {
+export function routeFor(
+  pathname: string,
+  providers: Readonly<Record<string, ModelProviderProfile>>,
+): ProviderRoute | undefined {
+  const match = /^\/([a-z0-9-]+)(\/.*)$/.exec(pathname);
+  if (!match) return undefined;
+  const provider = match[1]!;
+  if (!Object.hasOwn(providers, provider)) return undefined;
+  return { provider: provider as ModelProvider, profile: providers[provider]!, path: match[2]! };
+}
+
+function forwardedRequestHeaders(
+  headers: IncomingHttpHeaders,
+  profile: ModelProviderProfile,
+  apiKey: string,
+): Record<string, string> {
   const forwarded: Record<string, string> = {};
   for (const [name, value] of Object.entries(headers)) {
     if (value === undefined || STRIPPED_REQUEST_HEADERS.has(name)) continue;
     forwarded[name] = Array.isArray(value) ? value.join(", ") : value;
   }
-  forwarded["x-api-key"] = apiKey;
+  profile.attachKey(forwarded, apiKey);
   return forwarded;
 }
 
@@ -85,19 +129,20 @@ async function readBody(req: IncomingMessage, maxBytes: number): Promise<Buffer>
 async function forward(
   req: IncomingMessage,
   res: ServerResponse,
-  context: RunCredentialContext,
+  route: ProviderRoute,
   apiKey: string,
-  url: URL,
-  options: Required<Pick<ModelProxyOptions, "upstreamBaseUrl" | "maxBodyBytes">>,
+  search: string,
+  maxBodyBytes: number,
 ): Promise<number> {
-  const body = await readBody(req, options.maxBodyBytes);
+  const body = await readBody(req, maxBodyBytes);
   const abort = new AbortController();
   res.on("close", () => {
     if (!res.writableFinished) abort.abort();
   });
-  const upstream = await fetch(`${options.upstreamBaseUrl}${url.pathname}${url.search}`, {
+  const upstreamBase = route.profile.upstreamBaseUrl.replace(/\/+$/, "");
+  const upstream = await fetch(`${upstreamBase}${route.path}${search}`, {
     method: "POST",
-    headers: forwardedRequestHeaders(req.headers, apiKey),
+    headers: forwardedRequestHeaders(req.headers, route.profile, apiKey),
     body,
     signal: abort.signal,
   });
@@ -116,44 +161,51 @@ async function forward(
     res.on("close", resolve);
     stream.pipe(res);
   });
-  log.debug("Model proxy stream finished", { orgId: context.orgId, runId: context.runId });
   return upstream.status;
 }
 
+function reject(req: IncomingMessage, res: ServerResponse, status: number, type: string, message: string): void {
+  req.resume();
+  sendError(res, status, type, message);
+}
+
 export function createModelProxy(options: ModelProxyOptions): Server {
-  const settings = {
-    upstreamBaseUrl: (options.upstreamBaseUrl ?? DEFAULT_UPSTREAM_BASE_URL).replace(/\/+$/, ""),
-    maxBodyBytes: options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES,
-  };
+  const providers = options.providers ?? MODEL_PROVIDERS;
+  const maxBodyBytes = options.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
 
   return createServer((req, res) => {
     const startedAt = Date.now();
     const url = new URL(req.url ?? "/", "http://model-proxy.local");
-    if (req.method !== "POST" || !MODEL_PROXY_ALLOWED_PATHS.has(url.pathname)) {
+    const route = routeFor(url.pathname, providers);
+
+    if (route && route.profile.healthPaths.has(route.path) && (req.method === "HEAD" || req.method === "GET")) {
       req.resume();
+      res.writeHead(200);
+      res.end();
+      return;
+    }
+    if (!route || req.method !== "POST" || !route.profile.allowedPaths.has(route.path)) {
       log.warn("Model proxy rejected path", { method: req.method, path: url.pathname });
-      sendError(res, 404, "not_found_error", "Not available through the platform model proxy");
+      reject(req, res, 404, "not_found_error", "Not available through the platform model proxy");
       return;
     }
 
-    const context = options.store.resolve(presentedToken(req.headers));
-    if (!context) {
-      req.resume();
-      sendError(res, 401, "authentication_error", "Invalid or expired run credential");
+    const context: RunCredentialContext | undefined = options.store.resolve(presentedToken(req.headers));
+    if (!context || context.provider !== route.provider) {
+      reject(req, res, 401, "authentication_error", "Invalid or expired run credential");
       return;
     }
 
     void (async () => {
       let status = 0;
       try {
-        const apiKey = await options.resolveCredentials(context.orgId);
+        const apiKey = await options.resolveCredentials(context.orgId, route.provider);
         if (!apiKey) {
-          req.resume();
           status = 503;
-          sendError(res, 503, "api_error", "No model credential is configured for this organization");
+          reject(req, res, 503, "api_error", "No model credential is configured for this organization");
           return;
         }
-        status = await forward(req, res, context, apiKey, url, settings);
+        status = await forward(req, res, route, apiKey, url.search, maxBodyBytes);
       } catch (err) {
         if (err instanceof BodyTooLargeError) {
           status = 413;
@@ -168,7 +220,8 @@ export function createModelProxy(options: ModelProxyOptions): Server {
           orgId: context.orgId,
           runId: context.runId,
           purpose: context.purpose,
-          path: url.pathname,
+          provider: route.provider,
+          path: route.path,
           status,
           durationMs: Date.now() - startedAt,
         });
