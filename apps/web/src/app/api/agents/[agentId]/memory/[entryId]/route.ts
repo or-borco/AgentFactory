@@ -24,7 +24,7 @@ export async function PATCH(
     );
   }
 
-  await updateMemoryEntryContent(ctx.orgId, Number(entryId), body.content);
+  await updateMemoryEntryContent(ctx.orgId, Number(entryId), body.content, ctx.user.id);
   return new NextResponse(null, { status: 204 });
 }
 

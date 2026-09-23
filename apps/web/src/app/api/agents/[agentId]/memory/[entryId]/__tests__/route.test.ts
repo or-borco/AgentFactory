@@ -78,7 +78,7 @@ describe("PATCH /api/agents/[agentId]/memory/[entryId]", () => {
     const res = await patch("5", "1", { content: "x".repeat(MAX_MEMORY_CONTENT_CHARS) });
 
     expect(res.status).toBe(204);
-    expect(updateMemoryEntryContent).toHaveBeenCalledExactlyOnceWith(3, 1, "x".repeat(MAX_MEMORY_CONTENT_CHARS));
+    expect(updateMemoryEntryContent).toHaveBeenCalledExactlyOnceWith(3, 1, "x".repeat(MAX_MEMORY_CONTENT_CHARS), 1);
   });
 
   it("updates the entry's content, org-scoped", async () => {
@@ -87,7 +87,7 @@ describe("PATCH /api/agents/[agentId]/memory/[entryId]", () => {
     const res = await patch("5", "1", { content: "Edited lesson." });
 
     expect(res.status).toBe(204);
-    expect(updateMemoryEntryContent).toHaveBeenCalledExactlyOnceWith(3, 1, "Edited lesson.");
+    expect(updateMemoryEntryContent).toHaveBeenCalledExactlyOnceWith(3, 1, "Edited lesson.", 1);
   });
 });
 
