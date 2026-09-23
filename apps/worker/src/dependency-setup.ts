@@ -150,10 +150,27 @@ export interface SetupStep {
   note?: string;
 }
 
-export type DependencySetupPlan = { source: "detected"; steps: SetupStep[] } | { source: "none"; steps: [] };
+export type DependencySetupPlan =
+  | { source: "override"; steps: [SetupStep] }
+  | { source: "detected"; steps: SetupStep[] }
+  | { source: "none"; steps: [] };
 
-export function planDependencySetup(presentFiles: string[]): DependencySetupPlan {
+export function planDependencySetup(presentFiles: string[], overrideCommand?: string | null): DependencySetupPlan {
   const ecosystems = detectEcosystems(presentFiles);
+  const override = overrideCommand?.trim();
+  if (override) {
+    return {
+      source: "override",
+      steps: [
+        {
+          label: "override",
+          command: override,
+          scriptRunner: ecosystems.find((ecosystem) => ecosystem.scriptRunner)?.scriptRunner,
+          verification: ecosystems.flatMap((ecosystem) => ecosystem.verification),
+        },
+      ],
+    };
+  }
   if (ecosystems.length === 0) return { source: "none", steps: [] };
   return {
     source: "detected",
@@ -349,6 +366,7 @@ function notesFor(steps: SetupStep[], results: StepResult[]): string[] {
 
 export interface DependencySetupOptions {
   timeoutSeconds?: number;
+  overrideCommand?: string | null;
 }
 
 export async function runDependencySetup(
@@ -381,7 +399,7 @@ export async function runDependencySetup(
     };
   }
 
-  const plan = planDependencySetup(Object.keys(probe.fileHashes));
+  const plan = planDependencySetup(Object.keys(probe.fileHashes), options.overrideCommand);
   if (plan.steps.length === 0) {
     return {
       status: "not_detected",

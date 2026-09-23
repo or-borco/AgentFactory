@@ -98,7 +98,7 @@ export interface DependencyInstallStep {
 export interface DependencyInstallEvent extends RunEventBase {
   type: "dependency_install";
   status: "up_to_date" | "installed" | "failed";
-  source: "detected" | "none";
+  source: "override" | "detected" | "none";
   durationMs: number;
   reused: boolean;
   steps: DependencyInstallStep[];

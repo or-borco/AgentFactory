@@ -27,6 +27,7 @@ import {
   createMessage,
   createPendingPrReview,
   getAgent,
+  getCodebaseSettings,
   getLatestPrReview,
   getLatestResumeCandidate,
   getMessage,
@@ -363,7 +364,13 @@ const runWorker = new Worker<RunJobData>(
             conflictingFiles: syncResult.conflictingFiles,
           });
         }
-        dependencies = await runDependencySetup(sandboxProvider, sandboxId);
+        const codebaseSettings = await getCodebaseSettings(agent.orgId, task.codebase).catch((err: unknown) => {
+          log.error("Failed to read codebase settings", { runId, codebase: task.codebase, err });
+          return undefined;
+        });
+        dependencies = await runDependencySetup(sandboxProvider, sandboxId, {
+          overrideCommand: codebaseSettings?.setupCommand,
+        });
         mark(`dependencies (${dependencies.status}, ${dependencies.durationMs}ms)`);
         if (dependencies.status !== "not_detected") {
           await createEvent(runId, seq++, "dependency_install", {

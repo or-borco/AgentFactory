@@ -65,6 +65,37 @@ describe("planDependencySetup", () => {
   });
 });
 
+describe("planDependencySetup with an override", () => {
+  it("replaces every detected install with the override command", () => {
+    const plan = planDependencySetup(["pnpm-lock.yaml", "requirements.txt"], "make deps");
+    expect(plan.source).toBe("override");
+    expect(plan.steps).toHaveLength(1);
+    expect(plan.steps[0]).toMatchObject({ label: "override", command: "make deps", scriptRunner: "pnpm" });
+    expect(plan.steps[0]?.tool).toBeUndefined();
+  });
+
+  it("runs the override even when no manifest is recognised", () => {
+    expect(planDependencySetup(["Makefile"], "make deps")).toMatchObject({
+      source: "override",
+      steps: [{ command: "make deps" }],
+    });
+  });
+
+  it.each([undefined, null, "", "   "])("falls back to detection for an empty override (%j)", (override) => {
+    expect(planDependencySetup(["pnpm-lock.yaml"], override)).toMatchObject({
+      source: "detected",
+      steps: [{ command: "pnpm install --frozen-lockfile" }],
+    });
+  });
+
+  it("re-runs the install when the override changes", () => {
+    const files = { "pnpm-lock.yaml": "a" };
+    const before = fingerprintSetup(planDependencySetup(Object.keys(files), "make deps").steps, files);
+    const after = fingerprintSetup(planDependencySetup(Object.keys(files), "make deps-v2").steps, files);
+    expect(before).not.toBe(after);
+  });
+});
+
 describe("selectVerificationScripts", () => {
   it("keeps verification-shaped scripts and drops lifecycle hooks", () => {
     const packageJson = JSON.stringify({
@@ -258,6 +289,21 @@ describe("runDependencySetup", () => {
 
     expect(outcome.status).toBe("failed");
     expect(outcome.steps[0]?.outputTail).toBe("container gone");
+  });
+
+  it("runs the override instead of the detected install", async () => {
+    const { provider, calls } = fakeSandbox((script, env) => {
+      if (isProbe(script)) return probeOutput({ "pnpm-lock.yaml": HASH_A }, undefined, packageJson);
+      if (isStep(env)) return "__ARATA_SETUP_EXIT__:0\n";
+      return "";
+    });
+
+    const outcome = await runDependencySetup(provider, "sbx", { overrideCommand: "./scripts/bootstrap.sh" });
+
+    expect(outcome).toMatchObject({ status: "installed", source: "override" });
+    const commands = calls.filter((call) => isStep(call.env)).map((call) => call.env?.ARATA_SETUP_COMMAND);
+    expect(commands).toEqual(["./scripts/bootstrap.sh"]);
+    expect(outcome.verificationCommands).toEqual(["pnpm typecheck", "pnpm lint"]);
   });
 
   it("returns not_detected when no manifest is present", async () => {

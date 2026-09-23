@@ -57,6 +57,7 @@ vi.mock("@agentfactory/db", () => ({
   createEvent: vi.fn(),
   createMessage: vi.fn(),
   createPendingPrReview: vi.fn(),
+  getCodebaseSettings: vi.fn(async () => undefined),
   findSimilarMemoryEntry: vi.fn(),
   getAgent: vi.fn(),
   getLatestPrReview: vi.fn(async () => undefined),
