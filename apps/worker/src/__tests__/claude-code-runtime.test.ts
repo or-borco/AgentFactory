@@ -77,6 +77,42 @@ describe("claudeCodeRuntime", () => {
     expect(JSON.stringify(execCalls)).not.toContain("sk-platform");
   });
 
+  it("generates repo maps with its own model, mapping the endpoint onto the Claude SDK's env vars", async () => {
+    const { sandboxProvider, execCalls } = fakeSandbox([
+      { stream: "stdout", data: "exploring...\n" },
+      { stream: "stdout", data: `__RESULT__${JSON.stringify({ text: "# Map", costUsd: 0.01, tokens: 42 })}\n` },
+    ]);
+    const generator = claudeCodeRuntime.repoMap!;
+
+    const result = await generator.generate({
+      sandboxProvider,
+      sandboxId: "sandbox-1",
+      modelEndpoint: { baseUrl: "http://host.docker.internal:8787/anthropic", token: "arata-run-abc" },
+    });
+
+    expect(generator.model).toMatchObject({ family: "anthropic", id: "claude-haiku-4-5" });
+    expect(result).toEqual({ text: "# Map", costUsd: 0.01, tokens: 42 });
+    expect(execCalls[0].cmd).toEqual(["/agent/node_modules/.bin/tsx", "/agent/generate-repo-map.ts"]);
+    expect(execCalls[0].env).toEqual({
+      ANTHROPIC_BASE_URL: "http://host.docker.internal:8787/anthropic",
+      ANTHROPIC_API_KEY: "arata-run-abc",
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      MODEL_ID: "claude-haiku-4-5",
+    });
+  });
+
+  it("returns no repo map when generation prints no result", async () => {
+    const { sandboxProvider } = fakeSandbox([{ stream: "stdout", data: "crashed\n" }]);
+
+    await expect(
+      claudeCodeRuntime.repoMap!.generate({
+        sandboxProvider,
+        sandboxId: "sandbox-1",
+        modelEndpoint: { baseUrl: "http://x/anthropic", token: "t" },
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it("passes resumeSessionRef and skillNames through as env vars", async () => {
     const { sandboxProvider, execCalls } = fakeSandbox([
       { stream: "stdout", data: `__RESULT__${JSON.stringify({ text: "Hi", providerSessionRef: "ref-2" })}\n` },

@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   for await (const message of query({
     prompt: PROMPT,
     options: {
-      model: "claude-haiku-4-5",
+      model: process.env.MODEL_ID || "claude-haiku-4-5",
       cwd: "/workspace",
       permissionMode: "bypassPermissions",
       allowDangerouslySkipPermissions: true,

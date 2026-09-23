@@ -631,7 +631,9 @@ org and run. The proxy is provider-aware: `MODEL_PROVIDERS` in `model-proxy.ts` 
 upstream, allowed paths and key header, routed by prefix (`/anthropic/v1/messages`). The worker hands each runtime a
 neutral `ModelEndpoint` (`{ baseUrl, token }`) and the adapter maps it onto its SDK's own settings
 (`ClaudeCodeRuntime` sets `ANTHROPIC_BASE_URL`/`ANTHROPIC_API_KEY`), so a second runtime needs a provider entry, a
-platform key variable, and its own mapping, never a worker change. Only `anthropic` exists today. That
+platform key variable, and its own mapping, never a worker change. Repo-map generation follows the same rule: it
+uses the default runtime's optional `repoMap` generator (`AgentRuntime.repoMap`, which declares its model and
+therefore its provider), so `repo-map.ts` never names an SDK. Only `anthropic` exists today. That
 `resolveCredentials` (`sandbox-model-access.ts`) is a stub returning the platform key for the provider from the
 worker's environment. There is no BYO-key connection kind, no per-run metering into `usage_records`, and no
 budget check before dispatch; the proxy is the intended place for all three. Design:

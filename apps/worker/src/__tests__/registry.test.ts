@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import type { RuntimeKind } from "@agentfactory/core";
 import { claudeCodeRuntime } from "../agent-runtime/claude-code-runtime";
-import { getAgentRuntime, runtimes } from "../agent-runtime/registry";
+import { getAgentRuntime, getDefaultAgentRuntime, runtimes } from "../agent-runtime/registry";
 import type { AgentRuntime } from "../agent-runtime/types";
 
 afterEach(() => {
@@ -31,6 +31,12 @@ describe("getAgentRuntime", () => {
 
     expect(getAgentRuntime("claude-code")).toBe(claudeCodeRuntime);
     expect(getAgentRuntime("stub-runtime" as RuntimeKind)).toBe(stub);
+  });
+
+  it("treats the first registered runtime as the default", () => {
+    runtimes.push(stubRuntime("stub-runtime"));
+
+    expect(getDefaultAgentRuntime()).toBe(claudeCodeRuntime);
   });
 
   it("throws for a kind with no registered runtime", () => {

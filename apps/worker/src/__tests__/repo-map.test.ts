@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import type { RuntimeKind } from "@agentfactory/core";
 import type { OutputChunk, SandboxProvider } from "../sandbox/types";
+import { runtimes } from "../agent-runtime/registry";
 
 const getRepoMapMock = vi.fn();
 const insertRepoMapMock = vi.fn();
@@ -317,6 +319,7 @@ describe("warmRepoMap", () => {
       ANTHROPIC_BASE_URL: "http://host.docker.internal:8787/anthropic",
       ANTHROPIC_API_KEY: "arata-run-test",
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+      MODEL_ID: "claude-haiku-4-5",
     });
     expect(issueSandboxModelCredentialMock).toHaveBeenCalledWith(
       { orgId: 1, purpose: "repo-map", provider: "anthropic" },
@@ -330,6 +333,33 @@ describe("warmRepoMap", () => {
     expect(cloneIntoSandboxMock).toHaveBeenCalled();
     expect(insertRepoMapMock).toHaveBeenCalledWith(expect.objectContaining({ content: "warmed map" }));
     expect(destroy).toHaveBeenCalledWith("warm-sandbox-1");
+  });
+
+  it("issues no credential and caches nothing when the default runtime cannot generate repo maps", async () => {
+    resolveDefaultBranchShaMock.mockReset().mockResolvedValue("abc123");
+    getRepoMapMock.mockReset().mockResolvedValue(undefined);
+    insertRepoMapMock.mockReset();
+    issueSandboxModelCredentialMock.mockClear();
+    resolveCloneTargetMock.mockReset().mockResolvedValue({ repoFullName: "acme/widgets" });
+    cloneIntoSandboxMock.mockReset().mockResolvedValue(undefined);
+    resolveSandboxImageMock.mockReset().mockResolvedValue("arata-sandbox-node:local");
+    runtimes.unshift({
+      kind: "no-repo-map" as RuntimeKind,
+      capabilities: () => ({ supportsSkills: false, supportsResume: false }),
+      runTurn: async () => ({ text: "", providerSessionRef: "" }),
+    });
+    const sandbox = fakeSandbox({ [HEAD_CMD]: [{ stream: "stdout", data: "abc123\n" }] });
+    sandbox.create = vi.fn().mockResolvedValue({ id: "warm-sandbox-2" });
+
+    try {
+      await warmRepoMap(sandbox, 1, "acme/widgets");
+    } finally {
+      runtimes.shift();
+    }
+
+    expect(issueSandboxModelCredentialMock).not.toHaveBeenCalled();
+    expect(insertRepoMapMock).not.toHaveBeenCalled();
+    expect(sandbox.destroy).toHaveBeenCalledWith("warm-sandbox-2");
   });
 
   it("still tears down the sandbox when clone fails after it was created", async () => {

@@ -7,6 +7,10 @@ import type { AgentRuntime } from "./types";
 // beyond the fixed list below; there is exactly one real adapter until a second one ships.
 export const runtimes: AgentRuntime[] = [claudeCodeRuntime]; // future: push a second adapter here
 
+export function getDefaultAgentRuntime(): AgentRuntime {
+  return runtimes[0]!;
+}
+
 export function getAgentRuntime(kind: RuntimeKind): AgentRuntime {
   const runtime = runtimes.find((r) => r.kind === kind);
   if (!runtime) throw new Error(`No AgentRuntime registered for kind "${kind}"`);

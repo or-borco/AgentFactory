@@ -5,11 +5,11 @@ import type { SandboxProvider } from "./sandbox/types";
 import { cloneIntoSandbox, resolveCloneTarget, resolveDefaultBranchSha } from "./scm-provider";
 import { resolveSandboxImage } from "./sandbox-image-select";
 import { issueSandboxModelCredential } from "./sandbox-model-access";
-import { claudeModelEnv } from "./agent-runtime/claude-code-runtime";
+import { getDefaultAgentRuntime } from "./agent-runtime/registry";
+import type { RepoMapResult } from "./agent-runtime/types";
 
 const log = createLogger("repo-map");
 
-const RESULT_MARKER = "__RESULT__";
 const MAX_CONTENT_LENGTH = 16384;
 // How long a cache miss waits for a warm job to land before giving up and running without a map.
 //
@@ -33,20 +33,9 @@ export const CACHE_POLL_INTERVAL_MS = 1_000;
 const GENERATION_TIMEOUT_MS = 2 * 60 * 1000;
 const GENERATION_CREDENTIAL_MARGIN_MS = 30 * 1000;
 
-interface GeneratedMap {
-  text: string;
-  costUsd: number;
-  tokens: number;
-}
-
-async function execToString(
-  sandboxProvider: SandboxProvider,
-  sandboxId: string,
-  cmd: string[],
-  env?: Record<string, string>,
-): Promise<string> {
+async function execToString(sandboxProvider: SandboxProvider, sandboxId: string, cmd: string[]): Promise<string> {
   let stdout = "";
-  for await (const chunk of sandboxProvider.exec(sandboxId, cmd, env ? { env } : undefined)) {
+  for await (const chunk of sandboxProvider.exec(sandboxId, cmd)) {
     if (chunk.stream === "stdout") stdout += chunk.data;
   }
   return stdout;
@@ -64,27 +53,21 @@ async function generateRepoMap(
   sandboxProvider: SandboxProvider,
   sandboxId: string,
   orgId: number,
-): Promise<GeneratedMap | undefined> {
+): Promise<RepoMapResult | undefined> {
+  const generator = getDefaultAgentRuntime().repoMap;
+  if (!generator) return undefined;
   const credential = issueSandboxModelCredential(
-    { orgId, purpose: "repo-map", provider: "anthropic" },
+    { orgId, purpose: "repo-map", provider: generator.model.family },
     undefined,
     GENERATION_TIMEOUT_MS + GENERATION_CREDENTIAL_MARGIN_MS,
   );
   try {
-    const stdout = await Promise.race([
-      execToString(
-        sandboxProvider,
-        sandboxId,
-        ["/agent/node_modules/.bin/tsx", "/agent/generate-repo-map.ts"],
-        claudeModelEnv(credential.endpoint),
-      ),
+    return await Promise.race([
+      generator.generate({ sandboxProvider, sandboxId, modelEndpoint: credential.endpoint }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Repo map generation timed out")), GENERATION_TIMEOUT_MS),
       ),
     ]);
-    const resultLine = stdout.split("\n").find((line) => line.startsWith(RESULT_MARKER));
-    if (!resultLine) return undefined;
-    return JSON.parse(resultLine.slice(RESULT_MARKER.length)) as GeneratedMap;
   } catch (err) {
     log.error("Repo map generation failed", { err });
     return undefined;
