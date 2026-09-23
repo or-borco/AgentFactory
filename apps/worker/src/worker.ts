@@ -121,7 +121,12 @@ const sandboxProvider = new DockerSandboxProvider();
 // resume mechanism needs the same container's filesystem across turns (see the sessions.sandboxId
 // migration). Idle teardown of long-unused sandboxes is handled separately by sandboxReapWorker
 // below (sandbox-reap.ts), not here.
-export async function ensureSandbox(session: Session, orgId: number, repoFullName: string | undefined): Promise<string> {
+export async function ensureSandbox(
+  session: Session,
+  orgId: number,
+  repoFullName: string | undefined,
+  dependencyCacheRepo?: string,
+): Promise<string> {
   const hasWarmSandbox = Boolean(session.sandboxId) && (await sandboxProvider.exists(session.sandboxId!));
 
   if (hasWarmSandbox && session.sandboxImage !== SANDBOX_IMAGE_NODE) {
@@ -143,7 +148,7 @@ export async function ensureSandbox(session: Session, orgId: number, repoFullNam
   const sandbox = await sandboxProvider.create({
     image,
     env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "", ...dependencyCacheEnv() },
-    volumes: [dependencyCacheVolume(orgId)],
+    volumes: dependencyCacheRepo ? [dependencyCacheVolume(orgId, dependencyCacheRepo)] : [],
   });
   await setSessionSandbox(session.id, sandbox.id, image);
   return sandbox.id;
@@ -196,7 +201,12 @@ const runWorker = new Worker<RunJobData>(
       const repoFullNameForImage = prRef?.repoFullName ?? task?.codebase ?? undefined;
 
       await updateRunStatus(runId, "provisioning");
-      const sandboxId = await ensureSandbox(session, agent.orgId, repoFullNameForImage);
+      const sandboxId = await ensureSandbox(
+        session,
+        agent.orgId,
+        repoFullNameForImage,
+        prRef ? undefined : (task?.codebase ?? undefined),
+      );
       // Shrink back to base before this run starts — a sandbox that grew to handle a heavy
       // task on a prior run shouldn't keep that cap for this one (see docker-sandbox-provider.ts).
       await sandboxProvider.resetMemory(sandboxId);

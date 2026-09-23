@@ -118,6 +118,7 @@ vi.mock("../pr-review", async () => {
 vi.mock("../scm-provider", () => ({
   buildPullRequestBody: vi.fn(() => ""),
   cloneIntoSandbox: vi.fn(),
+  resolveDetectedLanguage: vi.fn(async () => undefined),
   fetchIssue: vi.fn(),
   fetchPullRequestFeedback: vi.fn(),
   openDraftPullRequest: vi.fn(),
@@ -382,6 +383,14 @@ describe("review run detection gate", () => {
       expect.objectContaining({ isReviewTurn: true }),
       expect.anything(),
     );
+  });
+
+  it("creates a review sandbox without the shared dependency cache", async () => {
+    h.sandbox.exists.mockResolvedValueOnce(false);
+
+    await runProcessor({ data: { runId: 1 } });
+
+    expect(h.sandbox.create).toHaveBeenCalledWith(expect.objectContaining({ volumes: [] }));
   });
 
   it("runs a PR-link-free task as an ordinary run", async () => {

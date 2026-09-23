@@ -160,11 +160,11 @@ describe("ensureSandbox", () => {
     const session = fakeSession({ sandboxId: undefined, sandboxImage: undefined });
     resolveSandboxImageMock.mockResolvedValue("arata-sandbox-python:local");
 
-    const sandboxId = await ensureSandbox(session, 5, "acme/widgets");
+    const sandboxId = await ensureSandbox(session, 5, "acme/widgets", "acme/widgets");
 
     expect(sandboxId).toBe("new-sandbox");
     expect(resolveSandboxImageMock).toHaveBeenCalledWith(5, "acme/widgets");
-    expect(h.sandbox.create).toHaveBeenCalledWith({ image: "arata-sandbox-python:local", env: expect.any(Object), volumes: [expect.objectContaining({ name: "arata-deps-cache-org-5", target: "/cache" })] });
+    expect(h.sandbox.create).toHaveBeenCalledWith({ image: "arata-sandbox-python:local", env: expect.any(Object), volumes: [expect.objectContaining({ name: expect.stringMatching(/^arata-deps-cache-org-5-acme-widgets-[0-9a-f]{12}$/), target: "/cache" })] });
     expect(setSessionSandboxMock).toHaveBeenCalledWith(10, "new-sandbox", "arata-sandbox-python:local");
   });
 
@@ -198,12 +198,21 @@ describe("ensureSandbox", () => {
     resolveSandboxImageMock.mockResolvedValue("arata-sandbox-java:local");
     h.sandbox.create.mockResolvedValue({ id: "upgraded-sandbox" });
 
-    const sandboxId = await ensureSandbox(session, 5, "acme/widgets");
+    const sandboxId = await ensureSandbox(session, 5, "acme/widgets", "acme/widgets");
 
     expect(h.sandbox.destroy).toHaveBeenCalledWith("existing-sandbox");
-    expect(h.sandbox.create).toHaveBeenCalledWith({ image: "arata-sandbox-java:local", env: expect.any(Object), volumes: [expect.objectContaining({ name: "arata-deps-cache-org-5", target: "/cache" })] });
+    expect(h.sandbox.create).toHaveBeenCalledWith({ image: "arata-sandbox-java:local", env: expect.any(Object), volumes: [expect.objectContaining({ name: expect.stringMatching(/^arata-deps-cache-org-5-acme-widgets-[0-9a-f]{12}$/), target: "/cache" })] });
     expect(setSessionSandboxMock).toHaveBeenCalledWith(10, "upgraded-sandbox", "arata-sandbox-java:local");
     expect(sandboxId).toBe("upgraded-sandbox");
+  });
+
+  it("mounts no dependency cache for a sandbox without a cache repo, such as a PR review", async () => {
+    const session = fakeSession();
+    resolveSandboxImageMock.mockResolvedValue("arata-sandbox-node:local");
+
+    await ensureSandbox(session, 5, "acme/widgets");
+
+    expect(h.sandbox.create).toHaveBeenCalledWith(expect.objectContaining({ volumes: [] }));
   });
 
   it("creates fresh when the session's stored sandboxId no longer exists", async () => {
@@ -214,7 +223,7 @@ describe("ensureSandbox", () => {
     const sandboxId = await ensureSandbox(session, 5, "acme/widgets");
 
     expect(h.sandbox.destroy).not.toHaveBeenCalled();
-    expect(h.sandbox.create).toHaveBeenCalledWith({ image: "arata-sandbox-python:local", env: expect.any(Object), volumes: [expect.objectContaining({ name: "arata-deps-cache-org-5", target: "/cache" })] });
+    expect(h.sandbox.create).toHaveBeenCalledWith({ image: "arata-sandbox-python:local", env: expect.any(Object), volumes: [] });
     expect(setSessionSandboxMock).toHaveBeenCalledWith(10, "new-sandbox", "arata-sandbox-python:local");
     expect(sandboxId).toBe("new-sandbox");
   });
