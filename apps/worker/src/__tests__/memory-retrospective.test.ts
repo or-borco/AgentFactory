@@ -11,8 +11,8 @@ vi.mock("@agentfactory/db", () => ({
   listEventsForSession: vi.fn(),
   listEvalsForRun: vi.fn(),
   findSimilarMemoryEntry: vi.fn(),
-  insertMemoryEntry: vi.fn(),
-  reinforceMemoryEntry: vi.fn(),
+  insertMemoryEntryWithWrite: vi.fn(),
+  reinforceMemoryEntryWithWrite: vi.fn(),
 }));
 
 const { processMemoryRetrospectiveJob } = await import("../memory-retrospective");
