@@ -858,6 +858,28 @@ export const repoMaps = pgTable(
   ],
 );
 
+export const CODEBASE_SETUP_COMMAND_MAX_CHARS = 4096;
+
+export const codebaseSettings = pgTable(
+  "codebase_settings",
+  {
+    id: integer("id").primaryKey().generatedByDefaultAsIdentity(),
+    orgId: integer("org_id")
+      .notNull()
+      .references(() => orgs.id, { onDelete: "cascade" }),
+    repoFullName: text("repo_full_name").notNull(),
+    setupCommand: text("setup_command"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("codebase_settings_org_repo").on(table.orgId, table.repoFullName),
+    check(
+      "codebase_settings_setup_command_max_length",
+      sql`char_length(${table.setupCommand}) <= ${sql.raw(String(CODEBASE_SETUP_COMMAND_MAX_CHARS))}`,
+    ),
+  ],
+);
+
 // A closed set matching MemorySource in packages/core/src/domain.ts. Native enum so an invalid
 // value is a rejected write, not an app-level bug, same reasoning as taskStatusEnum.
 export const memorySourceEnum = pgEnum("memory_source", ["manual", "retrospective"]);

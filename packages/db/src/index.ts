@@ -26,6 +26,7 @@ export * from "./repositories/context-chunks";
 export * from "./repositories/task-context-items";
 export * from "./repositories/task-context-chunks";
 export * from "./repositories/repo-maps";
+export * from "./repositories/codebase-settings";
 export * from "./repositories/content-blobs";
 export * from "./repositories/skills";
 export * from "./repositories/skill-versions";

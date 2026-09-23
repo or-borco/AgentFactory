@@ -5,7 +5,7 @@
 > `teams`/`agents`/`sessions`/`messages`/`runs`/`events`, plus `tasks`, `connections` +
 > `connection_secrets` (AES-256-GCM vault), `skills`/`skill_versions`/`agent_skills`,
 > `content_blobs`, and the context-retrieval tables (`team_context_items`, `context_chunks`,
-> `task_context_items`, `task_context_chunks`, `run_context_retrievals`, `repo_maps`) — see §2.7.
+> `task_context_items`, `task_context_chunks`, `run_context_retrievals`, `repo_maps`, `codebase_settings`) — see §2.7.
 > `apps/worker` is a real BullMQ/Redis consumer that provisions a `DockerSandboxProvider`
 > container per session and runs the Claude Agent SDK **inside** it
 > (`apps/worker/sandbox-image/run-turn.ts`) with `permissionMode: "bypassPermissions"` — i.e. the
@@ -250,6 +250,7 @@ Real tables today (`packages/db/src/schema.ts`):
 | `task_context_items` / `task_context_chunks` | the same pipeline scoped to a single task (uploaded docs, linked issue attachments) |
 | `run_context_retrievals` | which chunks were actually retrieved and injected into a given run's prompt, for replay/debugging |
 | `repo_maps` | a per-codebase cached repo-structure/conventions summary, warmed on task create and on task marked done, injected into the coding-agent prompt |
+| `codebase_settings` | per-org, per-codebase settings; today only an optional `setup_command` that replaces the worker's lockfile-detected dependency install in the sandbox |
 
 Not built yet — planned, referenced only in code comments pointing back to this doc:
 

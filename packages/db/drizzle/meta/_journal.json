@@ -288,6 +288,13 @@
       "when": 1790096746028,
       "tag": "0040_medical_paper_doll",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1790149842525,
+      "tag": "0041_clumsy_shooting_star",
+      "breakpoints": true
     }
   ]
 }
