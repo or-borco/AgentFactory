@@ -31,6 +31,7 @@ import {
   getLatestPrReview,
   getLatestResumeCandidate,
   getMessage,
+  getOrg,
   getRun,
   getRunsForSession,
   getSession,
@@ -49,6 +50,8 @@ import {
 } from "@agentfactory/db";
 import { parsePullRequestReferenceAcrossProviders, resolveScmConnection } from "@agentfactory/scm";
 import { SANDBOX_REAP_INTERVAL_MS, scanForIdleSandboxes } from "./sandbox-reap";
+import { reapDependencyCaches } from "./dependency-cache-reap";
+import { DockerCacheVolumeStore } from "./sandbox/docker-cache-volumes";
 import { DockerSandboxProvider } from "./sandbox/docker-sandbox-provider";
 import { InsufficientCreditError, PromptTooLongError } from "./agent-runtime/errors";
 import { getAgentRuntime } from "./agent-runtime/registry";
@@ -1027,11 +1030,18 @@ runCancelWorker.on("failed", (job, err) => {
 // enqueues a SANDBOX_TEARDOWN_QUEUE_NAME job for each session it finds idle — the teardown
 // worker's own non-terminal-run check above is what actually protects a run in flight.
 const sandboxReapQueue = new Queue(SANDBOX_REAP_QUEUE_NAME, { connection: queueConnection });
+const dependencyCacheVolumeStore = new DockerCacheVolumeStore();
 
 const sandboxReapWorker = new Worker(
   SANDBOX_REAP_QUEUE_NAME,
   async () => {
     await scanForIdleSandboxes();
+    await reapDependencyCaches({
+      store: dependencyCacheVolumeStore,
+      orgExists: async (orgId) => Boolean(await getOrg(orgId)),
+    }).catch((err: unknown) => {
+      log.error("Dependency cache reap failed", { err });
+    });
   },
   { connection: queueConnection },
 );
