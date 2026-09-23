@@ -233,16 +233,31 @@ export async function listMemoryEntryWrites(
   entryId: number,
   limit = MEMORY_WRITE_HISTORY_LIMIT,
 ): Promise<MemoryWriteHistoryItem[]> {
+  const sessionTasks = db
+    .selectDistinctOn([tasks.sessionId], {
+      sessionId: tasks.sessionId,
+      orgId: tasks.orgId,
+      id: tasks.id,
+      ref: tasks.ref,
+      title: tasks.title,
+    })
+    .from(tasks)
+    .orderBy(tasks.sessionId, tasks.id)
+    .as("session_tasks");
+
   const rows = await db
     .select({
       write: agentMemoryWrites,
-      taskId: tasks.id,
-      taskRef: tasks.ref,
-      taskTitle: tasks.title,
+      taskId: sessionTasks.id,
+      taskRef: sessionTasks.ref,
+      taskTitle: sessionTasks.title,
       userName: users.name,
     })
     .from(agentMemoryWrites)
-    .leftJoin(tasks, and(eq(tasks.sessionId, agentMemoryWrites.sessionId), eq(tasks.orgId, agentMemoryWrites.orgId)))
+    .leftJoin(
+      sessionTasks,
+      and(eq(sessionTasks.sessionId, agentMemoryWrites.sessionId), eq(sessionTasks.orgId, agentMemoryWrites.orgId)),
+    )
     .leftJoin(users, eq(users.id, agentMemoryWrites.userId))
     .where(and(eq(agentMemoryWrites.orgId, orgId), eq(agentMemoryWrites.entryId, entryId)))
     .orderBy(desc(agentMemoryWrites.createdAt), desc(agentMemoryWrites.id))

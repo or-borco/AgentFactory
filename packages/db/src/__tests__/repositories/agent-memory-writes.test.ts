@@ -221,6 +221,21 @@ describe("listMemoryEntryWrites", () => {
     expect(withoutTask.session).toEqual({ id: session.id });
   });
 
+  it("does not fan out when a session has more than one task", async () => {
+    const { org, session, entryId } = await setup();
+    const user = await insertUser();
+    const taskA = await insertTask(org.id, user.id, { title: "Add divide()" });
+    const taskB = await insertTask(org.id, user.id, { title: "Add multiply()" });
+    await db.update(tasks).set({ sessionId: session.id }).where(eq(tasks.id, taskA.id));
+    await db.update(tasks).set({ sessionId: session.id }).where(eq(tasks.id, taskB.id));
+    const lowerTask = taskA.id < taskB.id ? taskA : taskB;
+
+    const items = await listMemoryEntryWrites(org.id, entryId);
+
+    expect(items).toHaveLength(1);
+    expect(items[0].task).toEqual({ id: lowerTask.id, ref: lowerTask.ref, title: lowerTask.title });
+  });
+
   it("caps the result at the history limit", async () => {
     const { org, agent, entryId } = await setup();
     for (let i = 0; i < MEMORY_WRITE_HISTORY_LIMIT + 2; i++) {
