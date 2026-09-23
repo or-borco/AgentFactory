@@ -86,6 +86,24 @@ export interface RepoSyncEvent extends RunEventBase {
   conflictingFiles?: string[];
 }
 
+export interface DependencyInstallStep {
+  label: string;
+  command: string;
+  status: "ok" | "failed" | "timed_out" | "missing_tool" | "up_to_date";
+  exitCode?: number;
+  durationMs: number;
+  outputTail?: string;
+}
+
+export interface DependencyInstallEvent extends RunEventBase {
+  type: "dependency_install";
+  status: "up_to_date" | "installed" | "failed";
+  source: "detected" | "none";
+  durationMs: number;
+  reused: boolean;
+  steps: DependencyInstallStep[];
+}
+
 // Deliberately no `content` field (see AgentMemoryEntry's comment in domain.ts). `events.data` is
 // plaintext (unlike agent_memory_entries.ciphertext), so echoing the lesson text here would leak
 // the exact sensitive content the encrypted column exists to protect, right back out through the
@@ -113,5 +131,6 @@ export type RunEvent =
   | ErrorEvent
   | ContextIncludedEvent
   | RepoSyncEvent
+  | DependencyInstallEvent
   | MemoryWriteEvent
   | DoneEvent;
