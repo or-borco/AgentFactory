@@ -53,6 +53,16 @@ USER node
 FROM node AS java
 USER root
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openjdk-17-jdk maven \
+    && apt-get install -y --no-install-recommends openjdk-17-jdk maven curl unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# System Gradle, for a repo that doesn't check in its own ./gradlew wrapper — a repo that does
+# already works via the JDK alone, since the wrapper fetches its own pinned Gradle distribution.
+ENV GRADLE_VERSION=9.7.1
+ENV GRADLE_HOME=/opt/gradle
+RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip \
+    && unzip -q /tmp/gradle.zip -d /opt \
+    && mv "/opt/gradle-${GRADLE_VERSION}" "${GRADLE_HOME}" \
+    && rm /tmp/gradle.zip
+ENV PATH="${GRADLE_HOME}/bin:${PATH}"
 USER node
