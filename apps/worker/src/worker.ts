@@ -27,6 +27,7 @@ import {
   createMessage,
   createPendingPrReview,
   getAgent,
+  getCodebaseSettings,
   getLatestPrReview,
   getLatestResumeCandidate,
   getMessage,
@@ -98,7 +99,9 @@ import {
 } from "./scm-provider";
 import { resolveEscalation } from "./model-escalation";
 import { ensureRepoMap, warmRepoMap } from "./repo-map";
+import { runDependencySetup, type DependencySetupOutcome } from "./dependency-setup";
 import { resolveSandboxImage, SANDBOX_IMAGE_NODE } from "./sandbox-image-select";
+import { dependencyCacheEnv, dependencyCacheVolume } from "./sandbox-cache";
 import { buildRetrievalQuery, retrieveContext, type RetrievedContext } from "./context-retrieval";
 import { waitForPendingContextIngest } from "./context-ingest-wait";
 import { materialiseTaskDocuments, type MaterialisedTaskDocuments } from "./task-documents";
@@ -139,7 +142,8 @@ export async function ensureSandbox(session: Session, orgId: number, repoFullNam
 
   const sandbox = await sandboxProvider.create({
     image,
-    env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "" },
+    env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "", ...dependencyCacheEnv() },
+    volumes: [dependencyCacheVolume(orgId)],
   });
   await setSessionSandbox(session.id, sandbox.id, image);
   return sandbox.id;
@@ -222,6 +226,7 @@ const runWorker = new Worker<RunJobData>(
       let taskDocuments: MaterialisedTaskDocuments = { written: [], omitted: [] };
       let skillNames: string[] = [];
       let repoSync: SandboxEnvironment["repoSync"];
+      let dependencies: DependencySetupOutcome | undefined;
 
       // Set only on the review path — carries everything the post-turn block needs to validate
       // and post the review, and everything the prompt-composition branch needs to build the
@@ -357,6 +362,23 @@ const runWorker = new Worker<RunJobData>(
           await createEvent(runId, seq++, "repo_sync", {
             status: "skipped_conflict",
             conflictingFiles: syncResult.conflictingFiles,
+          });
+        }
+        const codebaseSettings = await getCodebaseSettings(agent.orgId, task.codebase).catch((err: unknown) => {
+          log.error("Failed to read codebase settings", { runId, codebase: task.codebase, err });
+          return undefined;
+        });
+        dependencies = await runDependencySetup(sandboxProvider, sandboxId, {
+          overrideCommand: codebaseSettings?.setupCommand,
+        });
+        mark(`dependencies (${dependencies.status}, ${dependencies.durationMs}ms)`);
+        if (dependencies.status !== "not_detected") {
+          await createEvent(runId, seq++, "dependency_install", {
+            status: dependencies.status,
+            source: dependencies.source,
+            durationMs: dependencies.durationMs,
+            reused: dependencies.reused,
+            steps: dependencies.steps,
           });
         }
         // After the clone, because it writes into the checkout and depends on cloneIntoSandbox
@@ -524,6 +546,7 @@ const runWorker = new Worker<RunJobData>(
         taskDocuments,
         repoSync,
         pullRequest: pullRequestEnv,
+        dependencies,
       });
       // buildRetrievedContextSegment maps the three states a pair of booleans can describe. A
       // retrieval that threw is the fourth, and only retrieveContext knows about it, so its

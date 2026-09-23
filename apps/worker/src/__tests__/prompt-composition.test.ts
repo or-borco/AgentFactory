@@ -12,6 +12,7 @@ import {
   buildRetrievedContextSegment,
   buildTeamContextSegment,
   composeSystemPrompt,
+  formatDependencySetupForPrompt,
   formatEnvironmentForPrompt,
   formatExistingReviewCommentsForPrompt,
   formatPriorConversationForPrompt,
@@ -802,5 +803,71 @@ describe("formatPullRequestFeedbackForPrompt", () => {
     expect(result).toMatch(/\d+ older comments were left out to fit/);
     expect(result).toContain("19 xxx");
     expect(result).not.toContain("- @or, 2026-09-22T20:00:00Z: 0 xxx");
+  });
+});
+
+describe("formatDependencySetupForPrompt", () => {
+  it("tells the agent dependencies are installed and which verification commands exist", () => {
+    const lines = formatDependencySetupForPrompt({
+      status: "installed",
+      source: "detected",
+      durationMs: 9000,
+      reused: false,
+      steps: [{ label: "pnpm", command: "pnpm install --frozen-lockfile", status: "ok", exitCode: 0, durationMs: 9000 }],
+      verificationCommands: ["pnpm typecheck", "pnpm lint"],
+      notes: [],
+    }).join("\n");
+
+    expect(lines).toContain("Dependencies are already installed");
+    expect(lines).toContain("`pnpm install --frozen-lockfile`");
+    expect(lines).toContain("`pnpm typecheck`, `pnpm lint`");
+  });
+
+  it("tells the agent a failed install left dependencies missing, with the output", () => {
+    const lines = formatDependencySetupForPrompt({
+      status: "failed",
+      source: "detected",
+      durationMs: 300000,
+      reused: false,
+      steps: [
+        { label: "npm", command: "npm ci", status: "timed_out", exitCode: 124, durationMs: 300000, outputTail: "fetching" },
+      ],
+      verificationCommands: [],
+      notes: [],
+    }).join("\n");
+
+    expect(lines).toContain("timed out after 300s");
+    expect(lines).toContain("NOT installed");
+    expect(lines).toContain("fetching");
+    expect(lines).not.toContain("already installed");
+  });
+
+  it("says a remembered failure was not retried", () => {
+    const lines = formatDependencySetupForPrompt({
+      status: "failed",
+      source: "detected",
+      durationMs: 10,
+      reused: true,
+      steps: [{ label: "npm", command: "npm ci", status: "failed", exitCode: 1, durationMs: 4000 }],
+      verificationCommands: [],
+      notes: [],
+    }).join("\n");
+
+    expect(lines).toContain("On an earlier turn in this session");
+    expect(lines).toContain("Unless you installed them yourself");
+  });
+
+  it("is included in the environment block only when a workspace exists", () => {
+    const dependencies = {
+      status: "not_detected" as const,
+      source: "none" as const,
+      durationMs: 5,
+      reused: false,
+      steps: [],
+      verificationCommands: [],
+      notes: [],
+    };
+    expect(formatEnvironmentForPrompt({ workspacePath: "/workspace", dependencies })).toContain("no lockfile");
+    expect(formatEnvironmentForPrompt({ dependencies })).not.toContain("no lockfile");
   });
 });

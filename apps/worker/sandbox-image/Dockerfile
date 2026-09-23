@@ -28,7 +28,7 @@ COPY generate-repo-map.ts ./
 
 # Non-root: reuse the `node` user node:22-slim already ships (uid 1000) — the worker's
 # DockerSandboxProvider never grants this user privileges to escalate.
-RUN mkdir -p /workspace && chown -R node:node /workspace /agent /opt/corepack
+RUN mkdir -p /workspace /cache && chown -R node:node /workspace /agent /opt/corepack /cache
 
 USER node
 WORKDIR /workspace
@@ -47,6 +47,8 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-pip python3-venv pipx \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /opt/pipx \
+    && pipx install uv \
+    && pipx install poetry \
     && chown -R node:node /opt/pipx
 USER node
 
