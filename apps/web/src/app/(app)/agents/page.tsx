@@ -10,11 +10,21 @@ function AgentCard({ agent, t }: { agent: Agent; t: ReturnType<typeof useTransla
   return (
     <CardLink href={`/agents/${agent.id}`} className="p-4">
       <div className="flex items-start gap-3">
-        <span className="shrink-0 text-2xl leading-none">{agent.avatarEmoji ?? "🤖"}</span>
+        <div
+          className="flex shrink-0 items-center justify-center bg-[var(--color-accent-800)] border border-[var(--color-accent-600)] text-xl"
+          style={{ width: 40, height: 40, borderRadius: "var(--radius-md)" }}
+        >
+          {agent.avatarEmoji ?? <BotIcon size={18} style={{ color: "var(--color-accent)" }} />}
+        </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <Truncate as="h3" text={agent.name} className="text-sm font-semibold text-[var(--color-text)]" />
-            {agent.mode === "automatic" && <Badge tone="success">{t("common.automatic")}</Badge>}
+            <Truncate
+              as="h3"
+              text={agent.name}
+              className="text-sm font-semibold text-[var(--color-text)]"
+              wrapperClassName="min-w-0 flex-1"
+            />
+            {agent.mode === "automatic" && <Badge>{t("common.automatic")}</Badge>}
           </div>
           {agent.description && (
             <p className="mt-1.5 line-clamp-2 text-xs text-[var(--color-neutral-500)]">{agent.description}</p>
@@ -29,12 +39,14 @@ export default function AgentsPage() {
   const { t } = useTranslation();
   const { agents, teams } = useAppData();
 
+  const teamIds = new Set(teams.map((team) => team.id));
+
   const groups: Array<{ key: string; label: string; agents: Agent[] }> = [];
   for (const team of teams) {
     const teamAgents = agents.filter((agent) => agent.teamId === team.id);
     if (teamAgents.length > 0) groups.push({ key: String(team.id), label: team.name, agents: teamAgents });
   }
-  const noTeamAgents = agents.filter((agent) => agent.teamId == null);
+  const noTeamAgents = agents.filter((agent) => agent.teamId == null || !teamIds.has(agent.teamId));
   if (noTeamAgents.length > 0) {
     groups.push({ key: "no-team", label: t("agents.noTeamGroup"), agents: noTeamAgents });
   }
