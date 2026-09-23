@@ -16,6 +16,7 @@ export function LeftPane({ children }: { children: React.ReactNode }) {
   const newNavItems = [
     { href: "/tasks", label: t("nav.tasks"), icon: TasksIcon },
     { href: "/activity", label: t("nav.activity"), icon: ActivityIcon },
+    { href: "/agents", label: t("nav.agents"), icon: BotIcon },
     { href: "/teams-v2", label: t("nav.teams"), icon: UsersIcon },
     { href: "/skills", label: t("nav.skills"), icon: SparklesIcon },
     { href: "/settings", label: t("nav.settings"), icon: SettingsIcon },

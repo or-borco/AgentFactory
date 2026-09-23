@@ -12,6 +12,7 @@ const en = {
     teams: "Teams",
     tasks: "Tasks",
     activity: "Activity",
+    agents: "Agents",
     skills: "Skills",
     settings: "Settings",
     workspaceFooter: "Team workspace",
@@ -55,6 +56,13 @@ const en = {
     },
   },
   agents: {
+    title: "Agents",
+    subtitle: "Every agent in your org, grouped by team",
+    noTeamGroup: "No Team",
+    emptyState: {
+      title: "No agents yet",
+      body: "Create an agent from a team to see it listed here.",
+    },
     systemPrompt: "System prompt",
     sessions: "Sessions",
     newSession: "New session",
