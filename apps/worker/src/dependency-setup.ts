@@ -112,6 +112,10 @@ export const PYTHON_VENV_EXCLUDE_PATTERN = "/.venv/";
 export const DEPENDENCY_MARKER_PATH = ".git/arata-deps-installed";
 const OUTPUT_TAIL_CHARS = 1500;
 const MAX_VERIFICATION_COMMANDS = 12;
+const SCRIPT_NAME_PATTERN = /^[\w:.-]{1,64}$/;
+const STEP_OUTPUT_MAX_CHARS = 16 * 1024;
+const PROBE_OUTPUT_MAX_CHARS = 512 * 1024;
+const STEP_STATUSES: ReadonlySet<StepStatus> = new Set(["ok", "failed", "timed_out", "missing_tool"]);
 const EXIT_MARKER = "__ARATA_SETUP_EXIT__:";
 const MISSING_TOOL_MARKER = "__ARATA_SETUP_MISSING_TOOL__";
 const FILE_HASH_MARKER = "__ARATA_FILE__:";
@@ -195,7 +199,10 @@ export function selectVerificationScripts(packageJson: string | undefined, runne
   }
   if (!scripts || typeof scripts !== "object") return [];
   return Object.keys(scripts)
-    .filter((name) => !/^(pre|post)/.test(name) && VERIFICATION_SCRIPT_PATTERN.test(name))
+    .filter(
+      (name) =>
+        SCRIPT_NAME_PATTERN.test(name) && !/^(pre|post)/.test(name) && VERIFICATION_SCRIPT_PATTERN.test(name),
+    )
     .slice(0, MAX_VERIFICATION_COMMANDS)
     .map((name) => `${runner} ${name}`);
 }
@@ -207,9 +214,14 @@ export function fingerprintSetup(steps: SetupStep[], fileHashes: Record<string, 
   return hash.digest("hex");
 }
 
+export interface MarkerStep {
+  status: StepStatus;
+  exitCode?: number;
+}
+
 export interface SetupMarker {
   fingerprint: string;
-  steps: StepResult[];
+  steps: MarkerStep[];
 }
 
 export interface WorkspaceProbe {
@@ -241,11 +253,24 @@ function decodeBase64(value: string): string {
   return Buffer.from(value, "base64").toString("utf8");
 }
 
-function parseMarker(encoded: string): SetupMarker | undefined {
+function parseMarkerStep(value: unknown): MarkerStep | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { status, exitCode } = value as { status?: unknown; exitCode?: unknown };
+  if (typeof status !== "string" || !STEP_STATUSES.has(status as StepStatus)) return undefined;
+  if (exitCode !== undefined && !(Number.isInteger(exitCode) && (exitCode as number) >= 0 && (exitCode as number) < 256)) {
+    return undefined;
+  }
+  return exitCode === undefined ? { status: status as StepStatus } : { status: status as StepStatus, exitCode: exitCode as number };
+}
+
+export function parseMarker(encoded: string): SetupMarker | undefined {
   try {
-    const parsed = JSON.parse(decodeBase64(encoded)) as Partial<SetupMarker>;
-    if (typeof parsed.fingerprint !== "string" || !Array.isArray(parsed.steps)) return undefined;
-    return { fingerprint: parsed.fingerprint, steps: parsed.steps };
+    const parsed = JSON.parse(decodeBase64(encoded)) as { fingerprint?: unknown; steps?: unknown };
+    if (typeof parsed.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(parsed.fingerprint)) return undefined;
+    if (!Array.isArray(parsed.steps) || parsed.steps.length > ECOSYSTEMS.length) return undefined;
+    const steps = parsed.steps.map(parseMarkerStep);
+    if (steps.some((step) => step === undefined)) return undefined;
+    return { fingerprint: parsed.fingerprint, steps: steps as MarkerStep[] };
   } catch {
     return undefined;
   }
@@ -277,15 +302,26 @@ export interface DependencySetupOutcome {
   notes: string[];
 }
 
-async function collectStdout(
+export interface OutputLimit {
+  maxChars: number;
+  keep: "head" | "tail";
+}
+
+export async function collectStdout(
   sandboxProvider: SandboxProvider,
   sandboxId: string,
   cmd: string[],
+  limit: OutputLimit,
   env?: Record<string, string>,
 ): Promise<string> {
   let stdout = "";
   for await (const chunk of sandboxProvider.exec(sandboxId, cmd, env ? { env } : undefined)) {
-    if (chunk.stream === "stdout") stdout += chunk.data;
+    if (chunk.stream !== "stdout") continue;
+    if (limit.keep === "head") {
+      if (stdout.length < limit.maxChars) stdout = (stdout + chunk.data).slice(0, limit.maxChars);
+    } else {
+      stdout = (stdout + chunk.data).slice(-limit.maxChars);
+    }
   }
   return stdout;
 }
@@ -307,6 +343,7 @@ export function parseStepOutput(stdout: string): { status: Exclude<StepStatus, "
   if (markerIndex === -1) return { status: "failed", output: stdout };
   const output = stdout.slice(0, markerIndex);
   const exitCode = Number.parseInt(stdout.slice(markerIndex + EXIT_MARKER.length), 10);
+  if (Number.isNaN(exitCode)) return { status: "failed", output };
   if (exitCode === 0) return { status: "ok", exitCode, output };
   if (TIMEOUT_EXIT_CODES.has(exitCode)) return { status: "timed_out", exitCode, output };
   return { status: "failed", exitCode, output };
@@ -320,10 +357,13 @@ async function runStep(
 ): Promise<StepResult> {
   const startedAt = Date.now();
   try {
-    const stdout = await collectStdout(sandboxProvider, sandboxId, ["sh", "-c", stepScript(timeoutSeconds)], {
-      ARATA_SETUP_COMMAND: step.command,
-      ARATA_SETUP_TOOL: step.tool ?? "",
-    });
+    const stdout = await collectStdout(
+      sandboxProvider,
+      sandboxId,
+      ["sh", "-c", stepScript(timeoutSeconds)],
+      { maxChars: STEP_OUTPUT_MAX_CHARS, keep: "tail" },
+      { ARATA_SETUP_COMMAND: step.command, ARATA_SETUP_TOOL: step.tool ?? "" },
+    );
     const parsed = parseStepOutput(stdout);
     return {
       label: step.label,
@@ -378,7 +418,12 @@ export async function runDependencySetup(
   const timeoutSeconds = options.timeoutSeconds ?? DEPENDENCY_INSTALL_TIMEOUT_SECONDS;
   let probe: WorkspaceProbe;
   try {
-    probe = parseProbeOutput(await collectStdout(sandboxProvider, sandboxId, ["sh", "-c", probeScript()]));
+    probe = parseProbeOutput(
+      await collectStdout(sandboxProvider, sandboxId, ["sh", "-c", probeScript()], {
+        maxChars: PROBE_OUTPUT_MAX_CHARS,
+        keep: "head",
+      }),
+    );
   } catch (err) {
     return {
       status: "failed",
@@ -413,11 +458,15 @@ export async function runDependencySetup(
   }
 
   const fingerprint = fingerprintSetup(plan.steps, probe.fileHashes);
-  if (probe.marker?.fingerprint === fingerprint) {
-    const previousOk = probe.marker.steps.every((step) => step.status === "ok");
-    const results: StepResult[] = previousOk
-      ? plan.steps.map((step) => ({ label: step.label, command: step.command, status: "up_to_date", durationMs: 0 }))
-      : probe.marker.steps;
+  const marker = probe.marker;
+  if (marker?.fingerprint === fingerprint && marker.steps.length === plan.steps.length) {
+    const previousOk = marker.steps.every((step) => step.status === "ok");
+    const results: StepResult[] = plan.steps.map((step, index) => {
+      const previous = marker.steps[index]!;
+      return previousOk
+        ? { label: step.label, command: step.command, status: "up_to_date", durationMs: 0 }
+        : { label: step.label, command: step.command, status: previous.status, exitCode: previous.exitCode, durationMs: 0 };
+    });
     return {
       status: previousOk ? "up_to_date" : "failed",
       source: plan.source,
@@ -434,11 +483,20 @@ export async function runDependencySetup(
     results.push(await runStep(sandboxProvider, sandboxId, step, timeoutSeconds));
   }
   const allOk = results.every((result) => result.status === "ok");
-  const marker: SetupMarker = { fingerprint, steps: results };
+  const nextMarker: SetupMarker = {
+    fingerprint,
+    steps: results.map((result) =>
+      result.exitCode === undefined ? { status: result.status } : { status: result.status, exitCode: result.exitCode },
+    ),
+  };
   const writeMarker = `[ -d /workspace/.git ] && printf '%s' "$ARATA_SETUP_MARKER" > /workspace/${DEPENDENCY_MARKER_PATH}; exit 0`;
-  await collectStdout(sandboxProvider, sandboxId, ["sh", "-c", writeMarker], {
-    ARATA_SETUP_MARKER: JSON.stringify(marker),
-  }).catch(() => "");
+  await collectStdout(
+    sandboxProvider,
+    sandboxId,
+    ["sh", "-c", writeMarker],
+    { maxChars: 0, keep: "head" },
+    { ARATA_SETUP_MARKER: JSON.stringify(nextMarker) },
+  ).catch(() => "");
   return {
     status: allOk ? "installed" : "failed",
     source: plan.source,
