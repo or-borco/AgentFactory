@@ -27,6 +27,15 @@ vi.mock("../scm-provider", () => ({
 }));
 
 const resolveSandboxImageMock = vi.fn();
+const revokeModelCredentialMock = vi.fn();
+const issueSandboxModelCredentialMock = vi.fn((..._args: unknown[]) => ({
+  endpoint: { baseUrl: "http://host.docker.internal:8787/anthropic", token: "arata-run-test" },
+  revoke: revokeModelCredentialMock,
+}));
+vi.mock("../sandbox-model-access", () => ({
+  issueSandboxModelCredential: (...args: unknown[]) => issueSandboxModelCredentialMock(...args),
+}));
+
 vi.mock("../sandbox-image-select", () => ({
   resolveSandboxImage: (...args: unknown[]) => resolveSandboxImageMock(...args),
 }));
@@ -304,7 +313,18 @@ describe("warmRepoMap", () => {
     await warmRepoMap(sandbox, 1, "acme/widgets");
 
     expect(create).toHaveBeenCalledWith({ image: "arata-sandbox-node:local", env: {} });
-    expect(execEnvs.get(GENERATE_CMD)).toEqual({ ANTHROPIC_API_KEY: "sk-platform" });
+    expect(execEnvs.get(GENERATE_CMD)).toEqual({
+      ANTHROPIC_BASE_URL: "http://host.docker.internal:8787/anthropic",
+      ANTHROPIC_API_KEY: "arata-run-test",
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
+    });
+    expect(issueSandboxModelCredentialMock).toHaveBeenCalledWith(
+      { orgId: 1, purpose: "repo-map", provider: "anthropic" },
+      undefined,
+      150_000,
+    );
+    expect(revokeModelCredentialMock).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify([...execEnvs.values()])).not.toContain("sk-platform");
     expect(execEnvs.get(HEAD_CMD)).toBeUndefined();
     vi.unstubAllEnvs();
     expect(cloneIntoSandboxMock).toHaveBeenCalled();
