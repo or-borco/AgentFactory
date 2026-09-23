@@ -58,7 +58,7 @@ const en = {
   agents: {
     title: "Agents",
     subtitle: "Every agent in your org, grouped by team",
-    noTeamGroup: "No team",
+    noTeamGroup: "No Team",
     emptyState: {
       title: "No agents yet",
       body: "Create an agent from a team to see it listed here.",
