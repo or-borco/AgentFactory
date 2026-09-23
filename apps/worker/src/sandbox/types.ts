@@ -1,9 +1,15 @@
 // The SandboxProvider port from ARCHITECTURE.md §4. Worker-internal for now — promote to
 // packages/core only if a second consumer (e.g. a future apps/api) actually needs it.
 
+export interface SandboxVolume {
+  name: string;
+  target: string;
+}
+
 export interface SandboxSpec {
   image: string;
   env: Record<string, string>;
+  volumes?: SandboxVolume[];
   memoryLimitMb?: number;
   cpuLimit?: number;
   pidsLimit?: number;

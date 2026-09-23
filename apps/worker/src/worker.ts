@@ -100,6 +100,7 @@ import { resolveEscalation } from "./model-escalation";
 import { ensureRepoMap, warmRepoMap } from "./repo-map";
 import { runDependencySetup, type DependencySetupOutcome } from "./dependency-setup";
 import { resolveSandboxImage, SANDBOX_IMAGE_NODE } from "./sandbox-image-select";
+import { dependencyCacheEnv, dependencyCacheVolume } from "./sandbox-cache";
 import { buildRetrievalQuery, retrieveContext, type RetrievedContext } from "./context-retrieval";
 import { waitForPendingContextIngest } from "./context-ingest-wait";
 import { materialiseTaskDocuments, type MaterialisedTaskDocuments } from "./task-documents";
@@ -140,7 +141,8 @@ export async function ensureSandbox(session: Session, orgId: number, repoFullNam
 
   const sandbox = await sandboxProvider.create({
     image,
-    env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "" },
+    env: { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "", ...dependencyCacheEnv() },
+    volumes: [dependencyCacheVolume(orgId)],
   });
   await setSessionSandbox(session.id, sandbox.id, image);
   return sandbox.id;
