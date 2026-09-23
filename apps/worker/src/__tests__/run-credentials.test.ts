@@ -10,19 +10,19 @@ function clockedStore() {
 describe("RunCredentialStore", () => {
   it("issues distinct, unguessable tokens that resolve to their context", () => {
     const { store } = clockedStore();
-    const a = store.issue({ orgId: 1, runId: 10, purpose: "run" });
-    const b = store.issue({ orgId: 2, purpose: "repo-map" });
+    const a = store.issue({ orgId: 1, runId: 10, purpose: "run", provider: "anthropic" });
+    const b = store.issue({ orgId: 2, purpose: "repo-map", provider: "anthropic" });
 
     expect(a).not.toBe(b);
     expect(a.startsWith(RUN_CREDENTIAL_PREFIX)).toBe(true);
     expect(a.length).toBeGreaterThanOrEqual(RUN_CREDENTIAL_PREFIX.length + 43);
-    expect(store.resolve(a)).toEqual({ orgId: 1, runId: 10, purpose: "run" });
-    expect(store.resolve(b)).toEqual({ orgId: 2, purpose: "repo-map" });
+    expect(store.resolve(a)).toEqual({ orgId: 1, runId: 10, purpose: "run", provider: "anthropic" });
+    expect(store.resolve(b)).toEqual({ orgId: 2, purpose: "repo-map", provider: "anthropic" });
   });
 
   it("stops resolving a token once it is revoked", () => {
     const { store } = clockedStore();
-    const token = store.issue({ orgId: 1, purpose: "run" });
+    const token = store.issue({ orgId: 1, purpose: "run", provider: "anthropic" });
 
     store.revoke(token);
 
@@ -32,7 +32,7 @@ describe("RunCredentialStore", () => {
 
   it("expires a token after its lifetime", () => {
     const { store, advance } = clockedStore();
-    const token = store.issue({ orgId: 1, purpose: "run" }, 1000);
+    const token = store.issue({ orgId: 1, purpose: "run", provider: "anthropic" }, 1000);
 
     advance(999);
     expect(store.resolve(token)).toBeDefined();
@@ -42,7 +42,7 @@ describe("RunCredentialStore", () => {
 
   it("never lets a token outlive the maximum lifetime", () => {
     const { store, advance } = clockedStore();
-    const token = store.issue({ orgId: 1, purpose: "run" }, 10 * MAX_RUN_CREDENTIAL_TTL_MS);
+    const token = store.issue({ orgId: 1, purpose: "run", provider: "anthropic" }, 10 * MAX_RUN_CREDENTIAL_TTL_MS);
 
     advance(MAX_RUN_CREDENTIAL_TTL_MS);
 
@@ -51,8 +51,8 @@ describe("RunCredentialStore", () => {
 
   it("drops expired tokens from memory", () => {
     const { store, advance } = clockedStore();
-    store.issue({ orgId: 1, purpose: "run" }, 1000);
-    store.issue({ orgId: 1, purpose: "run" }, 5000);
+    store.issue({ orgId: 1, purpose: "run", provider: "anthropic" }, 1000);
+    store.issue({ orgId: 1, purpose: "run", provider: "anthropic" }, 5000);
 
     advance(2000);
 
