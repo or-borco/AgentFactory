@@ -4,6 +4,7 @@ import { PageHeader, Badge, Card } from "@agentfactory/shared";
 import { useTranslation } from "@/lib/i18n/context";
 import { OrgIcon, GithubIcon } from "@/lib/icons";
 import { ConnectionsList } from "@/components/ConnectionsList";
+import { CodebaseSetupSettings } from "@/components/CodebaseSetupSettings";
 
 export function SettingsView({
   orgName,
@@ -70,6 +71,10 @@ export function SettingsView({
 
         <section>
           <ConnectionsList />
+        </section>
+
+        <section>
+          <CodebaseSetupSettings />
         </section>
       </div>
     </div>

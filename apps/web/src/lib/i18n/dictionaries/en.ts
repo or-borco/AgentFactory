@@ -165,6 +165,18 @@ const en = {
     githubNotConfiguredHelp: "Register the platform GitHub App before connecting repositories.",
     githubConfiguredBadge: "Configured",
     githubNotConfiguredBadge: "Not configured",
+    codebaseSetup: {
+      heading: "Codebase setup",
+      help: "Before each agent turn, the sandbox installs dependencies detected from the repo's lockfiles (pnpm, npm, yarn, uv, poetry, pip, Maven, Gradle). Set a command here to run instead for a codebase the detection doesn't handle. Leave it empty to use detection.",
+      placeholder: "Auto-detect from lockfiles",
+      save: "Save",
+      saving: "Saving…",
+      saved: "Saved. Takes effect on the next agent turn.",
+      saveFailed: "Couldn't save the setup command.",
+      loading: "Loading codebases…",
+      loadFailed: "Couldn't load codebases.",
+      empty: "No codebases yet. Connect a GitHub installation below to configure its repositories.",
+    },
   },
   connections: {
     title: "Connections",
