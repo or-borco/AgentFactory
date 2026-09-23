@@ -73,6 +73,20 @@ describe("processMemoryRetrospectiveJob", () => {
     expect(deps.writeMemoryEntry).not.toHaveBeenCalled();
   });
 
+  it("logs the judge's reasoning when it returns zero lessons", async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const deps = baseDeps({
+      judge: vi.fn().mockResolvedValue({ lessons: [], reasoning: "Only task-specific setup steps happened." }),
+    });
+
+    await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
+
+    const output = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join("");
+    stdoutSpy.mockRestore();
+    expect(output).toContain("Judge returned no lessons");
+    expect(output).toContain("Only task-specific setup steps happened.");
+  });
+
   it("never throws when the judge call fails (fire-and-forget, matches repo-map-warm's .catch(log.error) style)", async () => {
     const deps = baseDeps({ judge: vi.fn().mockRejectedValue(new Error("judge unavailable")) });
 

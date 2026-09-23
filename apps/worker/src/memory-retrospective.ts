@@ -33,8 +33,12 @@ const REPORT_LESSONS_TOOL: Anthropic.Tool = {
   description: "Report the general lessons extracted from this session, if any.",
   input_schema: {
     type: "object",
-    required: ["lessons"],
+    required: ["reasoning", "lessons"],
     properties: {
+      reasoning: {
+        type: "string",
+        description: "One or two sentences explaining why these lessons, or why none, were chosen.",
+      },
       lessons: {
         type: "array",
         description: "0 to 3 concise, general lessons. An empty array is a valid, expected result.",
@@ -67,15 +71,20 @@ function summarizeEvents(events: SessionEventRow[]): string {
     : joined;
 }
 
+interface JudgeVerdict {
+  lessons: string[];
+  reasoning?: string;
+}
+
 export interface RetrospectiveDeps {
   getRunsForSession: (sessionId: number) => Promise<Array<{ id: number; status: string }>>;
   listEventsForSession: (sessionId: number) => Promise<SessionEventRow[]>;
   listEvalsForRun: (runId: number, orgId: number) => Promise<Array<{ result?: { score: number } }>>;
-  judge: (transcriptSummary: string, evalSummary: string) => Promise<{ lessons: string[] }>;
+  judge: (transcriptSummary: string, evalSummary: string) => Promise<JudgeVerdict>;
   writeMemoryEntry: typeof writeMemoryEntryDefault;
 }
 
-async function judgeRetrospective(transcriptSummary: string, evalSummary: string): Promise<{ lessons: string[] }> {
+async function judgeRetrospective(transcriptSummary: string, evalSummary: string): Promise<JudgeVerdict> {
   const userMessage =
     `Session transcript summary:\n\n${transcriptSummary || "(no notable events)"}\n\n` +
     `Recorded eval results for this session's runs:\n\n${evalSummary || "(none)"}`;
@@ -89,9 +98,12 @@ async function judgeRetrospective(transcriptSummary: string, evalSummary: string
   });
   const toolUse = response.content.find((block) => block.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") throw new Error("judge returned no report_lessons tool call");
-  const { lessons } = toolUse.input as { lessons?: unknown };
+  const { lessons, reasoning } = toolUse.input as { lessons?: unknown; reasoning?: unknown };
   if (!Array.isArray(lessons)) throw new Error("judge output has no lessons array");
-  return { lessons: lessons.filter((l): l is string => typeof l === "string" && l.trim() !== "") };
+  return {
+    lessons: lessons.filter((l): l is string => typeof l === "string" && l.trim() !== ""),
+    reasoning: typeof reasoning === "string" ? reasoning : undefined,
+  };
 }
 
 const defaultDeps: RetrospectiveDeps = {
@@ -143,9 +155,9 @@ export async function processMemoryRetrospectiveJob(
     );
     const evalSummary = evalSummaries.filter(Boolean).join("\n");
 
-    const { lessons } = await d.judge(transcriptSummary, evalSummary);
+    const { lessons, reasoning } = await d.judge(transcriptSummary, evalSummary);
     if (lessons.length === 0) {
-      log.info("Judge returned no lessons", { sessionId });
+      log.info("Judge returned no lessons", { sessionId, reasoning });
       return;
     }
 
