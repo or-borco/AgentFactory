@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Connection } from "@agentfactory/core";
 import type { OutputChunk, SandboxProvider } from "../sandbox/types";
 import { SKILL_EXCLUDE_PATTERN } from "../skill-paths";
+import { platformGitEnv } from "../platform-git";
 
 const resolveScmConnectionMock = vi.fn();
 const getScmProviderMock = vi.fn();
@@ -323,6 +324,7 @@ describe("cloneIntoSandbox", () => {
     await cloneIntoSandbox(sandbox, "sandbox-1", target);
 
     expect(capturedEnv).toEqual({
+      ...platformGitEnv(),
       CLONE_URL: target.cloneUrl,
       REMOTE_URL: target.remoteUrl,
       BRANCH_NAME: target.branch,
@@ -401,7 +403,7 @@ describe("syncWithDefaultBranch", () => {
 
     await syncWithDefaultBranch(sandbox, "sandbox-1", target);
 
-    expect(capturedEnv).toEqual({ CLONE_URL: target.cloneUrl, REMOTE_URL: target.remoteUrl });
+    expect(capturedEnv).toEqual({ ...platformGitEnv(), CLONE_URL: target.cloneUrl, REMOTE_URL: target.remoteUrl });
     expect(capturedScript).toContain('git remote set-url origin "$REMOTE_URL"');
     expect(capturedScript).not.toContain("github.com/$REPO_FULL_NAME");
   });
@@ -616,6 +618,39 @@ describe("pushChangesIfDirty", () => {
     });
   });
 
+  it("refuses to push when the checkout's git config could redirect the token", async () => {
+    mockProvider();
+    const sandbox = fakeSandbox([{ stream: "stdout", data: "UNSAFE_GIT_CONFIG:url.https://evil.example/.insteadof\n" }]);
+    await expect(pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer")).rejects.toThrow(
+      /Refusing to use repository credentials.*url\.https:\/\/evil\.example\/\.insteadof/,
+    );
+  });
+
+  it("checks the checkout's git config before the token is attached to the remote", async () => {
+    mockProvider();
+    let script = "";
+    const sandbox: SandboxProvider = {
+      create: vi.fn(),
+      exec: async function* (_id, cmd) {
+        script = cmd[2] ?? "";
+        yield { stream: "stdout", data: "NO_CHANGES\n" };
+      },
+      writeFiles: vi.fn(),
+      readWorkspace: vi.fn(),
+      destroy: vi.fn(),
+      exists: vi.fn(),
+      resetMemory: vi.fn(),
+      interrupt: vi.fn(),
+    };
+
+    await pushChangesIfDirty(sandbox, "sandbox-1", target, "msg", "Code reviewer");
+
+    const checkIndex = script.indexOf('--get-regexp "$ARATA_UNSAFE_GIT_CONFIG"');
+    expect(checkIndex).toBeGreaterThan(-1);
+    expect(checkIndex).toBeLessThan(script.indexOf("git add -A"));
+    expect(checkIndex).toBeLessThan(script.indexOf("$PUSH_TOKEN@"));
+  });
+
   it("passes the token, repo, branch, commit message, and author as env vars, not argv — the token never appears in the command itself", async () => {
     mockProvider("ghs_push");
     let capturedEnv: Record<string, string> | undefined;
@@ -638,6 +673,7 @@ describe("pushChangesIfDirty", () => {
     await pushChangesIfDirty(sandbox, "sandbox-1", target, "Fix the bug", "Code reviewer");
 
     expect(capturedEnv).toEqual({
+      ...platformGitEnv(),
       BRANCH_NAME: "agent/session-1",
       REPO_FULL_NAME: "acme-org/platform",
       COMMIT_MESSAGE: "Fix the bug",

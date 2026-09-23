@@ -5,6 +5,7 @@ import type { SandboxProvider } from "./sandbox/types";
 import { TASK_DOCUMENT_EXCLUDE_PATTERN } from "./task-document-paths";
 import { SKILL_EXCLUDE_PATTERN } from "./skill-paths";
 import { PYTHON_VENV_EXCLUDE_PATTERN } from "./dependency-setup";
+import { platformGitEnv, refuseUnsafeGitConfig, unsafeGitConfigError, unsafeGitConfigKeys } from "./platform-git";
 
 export type { CloneTarget, OpenedPullRequest, PullRequestFeedbackComment };
 export type GitHubIssue = ScmIssue;
@@ -189,7 +190,7 @@ fi`;
 
   let stdout = "";
   for await (const chunk of sandboxProvider.exec(sandboxId, ["sh", "-c", script], {
-    env: { CLONE_URL: target.cloneUrl, REMOTE_URL: target.remoteUrl, BRANCH_NAME: target.branch },
+    env: { ...platformGitEnv(), CLONE_URL: target.cloneUrl, REMOTE_URL: target.remoteUrl, BRANCH_NAME: target.branch },
   })) {
     if (chunk.stream === "stdout") stdout += chunk.data;
   }
@@ -207,7 +208,13 @@ fi`;
 }
 
 export interface RepoSyncResult {
-  status: "up_to_date" | "synced" | "skipped_dirty" | "skipped_conflict" | "skipped_fetch_failed";
+  status:
+    | "up_to_date"
+    | "synced"
+    | "skipped_dirty"
+    | "skipped_conflict"
+    | "skipped_fetch_failed"
+    | "skipped_unsafe_config";
   commitsMerged?: number;
   conflictingFiles?: string[];
 }
@@ -238,6 +245,7 @@ export async function syncWithDefaultBranch(
 ): Promise<RepoSyncResult> {
   const script = `
 cd /workspace || { echo SYNC_SKIPPED_FETCH_FAILED; exit 0; }
+${refuseUnsafeGitConfig("/workspace")}
 git remote set-url origin "$CLONE_URL"
 git fetch origin --quiet
 FETCH_STATUS=$?
@@ -265,11 +273,12 @@ fi`;
 
   let stdout = "";
   for await (const chunk of sandboxProvider.exec(sandboxId, ["sh", "-c", script], {
-    env: { CLONE_URL: target.cloneUrl, REMOTE_URL: target.remoteUrl },
+    env: { ...platformGitEnv(), CLONE_URL: target.cloneUrl, REMOTE_URL: target.remoteUrl },
   })) {
     if (chunk.stream === "stdout") stdout += chunk.data;
   }
 
+  if (unsafeGitConfigKeys(stdout)) return { status: "skipped_unsafe_config" };
   if (stdout.includes("SYNC_UP_TO_DATE")) return { status: "up_to_date" };
   if (stdout.includes("SYNC_SKIPPED_DIRTY")) return { status: "skipped_dirty" };
   const okMatch = /SYNC_OK:(\d+)/.exec(stdout);
@@ -336,6 +345,7 @@ export async function pushChangesIfDirty(
 
   const script = `
 cd /workspace || { echo PUSH_FAILED; exit 0; }
+${refuseUnsafeGitConfig("/workspace")}
 
 CURRENT_BRANCH=$(git branch --show-current)
 if [ "$CURRENT_BRANCH" != "$BRANCH_NAME" ]; then
@@ -442,6 +452,7 @@ fi`;
   let stderr = "";
   for await (const chunk of sandboxProvider.exec(sandboxId, ["sh", "-c", script], {
     env: {
+      ...platformGitEnv(),
       BRANCH_NAME: target.branch,
       REPO_FULL_NAME: target.repoFullName,
       COMMIT_MESSAGE: commitMessage,
@@ -453,6 +464,8 @@ fi`;
     else stderr += chunk.data;
   }
 
+  const unsafeKeys = unsafeGitConfigKeys(stdout);
+  if (unsafeKeys) throw unsafeGitConfigError(unsafeKeys);
   const mismatchMatch = /^BRANCH_MISMATCH:(.*)$/m.exec(stdout);
   const branchMismatch = mismatchMatch ? { agentBranch: mismatchMatch[1] } : undefined;
 
