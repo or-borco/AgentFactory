@@ -69,6 +69,41 @@ async function main(): Promise<void> {
         cwd: "/workspace",
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
+        // These SDK tools assume a persistent interactive host (a scheduler, a background task
+        // registry, a client UI) that this one-shot container doesn't have: this script makes a
+        // single query() call, streams __EVENT__ lines to stdout, and exits — nothing is left
+        // running afterward to fire a wakeup, poll a background task, or show a plan/onboarding
+        // screen. Leaving these enabled doesn't add capability, it just gives the model a tool
+        // that silently no-ops or hangs — see run 105, which called ScheduleWakeup and then
+        // spent two turns saying "I'll wait for the notification" before giving up. Kept generic
+        // (not tied to this repo or any language) since it's describing what THIS EXECUTION
+        // ENVIRONMENT can do, not the codebase inside it.
+        disallowedTools: [
+          "Task",
+          "TaskCreate",
+          "TaskGet",
+          "TaskList",
+          "TaskOutput",
+          "TaskStop",
+          "ScheduleWakeup",
+          "CronCreate",
+          "CronDelete",
+          "CronList",
+          "RemoteTrigger",
+          "Monitor",
+          "PushNotification",
+          "EnterPlanMode",
+          "ExitPlanMode",
+          "EnterWorktree",
+          "ExitWorktree",
+          "SendFeedback",
+          "ShowOnboardingRolePicker",
+          "ClaudeDesign",
+          "Artifact",
+          "Projects",
+          "Workflow",
+          "ProposeSkills",
+        ],
         resume,
         // Always passed, even empty — this positively disables discovery of any repo-committed
         // skills for a run whose agent has none pinned, rather than leaving the SDK to look for
