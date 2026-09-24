@@ -1,5 +1,9 @@
-import "../env";
+import { fileURLToPath } from "node:url";
+import { config } from "dotenv";
 import { describe, expect, it, vi } from "vitest";
+
+config({ path: fileURLToPath(new URL("../../.env", import.meta.url)) });
+config({ path: fileURLToPath(new URL("../../.env.local", import.meta.url)), override: true });
 
 vi.mock("@agentfactory/db", () => ({
   getAgent: vi.fn(),
