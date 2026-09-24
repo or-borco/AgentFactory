@@ -65,6 +65,11 @@ export async function generateInviteCode(
   // insert either way.
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
+      // expiresAt is computed by Postgres's own clock (`now() + interval`), not the app server's
+      // Date.now() — redeemInviteCode later compares it against Postgres's `now()` too, and any
+      // clock skew between the app host and the DB host makes that comparison unreliable
+      // otherwise (observed in practice: a code minted with a negative expiresInMs in a test still
+      // redeemed successfully because the app clock ran ahead of the DB clock).
       const [row] = await db
         .insert(channelInviteCodes)
         .values({
@@ -72,7 +77,7 @@ export async function generateInviteCode(
           connectionId,
           code: generateCode(),
           createdBy,
-          expiresAt: new Date(Date.now() + expiresInMs),
+          expiresAt: sql`now() + (${expiresInMs} * interval '1 millisecond')`,
         })
         .returning();
       return toInviteCode(row);
