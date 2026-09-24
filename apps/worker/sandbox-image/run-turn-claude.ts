@@ -1,5 +1,6 @@
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { extractToolResults, summarizeToolUse, type ToolUseInfo } from "./tool-results.js";
 
 // Prefixes the one line of stdout the worker actually parses (see docker-sandbox-provider.ts /
 // agent-runtime.ts), so it's found deterministically even if the SDK or a tool call logs other
@@ -60,6 +61,8 @@ async function main(): Promise<void> {
   // No `tools` restriction (unlike the old host-side stub) + bypassPermissions: this slice runs
   // the agent's full default toolset inside the container with no approval-gate blocking, per
   // CLAUDE.md's "no approval gates" rule. cwd scopes file tools to the scratch workspace.
+  const toolUses = new Map<string, ToolUseInfo>();
+
   try {
     for await (const message of query({
       prompt: userText,
@@ -104,11 +107,11 @@ async function main(): Promise<void> {
             // target file) so the UI can render a friendly narrative ("Installing dependencies",
             // "Writing strings.ts") instead of raw shell. `text` is kept as a human-readable
             // fallback for older clients.
-            const input = block.input as Record<string, unknown>;
-            const description = typeof input.description === "string" ? input.description : undefined;
-            const command = typeof input.command === "string" ? input.command : undefined;
-            const filePath = typeof input.file_path === "string" ? input.file_path : undefined;
-            const fallback = description ?? command ?? (filePath ? `${block.name}: ${filePath}` : block.name);
+            const { description, command, filePath, inputSummary } = summarizeToolUse(
+              block.name,
+              block.input as Record<string, unknown>,
+            );
+            toolUses.set(block.id, { name: block.name, inputSummary, command });
             process.stdout.write(
               `${EVENT_MARKER}${JSON.stringify({
                 type: "thinking_delta",
@@ -116,9 +119,15 @@ async function main(): Promise<void> {
                 description,
                 command,
                 filePath,
-                text: `[${block.name}] ${fallback}\n`,
+                text: `[${block.name}] ${inputSummary}\n`,
               })}\n`,
             );
+          }
+        }
+      } else if (message.type === "user") {
+        if (!isReviewTurn) {
+          for (const line of extractToolResults(message, toolUses)) {
+            process.stdout.write(`${EVENT_MARKER}${JSON.stringify(line)}\n`);
           }
         }
       } else if (message.type === "result") {

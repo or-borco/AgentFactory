@@ -24,6 +24,7 @@ WORKDIR /agent
 COPY package.json ./
 RUN npm install
 COPY run-turn-claude.ts ./
+COPY tool-results.ts ./
 COPY generate-repo-map.ts ./
 
 # Non-root: reuse the `node` user node:22-slim already ships (uid 1000) — the worker's
