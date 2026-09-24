@@ -28,10 +28,26 @@ function signAppJwt(): string {
 
 // Minted fresh on every call, never cached or persisted — installation tokens are valid ~1hr
 // and repo-scoped to whatever the installation covers, per ARCHITECTURE.md §5/§6.
-async function getInstallationToken(installationId: number): Promise<string> {
+interface InstallationTokenScope {
+  repositories: string[];
+  permissions: Record<string, "read" | "write">;
+}
+
+export function repoScope(repoFullName: string, contents: "read" | "write"): InstallationTokenScope {
+  const name = repoFullName.split("/")[1];
+  if (!name) throw new Error(`"${repoFullName}" is not an owner/repo name`);
+  return { repositories: [name], permissions: { contents } };
+}
+
+async function getInstallationToken(installationId: number, scope?: InstallationTokenScope): Promise<string> {
   const res = await fetch(`${GITHUB_API}/app/installations/${installationId}/access_tokens`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${signAppJwt()}`, Accept: "application/vnd.github+json" },
+    headers: {
+      Authorization: `Bearer ${signAppJwt()}`,
+      Accept: "application/vnd.github+json",
+      ...(scope ? { "Content-Type": "application/json" } : {}),
+    },
+    ...(scope ? { body: JSON.stringify(scope) } : {}),
   });
   if (!res.ok) {
     throw new Error(`GitHub API installation token mint failed: ${res.status} ${await res.text().catch(() => "")}`);
@@ -171,7 +187,7 @@ export const githubScmProvider: ScmProvider = {
   // ARCHITECTURE.md §5/§6.
   async resolveCloneTarget(connection, repoFullName, branch) {
     const installationId = installationIdOf(connection);
-    const token = await getInstallationToken(installationId);
+    const token = await getInstallationToken(installationId, repoScope(repoFullName, "read"));
     return {
       cloneUrl: `https://x-access-token:${token}@github.com/${repoFullName}.git`,
       remoteUrl: `https://github.com/${repoFullName}.git`,
@@ -183,7 +199,7 @@ export const githubScmProvider: ScmProvider = {
   },
 
   async mintPushToken(target) {
-    const token = await getInstallationToken(installationRefOf(target));
+    const token = await getInstallationToken(installationRefOf(target), repoScope(target.repoFullName, "write"));
     return token;
   },
 
