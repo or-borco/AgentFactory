@@ -10,7 +10,7 @@ import { StatusMenu } from "@/components/StatusMenu";
 import { AssigneeSelect } from "@/components/AssigneeSelect";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { TaskStaleDialog } from "@/components/TaskStaleDialog";
-import { CheckIcon, TrashIcon, EditIcon, RunIcon, StopIcon, XIcon } from "@/lib/icons";
+import { CheckIcon, TrashIcon, EditIcon, RunIcon, StopIcon, XIcon, RevertIcon } from "@/lib/icons";
 import { apiFetch } from "@/lib/api-client";
 import { ContextDocumentsPanel } from "@/components/ContextDocumentsPanel";
 import { RunContextPanel } from "@/components/RunContextPanel";
@@ -54,6 +54,7 @@ export default function TaskDetailPage() {
     loadMessages,
     runTask,
     stopTask,
+    revertTask,
     sendMessage,
     updateTask,
     refreshTask,
@@ -65,6 +66,7 @@ export default function TaskDetailPage() {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [markingDone, setMarkingDone] = useState(false);
+  const [reverting, setReverting] = useState(false);
   const [savingAssignee, setSavingAssignee] = useState(false);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
@@ -453,6 +455,18 @@ export default function TaskDetailPage() {
       notify("toast.taskMarkedDone");
     } finally {
       setMarkingDone(false);
+    }
+  };
+
+  // If the task's PR was merged, the server drops its session so the next run starts a fresh
+  // branch instead of reusing one GitHub already closed out (see POST /api/tasks/[taskId]/revert).
+  const handleRevertToAssigned = async () => {
+    if (!task) return;
+    setReverting(true);
+    try {
+      await revertTask(task.id);
+    } finally {
+      setReverting(false);
     }
   };
 
@@ -1033,6 +1047,15 @@ export default function TaskDetailPage() {
                   disabled={markingDone}
                 >
                   <CheckIcon size={15} />
+                </ToolbarIconButton>
+              )}
+              {task.status === "done" && (
+                <ToolbarIconButton
+                  label={reverting ? t("taskDetail.revertingToAssigned") : t("taskDetail.revertToAssigned")}
+                  onClick={handleRevertToAssigned}
+                  disabled={reverting}
+                >
+                  <RevertIcon size={15} />
                 </ToolbarIconButton>
               )}
               <ToolbarIconButton

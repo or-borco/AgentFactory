@@ -103,6 +103,9 @@ interface AppDataContextValue extends AppDataState {
   /** Cancels the task's in-flight run, if any (see POST /api/tasks/[taskId]/stop) — this is what
    *  the Stop action calls. A no-op, not an error, when nothing is actually running. */
   stopTask: (taskId: number) => Promise<void>;
+  /** Reverts a "done" task back to "assigned" (see POST /api/tasks/[taskId]/revert) — undoes an
+   *  accidental completion, or resumes work after a follow-up was filed against a finished task. */
+  revertTask: (taskId: number) => Promise<void>;
   deleteConnection: (connectionId: number) => Promise<void>;
   /** Merges a just-created connection into the client cache (e.g. after `POST /api/connections/jira`
    *  succeeds) without a full re-fetch, mirroring how `deleteConnection` updates the same list. */
@@ -314,6 +317,15 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     [showToast],
   );
 
+  const revertTask = useCallback(
+    async (taskId: number) => {
+      const task = await apiFetch<Task>(`/api/tasks/${taskId}/revert`, { method: "POST" });
+      setState((s) => ({ ...s, tasks: s.tasks.map((tk) => (tk.id === taskId ? task : tk)) }));
+      showToast("toast.taskReverted");
+    },
+    [showToast],
+  );
+
   const deleteConnection = useCallback(
     async (connectionId: number) => {
       await apiFetch<void>(`/api/connections/${connectionId}`, { method: "DELETE" });
@@ -473,6 +485,7 @@ export function AppDataProvider({ children }: { children: React.ReactNode }) {
     deleteTask,
     runTask,
     stopTask,
+    revertTask,
     deleteConnection,
     addConnection,
   };
