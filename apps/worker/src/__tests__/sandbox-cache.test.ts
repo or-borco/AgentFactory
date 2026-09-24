@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { DEPENDENCY_CACHE_DIR, dependencyCacheEnv, dependencyCacheVolume } from "../sandbox-cache";
+import {
+  DEPENDENCY_CACHE_DIR,
+  dependencyCacheEnv,
+  dependencyCacheVolume,
+  parseDependencyCacheVolumeName,
+} from "../sandbox-cache";
 
 describe("dependencyCacheVolume", () => {
   it("scopes the volume to one repo within one org", () => {
@@ -18,6 +23,20 @@ describe("dependencyCacheVolume", () => {
   it("produces a valid Docker volume name for unusual repo names", () => {
     expect(dependencyCacheVolume(7, `acme/${"x".repeat(200)}`).name).toMatch(/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,100}$/);
   });
+});
+
+describe("parseDependencyCacheVolumeName", () => {
+  it("reads the org back from both volume name formats", () => {
+    expect(parseDependencyCacheVolumeName(dependencyCacheVolume(7, "acme/widgets").name)).toEqual({ orgId: 7, perRepo: true });
+    expect(parseDependencyCacheVolumeName("arata-deps-cache-org-7")).toEqual({ orgId: 7, perRepo: false });
+  });
+
+  it.each(["main_postgres-data", "arata-deps-cache-org-", "arata-deps-cache-org-x-acme", "prefix-arata-deps-cache-org-7"])(
+    "does not claim %s",
+    (name) => {
+      expect(parseDependencyCacheVolumeName(name)).toBeUndefined();
+    },
+  );
 });
 
 describe("dependencyCacheEnv", () => {

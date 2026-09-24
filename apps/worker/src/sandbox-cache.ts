@@ -2,13 +2,26 @@ import { createHash } from "node:crypto";
 import type { SandboxVolume } from "./sandbox/types";
 
 export const DEPENDENCY_CACHE_DIR = "/cache";
+export const DEPENDENCY_CACHE_VOLUME_PREFIX = "arata-deps-cache-org-";
 const REPO_SLUG_MAX_CHARS = 40;
 
 export function dependencyCacheVolume(orgId: number, repoFullName: string): SandboxVolume {
   const normalized = repoFullName.toLowerCase();
   const slug = normalized.replace(/[^a-z0-9_.-]+/g, "-").slice(0, REPO_SLUG_MAX_CHARS);
   const hash = createHash("sha256").update(normalized).digest("hex").slice(0, 12);
-  return { name: `arata-deps-cache-org-${orgId}-${slug}-${hash}`, target: DEPENDENCY_CACHE_DIR };
+  return { name: `${DEPENDENCY_CACHE_VOLUME_PREFIX}${orgId}-${slug}-${hash}`, target: DEPENDENCY_CACHE_DIR };
+}
+
+export interface ParsedCacheVolumeName {
+  orgId: number;
+  perRepo: boolean;
+}
+
+export function parseDependencyCacheVolumeName(name: string): ParsedCacheVolumeName | undefined {
+  if (!name.startsWith(DEPENDENCY_CACHE_VOLUME_PREFIX)) return undefined;
+  const match = /^(\d+)(-.+)?$/.exec(name.slice(DEPENDENCY_CACHE_VOLUME_PREFIX.length));
+  if (!match) return undefined;
+  return { orgId: Number(match[1]), perRepo: Boolean(match[2]) };
 }
 
 export function dependencyCacheEnv(): Record<string, string> {
