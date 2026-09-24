@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import "../setup.js";
 import {
   createTask,
+  getTask,
   getTaskBySessionId,
+  revertTaskFromDone,
   startTaskSession,
   updateTask,
 } from "../../repositories/tasks.js";
@@ -91,6 +93,89 @@ describe("externalRef", () => {
     const updated = await updateTask(task.id, { externalRef: ref });
 
     expect(updated.externalRef).toEqual(ref);
+  });
+});
+
+describe("revertTaskFromDone", () => {
+  it("moves a done task back to assigned while keeping its session", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+    const agent = await insertAgent(org.id);
+    const session = await insertSession(org.id, agent.id);
+    const task = await insertTask(org.id, user.id, { codebase: "acme-org/platform" });
+    await updateTask(task.id, {
+      status: "done",
+      sessionId: session.id,
+      assigneeAgentId: agent.id,
+      prNumber: 7,
+      prUrl: "https://github.com/acme-org/platform/pull/7",
+    });
+
+    const reverted = await revertTaskFromDone(task.id, org.id, { clearSession: false });
+
+    expect(reverted).toMatchObject({
+      status: "assigned",
+      sessionId: session.id,
+      prNumber: 7,
+      prUrl: "https://github.com/acme-org/platform/pull/7",
+    });
+  });
+
+  it("clears the session and PR fields when the branch was merged", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+    const agent = await insertAgent(org.id);
+    const session = await insertSession(org.id, agent.id);
+    const task = await insertTask(org.id, user.id, { codebase: "acme-org/platform" });
+    await updateTask(task.id, {
+      status: "done",
+      sessionId: session.id,
+      assigneeAgentId: agent.id,
+      prNumber: 7,
+      prUrl: "https://github.com/acme-org/platform/pull/7",
+    });
+
+    const reverted = await revertTaskFromDone(task.id, org.id, { clearSession: true });
+
+    expect(reverted).toMatchObject({ status: "assigned", sessionId: undefined, prNumber: undefined, prUrl: undefined });
+  });
+
+  it("bumps the task's updatedAt", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+    const task = await insertTask(org.id, user.id);
+    const done = await updateTask(task.id, { status: "done" });
+
+    await new Promise((r) => setTimeout(r, 5));
+    const reverted = await revertTaskFromDone(task.id, org.id, { clearSession: false });
+
+    expect(reverted).toBeDefined();
+    expect(new Date(reverted!.updatedAt).getTime()).toBeGreaterThan(new Date(done.updatedAt).getTime());
+  });
+
+  it("is a no-op when the task isn't done", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+    const task = await insertTask(org.id, user.id);
+    await updateTask(task.id, { status: "in_progress" });
+
+    const reverted = await revertTaskFromDone(task.id, org.id, { clearSession: false });
+
+    expect(reverted).toBeUndefined();
+    const stillInProgress = await getTask(task.id);
+    expect(stillInProgress?.status).toBe("in_progress");
+  });
+
+  it("is a no-op for a task belonging to a different org", async () => {
+    const org = await insertOrg();
+    const otherOrg = await insertOrg();
+    const user = await insertUser();
+    const task = await insertTask(org.id, user.id);
+    await updateTask(task.id, { status: "done" });
+
+    const reverted = await revertTaskFromDone(task.id, otherOrg.id, { clearSession: false });
+
+    expect(reverted).toBeUndefined();
   });
 });
 

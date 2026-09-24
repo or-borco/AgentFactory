@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Session, SessionOrigin, Task, TaskExternalRef, TaskStatus } from "@agentfactory/core";
 import { db } from "../client";
 import { messages, sessions, tasks } from "../schema";
@@ -116,6 +116,32 @@ export async function updateTask(id: number, patch: UpdateTaskInput): Promise<Ta
     .where(eq(tasks.id, id))
     .returning();
   return toTask(row);
+}
+
+export interface RevertTaskFromDoneInput {
+  // True once the caller has confirmed the task's PR was merged — that branch is done for, so
+  // the next run needs a fresh session (and therefore a fresh branch) instead of pushing more
+  // commits onto one GitHub already closed out.
+  clearSession: boolean;
+}
+
+// Undoes an accidental (or premature) "done", e.g. a follow-up was filed after the fact. Scoped
+// to status "done" so a stale double-click can't revert a task that already moved past it.
+export async function revertTaskFromDone(
+  id: number,
+  orgId: number,
+  input: RevertTaskFromDoneInput,
+): Promise<Task | undefined> {
+  const [row] = await db
+    .update(tasks)
+    .set({
+      status: "assigned",
+      updatedAt: new Date(),
+      ...(input.clearSession ? { sessionId: null, prNumber: null, prUrl: null } : {}),
+    })
+    .where(and(eq(tasks.id, id), eq(tasks.orgId, orgId), eq(tasks.status, "done")))
+    .returning();
+  return row ? toTask(row) : undefined;
 }
 
 export async function deleteTask(id: number): Promise<void> {
