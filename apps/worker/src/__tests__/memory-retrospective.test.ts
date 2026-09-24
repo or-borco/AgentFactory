@@ -1,15 +1,15 @@
+import Anthropic from "@anthropic-ai/sdk";
 import { describe, expect, it, vi } from "vitest";
 
-// memory-retrospective.ts (directly, and transitively via memory-write.ts) imports from
-// "@agentfactory/db", whose client throws at import time if DATABASE_URL isn't set, true for
-// the unit project, which runs with no database. This test drives processMemoryRetrospectiveJob
-// entirely through the deps seam and never touches the real db module, so a lightweight mock
-// (matching the pattern already used in eval-runner.test.ts) is enough to make the module graph
-// loadable here.
 vi.mock("@agentfactory/db", () => ({
+  getAgent: vi.fn(),
+  getSession: vi.fn(),
+  getTaskBySessionId: vi.fn(),
   getRunsForSession: vi.fn(),
+  listMessages: vi.fn(),
   listEventsForSession: vi.fn(),
-  listEvalsForRun: vi.fn(),
+  readAgentMemoryEntries: vi.fn(),
+  decryptSecret: vi.fn(),
   findSimilarMemoryEntry: vi.fn(),
   insertMemoryEntryWithWrite: vi.fn(),
   reinforceMemoryEntryWithWrite: vi.fn(),
@@ -17,132 +17,144 @@ vi.mock("@agentfactory/db", () => ({
 
 const { processMemoryRetrospectiveJob } = await import("../memory-retrospective");
 
-function baseDeps(overrides: Record<string, unknown> = {}) {
+const CORRECTION = "That's not how we write release notes here. No commit hashes, please.";
+
+function deps(overrides: Record<string, unknown> = {}) {
   return {
-    getRunsForSession: vi.fn().mockResolvedValue([{ id: 10, status: "done" as const }]),
-    listEventsForSession: vi.fn().mockResolvedValue([
-      { id: 1, runId: 10, seq: 1, type: "tool_call", data: { tool: "Bash", input: { command: "rm -rf /" } }, createdAt: "2026-09-17T00:00:00.000Z" },
-      { id: 2, runId: 10, seq: 2, type: "error", data: { message: "permission denied" }, createdAt: "2026-09-17T00:00:01.000Z" },
+    getAgent: vi.fn().mockResolvedValue({ id: 2, orgId: 1 }),
+    getSession: vi.fn().mockResolvedValue({ id: 3, agentId: 2 }),
+    getTaskBySessionId: vi.fn().mockResolvedValue({ ref: "T-171", title: "Notes", description: "Write notes." }),
+    getRunsForSession: vi.fn().mockResolvedValue([
+      { id: 11, status: "done", triggeringMessageId: 101 },
+      { id: 10, status: "done", triggeringMessageId: 100 },
     ]),
-    listEvalsForRun: vi.fn().mockResolvedValue([]),
+    listMessages: vi.fn().mockResolvedValue([
+      { id: 100, role: "user", content: "Task: Notes\nWrite notes.", kind: "task_brief" },
+      { id: 101, role: "user", content: CORRECTION },
+    ]),
+    listEventsForSession: vi.fn().mockResolvedValue([
+      { id: 1, runId: 10, seq: 1, type: "tool_result", data: { toolUseId: "a", tool: "Bash", command: "git commit", inputSummary: "git commit", isError: true, subagent: false, ciphertext: "good" }, createdAt: "" },
+      { id: 2, runId: 10, seq: 2, type: "tool_result", data: { toolUseId: "b", tool: "Bash", isError: true, ciphertext: "bad" }, createdAt: "" },
+    ]),
+    readAgentMemoryEntries: vi.fn().mockResolvedValue([{ id: 12, content: "Release notes are for end users." }]),
+    decryptSecret: vi.fn((c: string) => {
+      if (c === "bad") throw new Error("tampered");
+      return { output: "Author identity unknown, key ghp_" + "A1b2C3d4E5".repeat(4) };
+    }),
     judge: vi.fn().mockResolvedValue({
-      items: [{ lesson: "Don't run destructive shell commands without confirmation.", why: "Run 10 ran rm -rf / and hit permission denied." }],
+      reasoning: "The user corrected the format.",
+      items: [
+        { runId: 11, evidenceSource: "user_message", evidenceQuote: "No commit hashes, please", why: "User correction.", lesson: "Release notes: no commit hashes." },
+        { runId: 11, evidenceSource: "user_message", evidenceQuote: "made up quote that is not there", why: "x", lesson: "Something else entirely." },
+      ],
       truncated: false,
     }),
     writeMemoryEntry: vi.fn().mockResolvedValue({ reinforced: false }),
+    reinforceMemoryEntryWithWrite: vi.fn().mockResolvedValue({ reinforced: true, duplicate: false }),
     ...overrides,
   };
 }
 
 describe("processMemoryRetrospectiveJob", () => {
-  it("calls writeMemoryEntry once per lesson the judge returns", async () => {
-    const deps = baseDeps();
-
-    await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
-
-    expect(deps.writeMemoryEntry).toHaveBeenCalledExactlyOnceWith(
-      1,
-      2,
-      "Don't run destructive shell commands without confirmation.",
-      "retrospective",
-      { runId: 10, sessionId: 3 },
-      { reason: "Run 10 ran rm -rf / and hit permission denied." },
-    );
+  it("sends known lessons and a masked timeline, skipping rows that fail to decrypt", async () => {
+    const d = deps();
+    await processMemoryRetrospectiveJob(1, 2, 3, d as never);
+    const message = d.judge.mock.calls[0][0] as string;
+    expect(message).toContain(`<known_lesson id="12">`);
+    expect(message).toContain(CORRECTION);
+    expect(message).toContain("Author identity unknown");
+    expect(message).not.toContain("ghp_");
+    expect(message.match(/<tool_failed /g)).toHaveLength(1);
   });
 
-  it("calls writeMemoryEntry once per lesson when the judge returns multiple", async () => {
-    const deps = baseDeps({
-      judge: vi.fn().mockResolvedValue({ items: [{ lesson: "Lesson one.", why: "a" }, { lesson: "Lesson two.", why: "b" }], truncated: false }),
+  it("writes accepted lessons with their own run as provenance and a quoted reason, and drops rejected ones", async () => {
+    const d = deps();
+    await processMemoryRetrospectiveJob(1, 2, 3, d as never);
+    expect(d.writeMemoryEntry).toHaveBeenCalledExactlyOnceWith(1, 2, "Release notes: no commit hashes.", "retrospective", { runId: 11, sessionId: 3 }, {
+      reason: `User correction. (evidence from run 11: "No commit hashes, please")`,
     });
-
-    await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
-
-    expect(deps.writeMemoryEntry).toHaveBeenCalledTimes(2);
   });
 
-  it("does nothing when the session has no runs", async () => {
-    const deps = baseDeps({ getRunsForSession: vi.fn().mockResolvedValue([]) });
-
-    await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
-
-    expect(deps.judge).not.toHaveBeenCalled();
-    expect(deps.writeMemoryEntry).not.toHaveBeenCalled();
-  });
-
-  it("does nothing when the judge returns zero lessons", async () => {
-    const deps = baseDeps({ judge: vi.fn().mockResolvedValue({ items: [], truncated: false }) });
-
-    await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
-
-    expect(deps.writeMemoryEntry).not.toHaveBeenCalled();
-  });
-
-  it("logs the judge's reasoning when it returns zero lessons", async () => {
-    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
-    const deps = baseDeps({
-      judge: vi.fn().mockResolvedValue({ items: [], truncated: false, reasoning: "Only task-specific setup steps happened." }),
+  it("reinforces a known lesson by id", async () => {
+    const d = deps({
+      judge: vi.fn().mockResolvedValue({
+        items: [{ runId: 11, evidenceSource: "user_message", evidenceQuote: "No commit hashes, please", why: "Corrected again.", reinforcesLessonId: 12 }],
+        truncated: false,
+      }),
     });
-
-    await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
-
-    const output = stdoutSpy.mock.calls.map(([chunk]) => String(chunk)).join("");
-    stdoutSpy.mockRestore();
-    expect(output).toContain("Judge returned no lessons");
-    expect(output).toContain("Only task-specific setup steps happened.");
-  });
-
-  it("never throws when the judge call fails (fire-and-forget, matches repo-map-warm's .catch(log.error) style)", async () => {
-    const deps = baseDeps({ judge: vi.fn().mockRejectedValue(new Error("judge unavailable")) });
-
-    await expect(processMemoryRetrospectiveJob(1, 2, 3, deps as any)).resolves.toBeUndefined();
-    expect(deps.writeMemoryEntry).not.toHaveBeenCalled();
-  });
-
-  it("never throws when a writeMemoryEntry call fails partway through", async () => {
-    const deps = baseDeps({
-      judge: vi.fn().mockResolvedValue({ items: [{ lesson: "Lesson one.", why: "w" }, { lesson: "Lesson two.", why: "w" }], truncated: false }),
-      writeMemoryEntry: vi.fn().mockRejectedValueOnce(new Error("db down")).mockResolvedValueOnce({ reinforced: false }),
+    await processMemoryRetrospectiveJob(1, 2, 3, d as never);
+    expect(d.writeMemoryEntry).not.toHaveBeenCalled();
+    expect(d.reinforceMemoryEntryWithWrite).toHaveBeenCalledExactlyOnceWith(1, 2, 12, {
+      source: "retrospective",
+      lesson: "Release notes are for end users.",
+      reason: `Corrected again. (evidence from run 11: "No commit hashes, please")`,
+      runId: 11,
+      sessionId: 3,
     });
-
-    await expect(processMemoryRetrospectiveJob(1, 2, 3, deps as any)).resolves.toBeUndefined();
   });
 
-  it("uses the most recent run's id as provenance when the session has more than one run", async () => {
-    const deps = baseDeps({
-      getRunsForSession: vi.fn().mockResolvedValue([
-        { id: 10, status: "failed" as const },
-        { id: 11, status: "done" as const },
+  it.each([
+    ["agent from another org", { getAgent: vi.fn().mockResolvedValue({ id: 2, orgId: 99 }) }],
+    ["session of another agent", { getSession: vi.fn().mockResolvedValue({ id: 3, agentId: 77 }) }],
+    ["no runs", { getRunsForSession: vi.fn().mockResolvedValue([]) }],
+  ])("does not judge: %s", async (_name, overrides) => {
+    const d = deps(overrides);
+    await processMemoryRetrospectiveJob(1, 2, 3, d as never);
+    expect(d.judge).not.toHaveBeenCalled();
+  });
+
+  it("skips the judge when there is no user message of 15+ characters and no failure", async () => {
+    const d = deps({
+      listMessages: vi.fn().mockResolvedValue([
+        { id: 100, role: "user", content: "Task brief", kind: "task_brief" },
+        { id: 101, role: "user", content: "thanks" },
       ]),
+      listEventsForSession: vi.fn().mockResolvedValue([]),
     });
-
-    await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
-
-    expect(deps.writeMemoryEntry).toHaveBeenCalledWith(
-      1,
-      2,
-      expect.any(String),
-      "retrospective",
-      { runId: 11, sessionId: 3 },
-      { reason: expect.any(String) },
-    );
+    await processMemoryRetrospectiveJob(1, 2, 3, d as never);
+    expect(d.judge).not.toHaveBeenCalled();
   });
 
-  it("passes the session's events to the judge inside a timeline tag", async () => {
-    const deps = baseDeps();
-
-    await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
-
-    const [userMessage] = deps.judge.mock.calls[0];
-    expect(userMessage).toContain("<known_lessons>(none)</known_lessons>");
-    expect(userMessage).toContain("<timeline>");
-    expect(userMessage).toContain("rm -rf /");
+  it("works when the task is gone", async () => {
+    const d = deps({ getTaskBySessionId: vi.fn().mockResolvedValue(undefined) });
+    await processMemoryRetrospectiveJob(1, 2, 3, d as never);
+    expect(d.judge).toHaveBeenCalledOnce();
   });
 
-  it("passes no reason when the judge gave no why", async () => {
-    const deps = baseDeps({ judge: vi.fn().mockResolvedValue({ items: [{ lesson: "Keep me." }], truncated: false }) });
+  it("rethrows judge API errors so the queue retries", async () => {
+    const d = deps({ judge: vi.fn().mockRejectedValue(new Anthropic.APIConnectionError({ message: "down" })) });
+    await expect(processMemoryRetrospectiveJob(1, 2, 3, d as never)).rejects.toThrow("down");
+    expect(d.writeMemoryEntry).not.toHaveBeenCalled();
+  });
 
-    await processMemoryRetrospectiveJob(1, 2, 3, deps as any);
+  it("swallows other judge errors", async () => {
+    const d = deps({ judge: vi.fn().mockRejectedValue(new Error("judge returned no report_lessons tool call")) });
+    await expect(processMemoryRetrospectiveJob(1, 2, 3, d as never)).resolves.toBeUndefined();
+  });
 
-    expect(deps.writeMemoryEntry).toHaveBeenCalledExactlyOnceWith(1, 2, "Keep me.", "retrospective", { runId: 10, sessionId: 3 }, { reason: undefined });
+  it("stores nothing when the judge output was cut off", async () => {
+    const d = deps({ judge: vi.fn().mockResolvedValue({ items: [], truncated: true }) });
+    await processMemoryRetrospectiveJob(1, 2, 3, d as never);
+    expect(d.writeMemoryEntry).not.toHaveBeenCalled();
+  });
+
+  it("keeps going when one write fails", async () => {
+    const d = deps({
+      judge: vi.fn().mockResolvedValue({
+        items: [
+          { runId: 11, evidenceSource: "user_message", evidenceQuote: "No commit hashes, please", why: "a", lesson: "Lesson one about notes." },
+          { runId: 11, evidenceSource: "user_message", evidenceQuote: "how we write release notes here", why: "b", lesson: "Lesson two about notes." },
+        ],
+        truncated: false,
+      }),
+      writeMemoryEntry: vi.fn().mockRejectedValueOnce(new Error("db")).mockResolvedValue({ reinforced: false }),
+    });
+    await processMemoryRetrospectiveJob(1, 2, 3, d as never);
+    expect(d.writeMemoryEntry).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not crash on a setup error", async () => {
+    const d = deps({ listMessages: vi.fn().mockRejectedValue(new Error("db down")) });
+    await expect(processMemoryRetrospectiveJob(1, 2, 3, d as never)).resolves.toBeUndefined();
   });
 });

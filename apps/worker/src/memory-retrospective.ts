@@ -1,9 +1,28 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { DEFAULT_MODEL_ID } from "@agentfactory/core";
-import { getRunsForSession, listEventsForSession, listEvalsForRun } from "@agentfactory/db";
+import {
+  decryptSecret,
+  getAgent,
+  getRunsForSession,
+  getSession,
+  getTaskBySessionId,
+  listEventsForSession,
+  listMessages,
+  readAgentMemoryEntries,
+  reinforceMemoryEntryWithWrite,
+  type MemoryWriteInput,
+} from "@agentfactory/db";
 import { createLogger } from "@agentfactory/logger";
+import { checkLessonEvidence } from "./lesson-evidence";
 import { writeMemoryEntry as writeMemoryEntryDefault } from "./memory-write";
-import { escapeTimelineText } from "./session-timeline";
+import { maskSecrets } from "./secret-masking";
+import {
+  buildSessionTimeline,
+  escapeTimelineText,
+  type SessionTimeline,
+  type TimelineEvent,
+  type TimelineMessage,
+} from "./session-timeline";
 
 const log = createLogger("memory-retrospective");
 
@@ -86,6 +105,7 @@ export const REPORT_LESSONS_TOOL: Anthropic.Tool = {
 
 interface SessionEventRow {
   runId: number;
+  seq: number;
   type: string;
   data: Record<string, unknown>;
 }
@@ -109,14 +129,6 @@ export function buildJudgeUserMessage(knownLessons: Array<{ id: number; content:
   return `<known_lessons>${known}</known_lessons>\n\n<timeline>\n${timeline}\n</timeline>`;
 }
 
-export interface RetrospectiveDeps {
-  getRunsForSession: (sessionId: number) => Promise<Array<{ id: number; status: string }>>;
-  listEventsForSession: (sessionId: number) => Promise<SessionEventRow[]>;
-  listEvalsForRun: (runId: number, orgId: number) => Promise<Array<{ result?: { score: number } }>>;
-  judge: (userMessage: string) => Promise<JudgeResult>;
-  writeMemoryEntry: typeof writeMemoryEntryDefault;
-}
-
 export async function judgeRetrospective(userMessage: string): Promise<JudgeResult> {
   const response = await client.messages.create(
     {
@@ -136,26 +148,135 @@ export async function judgeRetrospective(userMessage: string): Promise<JudgeResu
   return { ...parseReportLessons(toolUse.input), truncated: false };
 }
 
-const defaultDeps: RetrospectiveDeps = {
-  getRunsForSession,
-  listEventsForSession,
-  listEvalsForRun,
-  judge: judgeRetrospective,
-  writeMemoryEntry: writeMemoryEntryDefault,
-};
-
-// Picks the run with the highest id (auto-increment PK, so the highest id is always the most
-// recently created row) rather than relying on the array's order: getRunsForSession returns
-// newest-first while this function's own deps interface makes no such promise, so the two must
-// not be allowed to silently drift.
-function mostRecentRun<T extends { id: number }>(runs: T[]): T {
-  return runs.reduce((latest, run) => (run.id > latest.id ? run : latest), runs[0]);
+export interface RetrospectiveDeps {
+  getAgent: (agentId: number) => Promise<{ id: number; orgId: number } | undefined>;
+  getSession: (sessionId: number) => Promise<{ id: number; agentId: number } | undefined>;
+  getTaskBySessionId: (sessionId: number) => Promise<{ ref: string; title: string; description: string } | undefined>;
+  getRunsForSession: (sessionId: number) => Promise<Array<{ id: number; status: string; triggeringMessageId?: number }>>;
+  listMessages: (sessionId: number) => Promise<TimelineMessage[]>;
+  listEventsForSession: (sessionId: number) => Promise<SessionEventRow[]>;
+  readAgentMemoryEntries: (orgId: number, agentId: number) => Promise<Array<{ id: number; content: string }>>;
+  decryptSecret: (ciphertext: string) => Record<string, string>;
+  judge: (userMessage: string) => Promise<JudgeResult>;
+  writeMemoryEntry: typeof writeMemoryEntryDefault;
+  reinforceMemoryEntryWithWrite: (orgId: number, agentId: number, entryId: number, write: MemoryWriteInput) => Promise<unknown>;
 }
 
-// Never rejects, exactly like processEvalJob and ingestTeamContextItem: this is fire-and-forget
-// from the tasks route (see apps/web's PATCH handler), and unlike run execution, safely retriable
-// by BullMQ on transient failure, but the function itself still must not throw out of a caller's
-// .catch(log.error) in a way that fails the task status update it rides alongside.
+const defaultDeps: RetrospectiveDeps = {
+  getAgent,
+  getSession,
+  getTaskBySessionId,
+  getRunsForSession,
+  listMessages,
+  listEventsForSession,
+  readAgentMemoryEntries,
+  decryptSecret,
+  judge: judgeRetrospective,
+  writeMemoryEntry: writeMemoryEntryDefault,
+  reinforceMemoryEntryWithWrite,
+};
+
+function mask(text: string): string {
+  return maskSecrets(text, []);
+}
+
+function maskDeep(value: unknown): unknown {
+  if (typeof value === "string") return mask(value);
+  if (Array.isArray(value)) return value.map(maskDeep);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, maskDeep(v)]));
+  return value;
+}
+
+function prepareEvents(rows: SessionEventRow[], decrypt: RetrospectiveDeps["decryptSecret"], sessionId: number): TimelineEvent[] {
+  return rows.flatMap((row): TimelineEvent[] => {
+    const data: Record<string, unknown> = { ...row.data };
+    if (row.type === "tool_result" && data.isError === true) {
+      if (typeof data.ciphertext !== "string") return [];
+      try {
+        data.output = decrypt(data.ciphertext).output ?? "";
+      } catch (err) {
+        log.warn("Skipping a tool result that failed to decrypt", { sessionId, runId: row.runId, seq: row.seq, err });
+        return [];
+      }
+      delete data.ciphertext;
+    }
+    return [{ runId: row.runId, seq: row.seq, type: row.type, data: maskDeep(data) as Record<string, unknown> }];
+  });
+}
+
+interface Prepared {
+  timeline: SessionTimeline;
+  knownLessons: Map<number, string>;
+  userMessage: string;
+}
+
+async function prepare(orgId: number, agentId: number, sessionId: number, d: RetrospectiveDeps): Promise<Prepared | undefined> {
+  const agent = await d.getAgent(agentId);
+  const session = await d.getSession(sessionId);
+  if (!agent || agent.orgId !== orgId || !session || session.agentId !== agentId) {
+    log.warn("Retrospective ids don't belong together; not judging", { orgId, agentId, sessionId });
+    return undefined;
+  }
+  const runs = await d.getRunsForSession(sessionId);
+  if (runs.length === 0) {
+    log.info("No runs for session; nothing to review", { sessionId });
+    return undefined;
+  }
+  const [task, messages, events] = await Promise.all([
+    d.getTaskBySessionId(sessionId),
+    d.listMessages(sessionId),
+    d.listEventsForSession(sessionId),
+  ]);
+  const timeline = buildSessionTimeline({
+    task: task ? { ref: task.ref, title: mask(task.title), description: mask(task.description) } : undefined,
+    runs,
+    messages: messages.map((m) => ({ ...m, content: mask(m.content) })),
+    events: prepareEvents(events, d.decryptSecret, sessionId),
+  });
+  if (!timeline.hasUserMessage && !timeline.hasFailure) {
+    log.info("Nothing to review", { sessionId });
+    return undefined;
+  }
+  const known = await d.readAgentMemoryEntries(orgId, agentId);
+  return {
+    timeline,
+    knownLessons: new Map(known.map((entry) => [entry.id, entry.content])),
+    userMessage: buildJudgeUserMessage(known.map(({ id, content }) => ({ id, content })), timeline.text),
+  };
+}
+
+async function store(orgId: number, agentId: number, sessionId: number, prepared: Prepared, result: JudgeResult, d: RetrospectiveDeps) {
+  const counts = { accepted: 0, reinforced: 0, rejected: 0 };
+  for (const raw of result.items) {
+    const verdict = checkLessonEvidence(raw, prepared.timeline.sources, prepared.knownLessons, []);
+    if (!verdict.ok) {
+      counts.rejected++;
+      log.info("Rejected a judged lesson", { sessionId, reason: verdict.reason, closest: verdict.closest, item: maskDeep(raw) });
+      continue;
+    }
+    const { item } = verdict;
+    const reason = `${mask(item.why)} (evidence from run ${item.runId}: "${mask(item.evidenceQuote)}")`;
+    try {
+      if (item.reinforcesLessonId !== undefined) {
+        await d.reinforceMemoryEntryWithWrite(orgId, agentId, item.reinforcesLessonId, {
+          source: "retrospective",
+          lesson: prepared.knownLessons.get(item.reinforcesLessonId) ?? "",
+          reason,
+          runId: item.runId,
+          sessionId,
+        });
+        counts.reinforced++;
+      } else {
+        await d.writeMemoryEntry(orgId, agentId, mask(item.lesson ?? ""), "retrospective", { runId: item.runId, sessionId }, { reason });
+        counts.accepted++;
+      }
+    } catch (err) {
+      log.error("Failed to write one retrospective lesson; continuing with the rest", { sessionId, err });
+    }
+  }
+  log.info("Retrospective verdict", { sessionId, reasoning: result.reasoning, ...counts });
+}
+
 export async function processMemoryRetrospectiveJob(
   orgId: number,
   agentId: number,
@@ -163,41 +284,26 @@ export async function processMemoryRetrospectiveJob(
   deps: Partial<RetrospectiveDeps> = {},
 ): Promise<void> {
   const d = { ...defaultDeps, ...deps };
+  let prepared: Prepared | undefined;
   try {
-    const runs = await d.getRunsForSession(sessionId);
-    if (runs.length === 0) {
-      log.info("No runs for session; nothing to review", { sessionId });
-      return;
-    }
-    const lastRun = mostRecentRun(runs);
-
-    const events = await d.listEventsForSession(sessionId);
-    const transcriptSummary = JSON.stringify(events).slice(0, 80_000);
-
-    const { items, reasoning } = await d.judge(buildJudgeUserMessage([], transcriptSummary));
-    if (items.length === 0) {
-      log.info("Judge returned no lessons", { sessionId, reasoning });
-      return;
-    }
-
-    for (const item of items) {
-      if (typeof item !== "object" || item === null) continue;
-      const { lesson, why } = item as { lesson?: unknown; why?: unknown };
-      if (typeof lesson !== "string" || lesson.trim() === "") continue;
-      try {
-        await d.writeMemoryEntry(
-          orgId,
-          agentId,
-          lesson,
-          "retrospective",
-          { runId: lastRun.id, sessionId },
-          { reason: typeof why === "string" ? why : undefined },
-        );
-      } catch (err) {
-        log.error("Failed to write one retrospective lesson; continuing with the rest", { sessionId, err });
-      }
-    }
+    prepared = await prepare(orgId, agentId, sessionId, d);
   } catch (err) {
-    log.error("Memory retrospective job failed", { orgId, agentId, sessionId, err });
+    log.error("Memory retrospective setup failed", { orgId, agentId, sessionId, err });
+    return;
   }
+  if (!prepared) return;
+
+  let result: JudgeResult;
+  try {
+    result = await d.judge(prepared.userMessage);
+  } catch (err) {
+    log.error("Memory retrospective judge call failed", { orgId, agentId, sessionId, err });
+    if (err instanceof Anthropic.APIError) throw err;
+    return;
+  }
+  if (result.truncated) {
+    log.warn("Judge output hit max_tokens; storing nothing", { sessionId });
+    return;
+  }
+  await store(orgId, agentId, sessionId, prepared, result, d);
 }
