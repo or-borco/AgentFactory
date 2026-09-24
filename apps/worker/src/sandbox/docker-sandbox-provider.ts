@@ -11,10 +11,17 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "dist", "build", "__
 const MAX_FILE_BYTES = 512 * 1024; // 512 KB per file — skip larger blobs
 
 // Dynamic memory scaling (grow during a run, shrink between runs — see the design note on
-// DockerSandboxProvider.resetMemory and watchMemory below). Base matches the pre-existing
-// default so a task that never bursts behaves exactly as before.
+// DockerSandboxProvider.resetMemory and watchMemory below). watchMemory wraps every exec() call
+// generically, including the dependency-install step's, but it's reactive: it polls container
+// stats (~1/sec) and only grows the cap once usage crosses MEMORY_GROWTH_THRESHOLD of the
+// *current* cap. A cold install (resolving and linking hundreds of packages, in any ecosystem —
+// this isn't pnpm/Node-specific) can spike past a 512MB cap faster than one poll-then-update
+// round trip, losing the race and getting OOM-killed (exit 137) before growth ever fires — this
+// is exactly what happened to run 105 8.5s into `pnpm install`. Starting higher costs nothing for
+// a run that never bursts (Docker doesn't reserve memory upfront) and removes that race for the
+// one phase every task hits before the agent even starts.
 const MB = 1024 * 1024;
-const MEMORY_BASE_MB = 512;
+const MEMORY_BASE_MB = 1024;
 const MEMORY_MAX_MB = 4096;
 const MEMORY_GROWTH_FACTOR = 2;
 const MEMORY_GROWTH_THRESHOLD = 0.8; // fraction of the current cap that triggers a grow
