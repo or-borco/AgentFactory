@@ -13,7 +13,7 @@ export interface JudgedItem {
 export type EvidenceVerdict = { ok: true; item: JudgedItem } | { ok: false; reason: string; closest?: string };
 
 export const MIN_QUOTE_CHARS = 20;
-export const MAX_QUOTE_CHARS = 200;
+export const MAX_QUOTE_CHARS = 500;
 export const MAX_LESSON_CHARS = 300;
 const CLOSEST_MIN_CHARS = 10;
 const SEGMENT_SKIP_WORDS = new Set(["cd", "export"]);

@@ -79,7 +79,7 @@ export const REPORT_LESSONS_TOOL: Anthropic.Tool = {
         maxItems: 3,
         items: {
           type: "object",
-          required: ["runId", "evidenceSource", "evidenceQuote", "why"],
+          required: ["runId", "evidenceSource", "evidenceQuote", "why", "lesson"],
           properties: {
             runId: { type: "integer", description: "The id of the <run> the evidence is in." },
             evidenceSource: {
@@ -91,11 +91,15 @@ export const REPORT_LESSONS_TOOL: Anthropic.Tool = {
             evidenceQuote: {
               type: "string",
               description:
-                "20 to 200 characters copied exactly as they appear between the tags (the whole message if it is shorter). Do not shorten with ellipses; pick a shorter span instead.",
+                "20 to 500 characters copied exactly as they appear between the tags (the whole message if it is shorter). Do not shorten with ellipses; pick a shorter span instead.",
             },
             why: { type: "string", description: "One or two sentences: what the evidence shows and why it generalizes." },
             reinforcesLessonId: { type: "integer", description: "Set only to reinforce a known lesson instead of writing a new one." },
-            lesson: { type: "string", description: "At most 300 characters, phrased as guidance. Required unless reinforcesLessonId is set." },
+            lesson: {
+              type: "string",
+              description:
+                "At most 300 characters, phrased as guidance. When reinforcesLessonId is set, restate the known lesson: it is ignored, and the stored text stays as-is.",
+            },
           },
         },
       },

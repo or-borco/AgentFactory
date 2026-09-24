@@ -91,6 +91,21 @@ describe("checkLessonEvidence: quotes", () => {
     expect(verdict.ok).toBe(false);
   });
 
+  it("accepts a long exact quote up to 500 characters", () => {
+    const longCorrection = `That's not how we write release notes here. ${"Our readers are end users, so keep it plain and free of internals. ".repeat(4)}`.trim();
+    const quote = longCorrection.slice(0, 250);
+    const s = sources({ userMessages: new Map([[2, [longCorrection]]]) });
+    expect(checkLessonEvidence(userItem({ evidenceQuote: quote }), s, known, []).ok).toBe(true);
+  });
+
+  it("rejects a quote longer than 500 characters", () => {
+    const longCorrection = `That's not how we write release notes here. ${"Our readers are end users, so keep it plain and free of internals. ".repeat(10)}`.trim();
+    const quote = longCorrection.slice(0, 501);
+    const s = sources({ userMessages: new Map([[2, [longCorrection]]]) });
+    const verdict = checkLessonEvidence(userItem({ evidenceQuote: quote }), s, known, []);
+    expect(verdict).toMatchObject({ ok: false, reason: "quote not found" });
+  });
+
   it("returns a closest match when the quote is not found", () => {
     const verdict = checkLessonEvidence(userItem({ evidenceQuote: "no commit hashes, no file or method names at all" }), sources(), known, []);
     expect(verdict).toMatchObject({ ok: false, reason: "quote not found" });

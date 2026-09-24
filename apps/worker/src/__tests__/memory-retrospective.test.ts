@@ -99,6 +99,33 @@ describe("processMemoryRetrospectiveJob", () => {
     });
   });
 
+  it("ignores the judge's lesson text on a reinforcement and keeps the known lesson's wording", async () => {
+    const d = deps({
+      judge: vi.fn().mockResolvedValue({
+        items: [
+          {
+            runId: 11,
+            evidenceSource: "user_message",
+            evidenceQuote: "No commit hashes, please",
+            why: "Corrected again.",
+            reinforcesLessonId: 12,
+            lesson: "A completely different lesson text from the judge.",
+          },
+        ],
+        truncated: false,
+      }),
+    });
+    await processMemoryRetrospectiveJob(1, 2, 3, d as never);
+    expect(d.writeMemoryEntry).not.toHaveBeenCalled();
+    expect(d.reinforceMemoryEntryWithWrite).toHaveBeenCalledExactlyOnceWith(1, 2, 12, {
+      source: "retrospective",
+      lesson: "Release notes are for end users.",
+      reason: `Corrected again. (evidence from run 11: "No commit hashes, please")`,
+      runId: 11,
+      sessionId: 3,
+    });
+  });
+
   it.each([
     ["agent from another org", { getAgent: vi.fn().mockResolvedValue({ id: 2, orgId: 99 }) }],
     ["session of another agent", { getSession: vi.fn().mockResolvedValue({ id: 3, agentId: 77 }) }],
