@@ -7,11 +7,13 @@ const deleteTask = vi.fn();
 const enqueueSandboxTeardownJob = vi.fn();
 const enqueueRepoMapWarmJob = vi.fn();
 const enqueueMemoryRetrospectiveJob = vi.fn();
+const getRunsForSession = vi.fn();
 
 vi.mock("@agentfactory/db", () => ({
   getTask: (...args: unknown[]) => getTask(...args),
   updateTask: (...args: unknown[]) => updateTask(...args),
   deleteTask: (...args: unknown[]) => deleteTask(...args),
+  getRunsForSession: (...args: unknown[]) => getRunsForSession(...args),
 }));
 vi.mock("@agentfactory/queue", () => ({
   enqueueSandboxTeardownJob: (...args: unknown[]) => enqueueSandboxTeardownJob(...args),
@@ -42,6 +44,7 @@ beforeEach(() => {
   enqueueSandboxTeardownJob.mockReset().mockResolvedValue(undefined);
   enqueueRepoMapWarmJob.mockReset().mockResolvedValue(undefined);
   enqueueMemoryRetrospectiveJob.mockReset().mockResolvedValue(undefined);
+  getRunsForSession.mockReset().mockResolvedValue([{ id: 20 }, { id: 21 }]);
 });
 
 describe("PATCH /api/tasks/[taskId], memory retrospective", () => {
@@ -59,7 +62,7 @@ describe("PATCH /api/tasks/[taskId], memory retrospective", () => {
 
       await patch("5", { status });
 
-      expect(enqueueMemoryRetrospectiveJob).toHaveBeenCalledExactlyOnceWith(3, 7, 9);
+      await vi.waitFor(() => expect(enqueueMemoryRetrospectiveJob).toHaveBeenCalledExactlyOnceWith(3, 7, 9, 21));
     },
   );
 
@@ -95,6 +98,21 @@ describe("PATCH /api/tasks/[taskId], memory retrospective", () => {
 
     expect(res.status).toBe(200);
   });
+
+  it("does not enqueue a retrospective when the session has no runs", async () => {
+    getRunsForSession.mockResolvedValue([]);
+    updateTask.mockResolvedValue({ id: 5, orgId: 3, status: "done", sessionId: 9, assigneeAgentId: 7, codebase: null });
+    await patch("5", { status: "done" });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(enqueueMemoryRetrospectiveJob).not.toHaveBeenCalled();
+  });
+
+  it("still returns 200 when looking up runs fails", async () => {
+    getRunsForSession.mockRejectedValue(new Error("db down"));
+    updateTask.mockResolvedValue({ id: 5, orgId: 3, status: "done", sessionId: 9, assigneeAgentId: 7, codebase: null });
+    const res = await patch("5", { status: "done" });
+    expect(res.status).toBe(200);
+  });
 });
 
 describe("DELETE /api/tasks/[taskId], memory retrospective", () => {
@@ -105,7 +123,7 @@ describe("DELETE /api/tasks/[taskId], memory retrospective", () => {
 
       await del("5");
 
-      expect(enqueueMemoryRetrospectiveJob).toHaveBeenCalledExactlyOnceWith(3, 7, 9);
+      await vi.waitFor(() => expect(enqueueMemoryRetrospectiveJob).toHaveBeenCalledExactlyOnceWith(3, 7, 9, 21));
     },
   );
 
