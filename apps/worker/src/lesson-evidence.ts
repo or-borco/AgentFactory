@@ -80,7 +80,6 @@ function parseItem(raw: unknown, sources: TimelineSources, knownLessons: Readonl
   if (typeof why !== "string" || why.trim() === "") return "missing why";
   if (reinforcesLessonId !== undefined && (typeof reinforcesLessonId !== "number" || !knownLessons.has(reinforcesLessonId))) return "unknown lesson id";
   if (reinforcesLessonId === undefined && (typeof lesson !== "string" || lesson.trim() === "")) return "missing lesson";
-  if (evidenceSource === "tool_failure" && typeof evidenceRef !== "string") return "missing evidence ref";
   return {
     runId,
     evidenceSource,
@@ -149,21 +148,34 @@ export function checkLessonEvidence(
 ): EvidenceVerdict {
   const parsed = parseItem(raw, sources, knownLessons);
   if (typeof parsed === "string") return { ok: false, reason: parsed };
-  const item = parsed;
+  let item = parsed;
   if (/\.\.\.|…/.test(item.evidenceQuote)) return { ok: false, reason: "quote uses an ellipsis" };
 
   const lessonText = item.reinforcesLessonId !== undefined ? (knownLessons.get(item.reinforcesLessonId) ?? "") : (item.lesson ?? "");
-  let texts: string[];
   let failure: FailureSource | undefined;
   if (item.evidenceSource === "user_message") {
-    texts = sources.userMessages.get(item.runId) ?? [];
-  } else {
-    failure = sources.failures.get(item.evidenceRef ?? "");
+    const texts = sources.userMessages.get(item.runId) ?? [];
+    if (!texts.some((text) => quoteMatches(item.evidenceQuote, text))) {
+      return { ok: false, reason: "quote not found", closest: closestMatch(item.evidenceQuote, texts) };
+    }
+  } else if (item.evidenceRef !== undefined) {
+    failure = sources.failures.get(item.evidenceRef);
     if (!failure || failure.runId !== item.runId) return { ok: false, reason: "unknown failure" };
-    texts = [`${failure.tool} ${failure.input}\n${failure.output}`];
-  }
-  if (!texts.some((text) => quoteMatches(item.evidenceQuote, text))) {
-    return { ok: false, reason: "quote not found", closest: closestMatch(item.evidenceQuote, texts) };
+    const text = `${failure.tool} ${failure.input}\n${failure.output}`;
+    if (!quoteMatches(item.evidenceQuote, text)) {
+      return { ok: false, reason: "quote not found", closest: closestMatch(item.evidenceQuote, [text]) };
+    }
+  } else {
+    const candidates = [...sources.failures.entries()].filter(([, f]) => f.runId === item.runId);
+    const matches = candidates.filter(([, f]) => quoteMatches(item.evidenceQuote, `${f.tool} ${f.input}\n${f.output}`));
+    if (matches.length === 0) {
+      const texts = candidates.map(([, f]) => `${f.tool} ${f.input}\n${f.output}`);
+      return { ok: false, reason: "quote not found", closest: closestMatch(item.evidenceQuote, texts) };
+    }
+    if (matches.length > 1) return { ok: false, reason: "ambiguous failure" };
+    const [key, resolvedFailure] = matches[0];
+    failure = resolvedFailure;
+    item = { ...item, evidenceRef: key };
   }
   if (failure) {
     if (!namesCommand(lessonText, failure)) return { ok: false, reason: "lesson not about the failing command" };

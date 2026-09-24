@@ -87,7 +87,7 @@ export const REPORT_LESSONS_TOOL: Anthropic.Tool = {
               enum: ["user_message", "tool_failure"],
               description: "user_message for something the user typed; tool_failure for a <tool_failed> block.",
             },
-            evidenceRef: { type: "string", description: "For tool_failure: the <tool_failed> id, for example f3." },
+            evidenceRef: { type: "string", description: "For tool_failure: the <tool_failed> id, for example f3. Omit if unsure." },
             evidenceQuote: {
               type: "string",
               description:
