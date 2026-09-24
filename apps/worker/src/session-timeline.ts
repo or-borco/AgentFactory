@@ -1,3 +1,5 @@
+import { truncateMiddle } from "./secret-masking";
+
 export interface TimelineTask { ref: string; title: string; description: string }
 export interface TimelineRun { id: number; status: string; triggeringMessageId?: number }
 export interface TimelineMessage { id: number; role: "user" | "assistant"; content: string; runId?: number; kind?: "task_brief" }
@@ -146,5 +148,138 @@ export function buildTimelineDocument(input: TimelineInput): { doc: TimelineDocu
 export function buildSessionTimeline(input: TimelineInput): SessionTimeline {
   const { doc, sources } = buildTimelineDocument(input);
   const hasUserMessage = [...sources.userMessages.values()].flat().some((text) => text.trim().length >= MIN_REVIEWABLE_USER_MESSAGE_CHARS);
-  return { text: renderTimeline(doc), sources, hasUserMessage, hasFailure: sources.failures.size > 0 };
+  return { text: renderTimeline(fitTimeline(doc)), sources, hasUserMessage, hasFailure: sources.failures.size > 0 };
+}
+
+export const TIMELINE_MAX_CHARS = 80_000;
+const TASK_TEXT_CAP = 2_000;
+const USER_MESSAGE_CAP = 4_000;
+const FAILURE_CAP = 2_000;
+const REPLY_CAP = 1_000;
+const CORRECTED_REPLY_CAP = 3_000;
+const USER_BUDGET = 24_000;
+const FAILURE_BUDGET = 16_000;
+const SHORT_USER_MESSAGE_CHARS = 40;
+const ALWAYS_KEPT_USER_MESSAGES = 2;
+const MIN_RUNS_KEPT = 3;
+const FAILURE_KINDS: ReadonlySet<EntryKind> = new Set(["tool_failed", "run_error"]);
+const REST_KINDS: ReadonlySet<EntryKind> = new Set(["agent_reply", "tool_call", "note"]);
+
+interface Position {
+  run: number;
+  index: number;
+}
+
+function positionsOf(doc: TimelineDocument, kinds: ReadonlySet<EntryKind>): Position[] {
+  return doc.runs.flatMap((run, r) => run.entries.flatMap((entry, i) => (kinds.has(entry.kind) ? [{ run: r, index: i }] : [])));
+}
+
+function entryAt(doc: TimelineDocument, p: Position): TimelineEntry {
+  return doc.runs[p.run].entries[p.index];
+}
+
+function omit(doc: TimelineDocument, p: Position): void {
+  const entry = entryAt(doc, p);
+  doc.runs[p.run].entries[p.index] = { kind: "omitted", attrs: { kind: entry.kind, count: "1" }, text: "" };
+}
+
+function capEntries(doc: TimelineDocument): void {
+  if (doc.task) doc.task.text = truncateMiddle(doc.task.text, TASK_TEXT_CAP);
+  doc.runs.forEach((run, r) => {
+    const nextStartsWithUser = doc.runs[r + 1]?.entries[0]?.kind === "user_message";
+    for (const entry of run.entries) {
+      const cap =
+        entry.kind === "task_brief" ? TASK_TEXT_CAP
+        : entry.kind === "user_message" ? USER_MESSAGE_CAP
+        : FAILURE_KINDS.has(entry.kind) ? FAILURE_CAP
+        : entry.kind === "agent_reply" ? (nextStartsWithUser ? CORRECTED_REPLY_CAP : REPLY_CAP)
+        : undefined;
+      if (cap !== undefined) entry.text = truncateMiddle(entry.text, cap);
+    }
+  });
+}
+
+function collapseDuplicateFailures(doc: TimelineDocument): void {
+  const firstByKey = new Map<string, TimelineEntry>();
+  for (const run of doc.runs) {
+    run.entries = run.entries.filter((entry) => {
+      if (entry.kind !== "tool_failed") return true;
+      const key = `${entry.attrs.tool}\u0000${entry.attrs.input}\u0000${entry.text}`;
+      const first = firstByKey.get(key);
+      if (!first) {
+        firstByKey.set(key, entry);
+        return true;
+      }
+      first.attrs.count = String(Number(first.attrs.count ?? "1") + 1);
+      return false;
+    });
+  }
+}
+
+function keepWithinBudget(doc: TimelineDocument, ordered: Position[], budget: number, always: Position[] = []): void {
+  const keep = new Set<Position>(always);
+  let used = always.reduce((sum, p) => sum + renderEntryLength(entryAt(doc, p)), 0);
+  for (const p of ordered) {
+    const size = renderEntryLength(entryAt(doc, p));
+    if (used + size > budget) continue;
+    keep.add(p);
+    used += size;
+  }
+  for (const p of [...always, ...ordered]) if (!keep.has(p)) omit(doc, p);
+}
+
+function budgetUserMessages(doc: TimelineDocument): void {
+  const users = positionsOf(doc, new Set(["user_message"]));
+  const always = users.slice(0, ALWAYS_KEPT_USER_MESSAGES);
+  const rest = users.slice(ALWAYS_KEPT_USER_MESSAGES).reverse();
+  const isShort = (p: Position) => entryAt(doc, p).text.trim().length < SHORT_USER_MESSAGE_CHARS;
+  keepWithinBudget(doc, [...rest.filter((p) => !isShort(p)), ...rest.filter(isShort)], USER_BUDGET, always);
+}
+
+function budgetNewest(doc: TimelineDocument, kinds: ReadonlySet<EntryKind>, budget: number): void {
+  keepWithinBudget(doc, positionsOf(doc, kinds).reverse(), budget);
+}
+
+function restBudget(doc: TimelineDocument): number {
+  const withoutRest: TimelineDocument = {
+    ...doc,
+    runs: doc.runs.map((run) => ({ ...run, entries: run.entries.filter((e) => !REST_KINDS.has(e.kind)) })),
+  };
+  return Math.max(TIMELINE_MAX_CHARS - renderTimeline(withoutRest).length, 0);
+}
+
+function mergeOmitted(doc: TimelineDocument): void {
+  for (const run of doc.runs) {
+    const merged: TimelineEntry[] = [];
+    for (const entry of run.entries) {
+      const last = merged[merged.length - 1];
+      if (entry.kind === "omitted" && last?.kind === "omitted" && last.attrs.kind === entry.attrs.kind) {
+        last.attrs.count = String(Number(last.attrs.count) + Number(entry.attrs.count));
+      } else {
+        merged.push(entry);
+      }
+    }
+    run.entries = merged;
+  }
+}
+
+function applyLimits(source: TimelineDocument): TimelineDocument {
+  const doc = structuredClone(source);
+  capEntries(doc);
+  collapseDuplicateFailures(doc);
+  budgetUserMessages(doc);
+  budgetNewest(doc, FAILURE_KINDS, FAILURE_BUDGET);
+  budgetNewest(doc, REST_KINDS, restBudget(doc));
+  mergeOmitted(doc);
+  return doc;
+}
+
+export function fitTimeline(doc: TimelineDocument): TimelineDocument {
+  let current = doc;
+  let fitted = applyLimits(current);
+  while (renderTimeline(fitted).length > TIMELINE_MAX_CHARS && current.runs.length > MIN_RUNS_KEPT) {
+    current = { ...current, runs: [current.runs[0], ...current.runs.slice(2)], omittedRuns: current.omittedRuns + 1 };
+    fitted = applyLimits(current);
+  }
+  return fitted;
 }
