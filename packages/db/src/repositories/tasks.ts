@@ -167,7 +167,7 @@ export async function startTaskSession(
 
     const [messageRow] = await tx
       .insert(messages)
-      .values({ sessionId: sessionRow.id, role: "user", content: briefText })
+      .values({ sessionId: sessionRow.id, role: "user", content: briefText, kind: "task_brief" })
       .returning();
 
     const [updatedRow] = await tx

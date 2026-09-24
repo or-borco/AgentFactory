@@ -545,6 +545,7 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   runId?: ID;
+  kind?: "task_brief";
   createdAt: ISODateTime;
 }
 

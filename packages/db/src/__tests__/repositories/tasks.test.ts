@@ -7,6 +7,7 @@ import {
   startTaskSession,
   updateTask,
 } from "../../repositories/tasks.js";
+import { listMessages } from "../../repositories/messages.js";
 import { insertAgent, insertOrg, insertSession, insertTask, insertUser } from "../fixtures.js";
 
 describe("getTaskBySessionId", () => {
@@ -120,6 +121,20 @@ describe("startTaskSession", () => {
     expect(messages).toHaveLength(1);
     expect(messages[0].content).toBe("Fix the thing please");
     expect(messages[0].id).toBe(result.userMessageId);
+  });
+
+  it("marks the brief message it inserts as the task brief", async () => {
+    const org = await insertOrg();
+    const user = await insertUser();
+    const agent = await insertAgent(org.id);
+    const task = await insertTask(org.id, user.id, { title: "Fix the thing" });
+
+    const result = await startTaskSession(task.id, org.id, agent.id, task.title, "Fix the thing please", {
+      origin: "web",
+    });
+    if (!result.started) throw new Error("expected a new session");
+    const [brief] = await listMessages(result.session.id);
+    expect(brief.kind).toBe("task_brief");
   });
 
   it("bumps the task's updatedAt", async () => {

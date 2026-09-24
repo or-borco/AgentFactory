@@ -302,6 +302,13 @@
       "when": 1790198430711,
       "tag": "0042_soft_rocket_racer",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1790238171813,
+      "tag": "0043_even_otto_octavius",
+      "breakpoints": true
     }
   ]
 }
