@@ -44,10 +44,12 @@ vi.mock("@agentfactory/queue", () => ({
 
 const setSessionSandboxMock = vi.fn();
 vi.mock("@agentfactory/db", () => ({
+  CURRENT_KEY_VERSION: 1,
   clearSessionSandbox: vi.fn(),
   createEvent: vi.fn(),
   createMessage: vi.fn(),
   createPendingPrReview: vi.fn(),
+  encryptSecret: vi.fn(),
   findSimilarMemoryEntry: vi.fn(),
   getAgent: vi.fn(),
   getCodebaseSettings: vi.fn(async () => undefined),

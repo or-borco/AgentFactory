@@ -76,7 +76,6 @@ import {
   hashPrompt,
   type SandboxEnvironment,
 } from "./prompt-composition";
-import { writeMemoryEntry } from "./memory-write";
 import {
   REVIEW_OUTPUT_SCHEMA,
   checkoutPullRequest,
@@ -115,6 +114,8 @@ import { processMemoryRetrospectiveJob } from "./memory-retrospective";
 import { ingestTaskContextItem, ingestTeamContextItem } from "./context-ingest";
 import { notifyIssueOfPullRequest } from "./task-notify";
 import { notifySessionOfPendingReview, notifySessionOfReply, startTypingIndicator } from "./channel-notify";
+import { createRunEventHandler } from "./run-event-handler";
+import { maskSecrets } from "./secret-masking";
 import { createLogger } from "@agentfactory/logger";
 
 const log = createLogger("worker");
@@ -193,6 +194,7 @@ const runWorker = new Worker<RunJobData>(
     // still needs a valid seq to append an "error" event without colliding with whatever events
     // were already written for this run.
     let seq = 1;
+    const runSecrets: string[] = [];
     try {
       const session = await getSession(run.sessionId);
       const agent = session ? await getAgent(session.agentId) : undefined;
@@ -675,6 +677,7 @@ const runWorker = new Worker<RunJobData>(
         purpose: "run",
         provider: attemptModel.family,
       });
+      runSecrets.push(modelCredential.endpoint.token);
       try {
         for (;;) {
           try {
@@ -694,31 +697,14 @@ const runWorker = new Worker<RunJobData>(
               {
                 sandboxProvider,
                 sandboxId,
-                onEvent: async (event) => {
-                  // Special-cased: the generic `{ ...event }` spread below would otherwise put the
-                  // plaintext lesson straight into events.data, an unencrypted column, defeating
-                  // the whole point of encrypting agent_memory_entries.ciphertext. writeMemoryEntry
-                  // is the only place the content is persisted, and only there, encrypted.
-                  if (event.type === "memory_write") {
-                    // Non-throwing, like every other writeMemoryEntry call site (the retrospective
-                    // job, the tasks route's fire-and-forget enqueue). onEvent is awaited inside the
-                    // turn's read loop, so letting this reject would fail an otherwise-successful
-                    // run over e.g. a transient embedder or Postgres error.
-                    let reinforced = false;
-                    try {
-                      ({ reinforced } = await writeMemoryEntry(agent.orgId, agent.id, event.content, "manual", {
-                        runId,
-                        sessionId: session.id,
-                      }));
-                    } catch (err) {
-                      // Never log event.content itself - only the error and enough context to debug.
-                      log.error("Failed to write memory entry", { runId, agentId: agent.id, err });
-                    }
-                    await createEvent(runId, seq++, "memory_write", { reinforced });
-                    return;
-                  }
-                  await createEvent(runId, seq++, event.type, { ...event });
-                },
+                onEvent: createRunEventHandler({
+                  runId,
+                  orgId: agent.orgId,
+                  agentId: agent.id,
+                  sessionId: session.id,
+                  runSecrets,
+                  nextSeq: () => seq++,
+                }),
               },
             );
             break;
@@ -840,6 +826,7 @@ const runWorker = new Worker<RunJobData>(
           // left to vanish the way it did there, whether or not pushChangesIfDirty could recover
           // the work automatically.
           await createEvent(runId, seq++, "error", {
+            category: "agent",
             message: result.pushed
               ? `Agent committed to branch "${result.branchMismatch.agentBranch}" instead of the assigned "${workspace.branch}" — recovered automatically and pushed from there.`
               : `Agent committed to branch "${result.branchMismatch.agentBranch}" instead of the assigned "${workspace.branch}" — left uncommitted; nothing was pushed this turn.`,
@@ -933,7 +920,7 @@ const runWorker = new Worker<RunJobData>(
       // "couldn't reply" fallback (see ErrorCode in @agentfactory/core) — without this, an
       // exhausted Claude API account and every other failure looked identical to the user.
       const code = err instanceof InsufficientCreditError ? "insufficient_credit" : undefined;
-      await createEvent(runId, seq++, "error", { message, ...(code ? { code } : {}) });
+      await createEvent(runId, seq++, "error", { message: maskSecrets(message, runSecrets), ...(code ? { code } : {}) });
       await updateRunStatus(runId, "failed", { finishedAt: new Date(), model: attemptModel });
       // Surface the failure on the owning task too — otherwise it's stuck at whatever status
       // it had when the run started, and the "failed" StatusPill can never actually show up.

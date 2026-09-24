@@ -29,7 +29,18 @@ export interface MemoryWriteRuntimeEvent {
   content: string;
 }
 
-export type RuntimeEvent = ThinkingDeltaRuntimeEvent | MemoryWriteRuntimeEvent;
+export interface ToolResultRuntimeEvent {
+  type: "tool_result";
+  toolUseId: string;
+  tool: string;
+  inputSummary?: string;
+  command?: string;
+  output?: string;
+  isError: boolean;
+  subagent?: boolean;
+}
+
+export type RuntimeEvent = ThinkingDeltaRuntimeEvent | MemoryWriteRuntimeEvent | ToolResultRuntimeEvent;
 
 export interface ModelEndpoint {
   baseUrl: string;

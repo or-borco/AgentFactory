@@ -58,10 +58,12 @@ vi.mock("@agentfactory/queue", () => ({
 }));
 
 vi.mock("@agentfactory/db", () => ({
+  CURRENT_KEY_VERSION: 1,
   clearSessionSandbox: vi.fn(),
   createEvent: vi.fn(),
   createMessage: vi.fn(),
   createPendingPrReview: vi.fn(),
+  encryptSecret: vi.fn(),
   getCodebaseSettings: vi.fn(async () => undefined),
   findSimilarMemoryEntry: vi.fn(),
   getAgent: vi.fn(),
