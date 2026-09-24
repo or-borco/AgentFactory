@@ -19,6 +19,7 @@
     "test:unit:watch": "vitest --project unit",
     "test:db": "vitest run --project db-integration",
     "test:queue": "vitest run --project queue-integration",
+    "test:judge": "RUN_JUDGE_EVALS=1 vitest run --project judge-live",
     "test:e2e": "bash scripts/test-e2e.sh",
     "test:e2e:headed": "bash scripts/test-e2e.sh --headed",
     "prepare": "husky"
