@@ -122,10 +122,18 @@ export function parseReportLessons(input: unknown): { reasoning?: string; items:
   return { ...(typeof reasoning === "string" ? { reasoning } : {}), items: lessons };
 }
 
+export const MAX_KNOWN_LESSONS_CHARS = 8_000;
+
 export function buildJudgeUserMessage(knownLessons: Array<{ id: number; content: string }>, timeline: string): string {
-  const known = knownLessons.length
-    ? knownLessons.map((l) => `<known_lesson id="${l.id}">${escapeTimelineText(l.content)}</known_lesson>`).join("\n")
-    : "(none)";
+  const lines: string[] = [];
+  let chars = 0;
+  for (const l of knownLessons) {
+    const line = `<known_lesson id="${l.id}">${escapeTimelineText(l.content)}</known_lesson>`;
+    if (chars + line.length > MAX_KNOWN_LESSONS_CHARS) break;
+    lines.push(line);
+    chars += line.length;
+  }
+  const known = lines.length ? lines.join("\n") : "(none)";
   return `<known_lessons>${known}</known_lessons>\n\n<timeline>\n${timeline}\n</timeline>`;
 }
 
@@ -250,7 +258,15 @@ async function store(orgId: number, agentId: number, sessionId: number, prepared
     const verdict = checkLessonEvidence(raw, prepared.timeline.sources, prepared.knownLessons, []);
     if (!verdict.ok) {
       counts.rejected++;
-      log.info("Rejected a judged lesson", { sessionId, reason: verdict.reason, closest: verdict.closest, item: maskDeep(raw) });
+      const rawRecord = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+      log.info("Rejected a judged lesson", {
+        sessionId,
+        runId: rawRecord.runId,
+        evidenceSource: rawRecord.evidenceSource,
+        evidenceRef: rawRecord.evidenceRef,
+        reason: verdict.reason,
+        quoteLength: typeof rawRecord.evidenceQuote === "string" ? rawRecord.evidenceQuote.length : undefined,
+      });
       continue;
     }
     const { item } = verdict;

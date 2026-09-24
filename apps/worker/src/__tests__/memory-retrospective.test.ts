@@ -15,7 +15,13 @@ vi.mock("@agentfactory/db", () => ({
   reinforceMemoryEntryWithWrite: vi.fn(),
 }));
 
-const { processMemoryRetrospectiveJob } = await import("../memory-retrospective");
+const mockLog = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn(), child: vi.fn() };
+mockLog.child.mockReturnValue(mockLog);
+vi.mock("@agentfactory/logger", () => ({
+  createLogger: vi.fn(() => mockLog),
+}));
+
+const { processMemoryRetrospectiveJob, buildJudgeUserMessage, MAX_KNOWN_LESSONS_CHARS } = await import("../memory-retrospective");
 
 const CORRECTION = "That's not how we write release notes here. No commit hashes, please.";
 
@@ -156,5 +162,30 @@ describe("processMemoryRetrospectiveJob", () => {
   it("does not crash on a setup error", async () => {
     const d = deps({ listMessages: vi.fn().mockRejectedValue(new Error("db down")) });
     await expect(processMemoryRetrospectiveJob(1, 2, 3, d as never)).resolves.toBeUndefined();
+  });
+
+  it("logs a rejected item without lesson, quote, why, or closest-match text", async () => {
+    mockLog.info.mockClear();
+    const quote = "made up quote that is not there";
+    const d = deps();
+    await processMemoryRetrospectiveJob(1, 2, 3, d as never);
+    const rejectionCall = mockLog.info.mock.calls.find((call) => call[0] === "Rejected a judged lesson");
+    expect(rejectionCall).toBeDefined();
+    const serialized = JSON.stringify(rejectionCall);
+    expect(serialized).not.toContain(quote);
+    expect(serialized).not.toContain("Something else entirely");
+    expect(serialized).toContain("quote not found");
+  });
+});
+
+describe("buildJudgeUserMessage", () => {
+  it("keeps the highest-weight known lessons and drops the ones past the character budget", () => {
+    const knownLessons = [
+      { id: 1, content: "a".repeat(MAX_KNOWN_LESSONS_CHARS - 100) },
+      { id: 2, content: "This lesson does not fit in the remaining budget." },
+    ];
+    const message = buildJudgeUserMessage(knownLessons, "<timeline/>");
+    expect(message).toContain(`<known_lesson id="1">`);
+    expect(message).not.toContain(`<known_lesson id="2">`);
   });
 });
