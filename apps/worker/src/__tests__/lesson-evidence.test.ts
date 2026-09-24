@@ -91,6 +91,21 @@ describe("checkLessonEvidence: quotes", () => {
     expect(verdict.ok).toBe(false);
   });
 
+  it("accepts a long exact quote up to 500 characters", () => {
+    const longCorrection = `That's not how we write release notes here. ${"Our readers are end users, so keep it plain and free of internals. ".repeat(4)}`.trim();
+    const quote = longCorrection.slice(0, 250);
+    const s = sources({ userMessages: new Map([[2, [longCorrection]]]) });
+    expect(checkLessonEvidence(userItem({ evidenceQuote: quote }), s, known, []).ok).toBe(true);
+  });
+
+  it("rejects a quote longer than 500 characters", () => {
+    const longCorrection = `That's not how we write release notes here. ${"Our readers are end users, so keep it plain and free of internals. ".repeat(10)}`.trim();
+    const quote = longCorrection.slice(0, 501);
+    const s = sources({ userMessages: new Map([[2, [longCorrection]]]) });
+    const verdict = checkLessonEvidence(userItem({ evidenceQuote: quote }), s, known, []);
+    expect(verdict).toMatchObject({ ok: false, reason: "quote not found" });
+  });
+
   it("returns a closest match when the quote is not found", () => {
     const verdict = checkLessonEvidence(userItem({ evidenceQuote: "no commit hashes, no file or method names at all" }), sources(), known, []);
     expect(verdict).toMatchObject({ ok: false, reason: "quote not found" });
@@ -120,6 +135,35 @@ describe("checkLessonEvidence: failure trust", () => {
 
   it("rejects an unknown evidenceRef", () => {
     expect(checkLessonEvidence(failureItem({ evidenceRef: "f9" }), sources(), known, []).ok).toBe(false);
+  });
+
+  it("resolves a missing evidenceRef to the one failure in the run whose text matches the quote", () => {
+    const verdict = checkLessonEvidence(failureItem({ evidenceRef: undefined }), sources(), known, []);
+    expect(verdict).toMatchObject({ ok: true, item: { evidenceRef: "f1" } });
+  });
+
+  it("rejects a missing evidenceRef when no failure in the run matches the quote", () => {
+    const item = failureItem({ evidenceRef: undefined, evidenceQuote: "Completely unrelated failure text" });
+    expect(checkLessonEvidence(item, sources(), known, [])).toMatchObject({ ok: false, reason: "quote not found" });
+  });
+
+  it("rejects a missing evidenceRef when the quote matches more than one failure in the run", () => {
+    const s = sources({
+      failures: new Map([
+        ["f1", { id: "f1", runId: 1, seq: 3, tool: "Bash", command: "git commit -m 'x'", input: "Commit the change", output: "connection timed out while reaching the remote" }],
+        ["f2", { id: "f2", runId: 1, seq: 4, tool: "Bash", command: "git push", input: "Push the change", output: "connection timed out while reaching the remote" }],
+      ]),
+    });
+    const item = failureItem({ evidenceRef: undefined, evidenceQuote: "connection timed out while reaching the remote" });
+    expect(checkLessonEvidence(item, s, known, [])).toMatchObject({ ok: false, reason: "ambiguous failure" });
+  });
+
+  it("does not accept a missing evidenceRef when the only matching failure is in a different run", () => {
+    const s = sources({
+      failures: new Map([["f1", { id: "f1", runId: 2, seq: 3, tool: "Bash", command: "git commit -m 'x'", input: "Commit the change", output: "Author identity unknown\n*** Please tell me who you are. <you@example.com>" }]]),
+    });
+    const item = failureItem({ evidenceRef: undefined });
+    expect(checkLessonEvidence(item, s, known, []).ok).toBe(false);
   });
 
   it("treats a later successful Bash call with the same command word as recovery from a dependency step", () => {

@@ -23,7 +23,7 @@ describe("REPORT_LESSONS_TOOL", () => {
     expect(Object.keys(schema.properties)).toEqual(["reasoning", "lessons"]);
     const item = schema.properties.lessons.items!;
     expect(Object.keys(item.properties)).toEqual(["runId", "evidenceSource", "evidenceRef", "evidenceQuote", "why", "reinforcesLessonId", "lesson"]);
-    expect(item.required).toEqual(["runId", "evidenceSource", "evidenceQuote", "why"]);
+    expect(item.required).toEqual(["runId", "evidenceSource", "evidenceQuote", "why", "lesson"]);
   });
 });
 

@@ -79,7 +79,7 @@ export const REPORT_LESSONS_TOOL: Anthropic.Tool = {
         maxItems: 3,
         items: {
           type: "object",
-          required: ["runId", "evidenceSource", "evidenceQuote", "why"],
+          required: ["runId", "evidenceSource", "evidenceQuote", "why", "lesson"],
           properties: {
             runId: { type: "integer", description: "The id of the <run> the evidence is in." },
             evidenceSource: {
@@ -87,15 +87,19 @@ export const REPORT_LESSONS_TOOL: Anthropic.Tool = {
               enum: ["user_message", "tool_failure"],
               description: "user_message for something the user typed; tool_failure for a <tool_failed> block.",
             },
-            evidenceRef: { type: "string", description: "For tool_failure: the <tool_failed> id, for example f3." },
+            evidenceRef: { type: "string", description: "For tool_failure: the <tool_failed> id, for example f3. Omit if unsure." },
             evidenceQuote: {
               type: "string",
               description:
-                "20 to 200 characters copied exactly as they appear between the tags (the whole message if it is shorter). Do not shorten with ellipses; pick a shorter span instead.",
+                "20 to 500 characters copied exactly as they appear between the tags (the whole message if it is shorter). Do not shorten with ellipses; pick a shorter span instead.",
             },
             why: { type: "string", description: "One or two sentences: what the evidence shows and why it generalizes." },
             reinforcesLessonId: { type: "integer", description: "Set only to reinforce a known lesson instead of writing a new one." },
-            lesson: { type: "string", description: "At most 300 characters, phrased as guidance. Required unless reinforcesLessonId is set." },
+            lesson: {
+              type: "string",
+              description:
+                "At most 300 characters, phrased as guidance. When reinforcesLessonId is set, restate the known lesson: it is ignored, and the stored text stays as-is.",
+            },
           },
         },
       },
@@ -122,10 +126,18 @@ export function parseReportLessons(input: unknown): { reasoning?: string; items:
   return { ...(typeof reasoning === "string" ? { reasoning } : {}), items: lessons };
 }
 
+export const MAX_KNOWN_LESSONS_CHARS = 8_000;
+
 export function buildJudgeUserMessage(knownLessons: Array<{ id: number; content: string }>, timeline: string): string {
-  const known = knownLessons.length
-    ? knownLessons.map((l) => `<known_lesson id="${l.id}">${escapeTimelineText(l.content)}</known_lesson>`).join("\n")
-    : "(none)";
+  const lines: string[] = [];
+  let chars = 0;
+  for (const l of knownLessons) {
+    const line = `<known_lesson id="${l.id}">${escapeTimelineText(l.content)}</known_lesson>`;
+    if (chars + line.length > MAX_KNOWN_LESSONS_CHARS) break;
+    lines.push(line);
+    chars += line.length;
+  }
+  const known = lines.length ? lines.join("\n") : "(none)";
   return `<known_lessons>${known}</known_lessons>\n\n<timeline>\n${timeline}\n</timeline>`;
 }
 
@@ -250,7 +262,15 @@ async function store(orgId: number, agentId: number, sessionId: number, prepared
     const verdict = checkLessonEvidence(raw, prepared.timeline.sources, prepared.knownLessons, []);
     if (!verdict.ok) {
       counts.rejected++;
-      log.info("Rejected a judged lesson", { sessionId, reason: verdict.reason, closest: verdict.closest, item: maskDeep(raw) });
+      const rawRecord = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+      log.info("Rejected a judged lesson", {
+        sessionId,
+        runId: rawRecord.runId,
+        evidenceSource: rawRecord.evidenceSource,
+        evidenceRef: rawRecord.evidenceRef,
+        reason: verdict.reason,
+        quoteLength: typeof rawRecord.evidenceQuote === "string" ? rawRecord.evidenceQuote.length : undefined,
+      });
       continue;
     }
     const { item } = verdict;
