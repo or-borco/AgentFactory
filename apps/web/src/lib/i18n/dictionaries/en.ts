@@ -14,7 +14,7 @@ const en = {
     activity: "Activity",
     agents: "Agents",
     skills: "Skills",
-    settings: "Settings",
+    settings: "Configuration",
     workspaceFooter: "Team workspace",
     logout: "Log out",
   },
