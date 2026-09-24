@@ -573,7 +573,8 @@ export const MAX_MEMORY_CONTENT_CHARS = 2000;
 // `weight` counts reinforcements: a near-duplicate lesson recurring (embedding similarity above
 // MEMORY_SIMILARITY_FLOOR) increments the existing row's weight instead of inserting a new one,
 // so memory grows by reinforcement rather than unboundedly. `lastReinforcedAt` is stamped on
-// every insert and every reinforcement.
+// every insert and every reinforcement; `lastSourceRunId`/`lastSourceSessionId` record the most
+// recent run/session that wrote or reinforced this entry.
 export interface AgentMemoryEntry {
   id: ID;
   agentId: ID;
@@ -582,19 +583,6 @@ export interface AgentMemoryEntry {
   weight: number;
   createdAt: ISODateTime;
   lastReinforcedAt: ISODateTime;
-}
-
-export type MemoryWriteKind = "insert" | "reinforce" | "edit";
-
-export interface AgentMemoryWrite {
-  id: ID;
-  agentId: ID;
-  orgId: ID;
-  entryId?: ID;
-  kind: MemoryWriteKind;
-  source?: MemorySource;
-  sessionId?: ID;
-  runId?: ID;
-  userId?: ID;
-  createdAt: ISODateTime;
+  lastSourceRunId?: ID;
+  lastSourceSessionId?: ID;
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { Badge, Button, Card, Textarea } from "@agentfactory/shared";
 import { apiFetch } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n/context";
@@ -20,21 +19,6 @@ interface MemoryEntry {
   createdAt: string;
   lastReinforcedAt: string;
 }
-
-interface MemoryWrite {
-  id: number;
-  kind: "insert" | "reinforce" | "edit";
-  source?: "manual" | "retrospective";
-  createdAt: string;
-  lesson?: string;
-  reason?: string;
-  session?: { id: number };
-  task?: { id: number; ref: string; title: string };
-  editedBy?: { id: number; name: string };
-  decryptError?: true;
-}
-
-const HISTORY_LIMIT = 20;
 
 export function AgentMemorySection({ agentId }: { agentId: number }) {
   const { t } = useTranslation();
@@ -122,7 +106,6 @@ export function AgentMemorySection({ agentId }: { agentId: number }) {
           {entries.map((entry) => (
             <MemoryEntryCard
               key={entry.id}
-              agentId={agentId}
               entry={entry}
               isEditing={editingId === entry.id}
               isConfirmingDelete={confirmDeleteId === entry.id}
@@ -144,7 +127,6 @@ export function AgentMemorySection({ agentId }: { agentId: number }) {
 }
 
 interface MemoryEntryCardProps {
-  agentId: number;
   entry: MemoryEntry;
   isEditing: boolean;
   isConfirmingDelete: boolean;
@@ -160,7 +142,6 @@ interface MemoryEntryCardProps {
 }
 
 function MemoryEntryCard({
-  agentId,
   entry,
   isEditing,
   isConfirmingDelete,
@@ -189,7 +170,6 @@ function MemoryEntryCard({
       ) : (
         <MemoryEntryDisplay content={entry.content} onEdit={onStartEdit} onDelete={onStartDelete} />
       )}
-      {!isEditing && !isConfirmingDelete && <MemoryEntryHistory agentId={agentId} entry={entry} />}
     </Card>
   );
 }
@@ -269,125 +249,5 @@ function MemoryEntryDisplay({ content, onEdit, onDelete }: MemoryEntryDisplayPro
         </Button>
       </div>
     </div>
-  );
-}
-
-function MemoryEntryHistory({ agentId, entry }: { agentId: number; entry: MemoryEntry }) {
-  const { t } = useTranslation();
-  const [expanded, setExpanded] = useState(false);
-  const [writes, setWrites] = useState<MemoryWrite[] | null>(null);
-  const [loadedForContent, setLoadedForContent] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!expanded || loadedForContent === entry.content) return;
-    let cancelled = false;
-    apiFetch<MemoryWrite[]>(`/api/agents/${agentId}/memory/${entry.id}/writes`)
-      .then((rows) => {
-        if (cancelled) return;
-        setWrites(rows);
-        setLoadedForContent(entry.content);
-        setFailed(false);
-      })
-      .catch(() => {
-        if (!cancelled) setFailed(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [expanded, loadedForContent, agentId, entry.id, entry.content]);
-
-  const toggleLabel = entry.source === "retrospective" ? t("agentMemory.history.toggleWhy") : t("agentMemory.history.toggleHistory");
-  const newestEditIndex = writes?.findIndex((w) => w.kind === "edit") ?? -1;
-
-  return (
-    <div className="mt-3">
-      <button
-        type="button"
-        className="text-xs text-[var(--color-neutral-500)] underline"
-        onClick={() => setExpanded((prev) => !prev)}
-      >
-        {expanded ? t("agentMemory.history.hide") : toggleLabel}
-      </button>
-      {expanded && (
-        <div className="mt-2">
-          {failed ? (
-            <p className="text-xs text-red-400">{t("agentMemory.history.loadError")}</p>
-          ) : writes === null ? (
-            <p className="text-xs text-[var(--color-neutral-500)]">{t("common.loading")}</p>
-          ) : writes.length === 0 ? (
-            <p className="text-xs text-[var(--color-neutral-500)]">{t("agentMemory.history.empty")}</p>
-          ) : (
-            <>
-              <ul className="space-y-2">
-                {writes.map((write, index) => (
-                  <MemoryWriteRow
-                    key={write.id}
-                    write={write}
-                    currentContent={entry.content}
-                    beforeEdit={newestEditIndex !== -1 && index > newestEditIndex}
-                  />
-                ))}
-              </ul>
-              {writes.length >= HISTORY_LIMIT && (
-                <p className="mt-2 text-xs text-[var(--color-neutral-500)]">
-                  {t("agentMemory.history.limitNote", { count: HISTORY_LIMIT })}
-                </p>
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MemoryWriteRow({ write, currentContent, beforeEdit }: { write: MemoryWrite; currentContent: string; beforeEdit: boolean }) {
-  const { t } = useTranslation();
-  const date = new Date(write.createdAt).toLocaleDateString();
-
-  if (write.decryptError) {
-    return (
-      <li className="text-xs text-[var(--color-neutral-500)]">
-        <p>{t("agentMemory.history.decryptError")}</p>
-        <p className="mt-1">{date}</p>
-      </li>
-    );
-  }
-
-  if (write.kind === "edit") {
-    return (
-      <li className="text-xs text-[var(--color-text)]">
-        {t("agentMemory.history.editedBy", { name: write.editedBy?.name ?? t("agentMemory.history.formerMember") })} · {date}
-        {beforeEdit && ` ${t("agentMemory.history.beforeEdit")}`}
-      </li>
-    );
-  }
-
-  const headline =
-    write.reason ??
-    (write.source === "manual" ? t("agentMemory.history.toldToRemember") : t("agentMemory.history.noReason"));
-
-  return (
-    <li className="text-xs">
-      <p className="text-[var(--color-text)]">{headline}</p>
-      {write.lesson && write.lesson !== currentContent && (
-        <p className="mt-1 italic text-[var(--color-neutral-500)]">{write.lesson}</p>
-      )}
-      <p className="mt-1 text-[var(--color-neutral-500)]">
-        {write.task ? (
-          <Link className="underline" href={`/tasks/${write.task.id}`}>
-            {t("agentMemory.history.fromTask", { ref: write.task.ref, title: write.task.title })}
-          </Link>
-        ) : write.session ? (
-          <Link className="underline" href={`/sessions/${write.session.id}`}>
-            {t("agentMemory.history.fromSession", { id: write.session.id })}
-          </Link>
-        ) : null}
-        {(write.task || write.session) && " · "}
-        {date}
-        {beforeEdit && ` ${t("agentMemory.history.beforeEdit")}`}
-      </p>
-    </li>
   );
 }

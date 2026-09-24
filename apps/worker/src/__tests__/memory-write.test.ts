@@ -5,8 +5,8 @@ import type { Embedder } from "../embedder";
 // database. Every export the handler binds as a default dep has to exist on the mock.
 vi.mock("@agentfactory/db", () => ({
   findSimilarMemoryEntry: vi.fn(),
-  insertMemoryEntryWithWrite: vi.fn(),
-  reinforceMemoryEntryWithWrite: vi.fn(),
+  insertMemoryEntry: vi.fn(),
+  reinforceMemoryEntry: vi.fn(),
 }));
 
 import { MAX_MEMORY_CONTENT_CHARS, MEMORY_SIMILARITY_FLOOR, writeMemoryEntry } from "../memory-write";
@@ -20,64 +20,70 @@ function fakeEmbedder(vector: number[] = [1, 0, 0]): Embedder {
   };
 }
 
-function deps(match?: { id: number; weight: number }) {
-  return {
-    findSimilarMemoryEntry: vi.fn().mockResolvedValue(match),
-    insertMemoryEntryWithWrite: vi.fn().mockResolvedValue(42),
-    reinforceMemoryEntryWithWrite: vi.fn().mockResolvedValue({ reinforced: true, duplicate: false }),
-    embedder: fakeEmbedder(),
-  };
-}
-
 describe("writeMemoryEntry", () => {
-  it("inserts a new entry with its write when no similar entry exists", async () => {
-    const d = deps();
+  it("inserts a new entry when no similar entry exists", async () => {
+    const findSimilarMemoryEntry = vi.fn().mockResolvedValue(undefined);
+    const insertMemoryEntry = vi.fn().mockResolvedValue(42);
+    const reinforceMemoryEntry = vi.fn();
+    const embedder = fakeEmbedder([1, 0, 0]);
 
-    const result = await writeMemoryEntry(1, 2, "Use pnpm.", "manual", { runId: 9, sessionId: 5 }, {}, d);
+    const result = await writeMemoryEntry(1, 2, "Don't push to main directly.", "manual", { runId: 9, sessionId: 5 }, {
+      findSimilarMemoryEntry,
+      insertMemoryEntry,
+      reinforceMemoryEntry,
+      embedder,
+    });
 
     expect(result).toEqual({ reinforced: false });
-    expect(d.findSimilarMemoryEntry).toHaveBeenCalledWith(1, 2, [1, 0, 0], MEMORY_SIMILARITY_FLOOR);
-    expect(d.insertMemoryEntryWithWrite).toHaveBeenCalledExactlyOnceWith(
-      { orgId: 1, agentId: 2, source: "manual", content: "Use pnpm.", embedding: [1, 0, 0], embeddingModel: "fake-model" },
-      { source: "manual", lesson: "Use pnpm.", reason: undefined, runId: 9, sessionId: 5 },
-    );
-    expect(d.reinforceMemoryEntryWithWrite).not.toHaveBeenCalled();
-  });
-
-  it("reinforces the matched entry, scoped to org and agent, with the proposed text and reason", async () => {
-    const d = deps({ id: 7, weight: 1 });
-
-    const result = await writeMemoryEntry(1, 2, "Always use pnpm.", "retrospective", { sessionId: 5 }, { reason: "npm was used twice." }, d);
-
-    expect(result).toEqual({ reinforced: true });
-    expect(d.reinforceMemoryEntryWithWrite).toHaveBeenCalledExactlyOnceWith(1, 2, 7, {
-      source: "retrospective",
-      lesson: "Always use pnpm.",
-      reason: "npm was used twice.",
-      runId: undefined,
-      sessionId: 5,
+    expect(embedder.embedDocuments).toHaveBeenCalledWith(["Don't push to main directly."]);
+    expect(findSimilarMemoryEntry).toHaveBeenCalledWith(1, 2, [1, 0, 0], MEMORY_SIMILARITY_FLOOR);
+    expect(insertMemoryEntry).toHaveBeenCalledWith({
+      orgId: 1,
+      agentId: 2,
+      source: "manual",
+      content: "Don't push to main directly.",
+      embedding: [1, 0, 0],
+      embeddingModel: "fake-model",
+      lastSourceRunId: 9,
+      lastSourceSessionId: 5,
     });
-    expect(d.insertMemoryEntryWithWrite).not.toHaveBeenCalled();
+    expect(reinforceMemoryEntry).not.toHaveBeenCalled();
   });
 
-  it("reports reinforced for a same-session duplicate", async () => {
-    const d = deps({ id: 7, weight: 2 });
-    d.reinforceMemoryEntryWithWrite.mockResolvedValue({ reinforced: false, duplicate: true });
+  it("reinforces an existing entry when a similar one is found", async () => {
+    const findSimilarMemoryEntry = vi.fn().mockResolvedValue({ id: 7, weight: 2 });
+    const insertMemoryEntry = vi.fn();
+    const reinforceMemoryEntry = vi.fn().mockResolvedValue(undefined);
+    const embedder = fakeEmbedder();
 
-    const result = await writeMemoryEntry(1, 2, "Use pnpm.", "manual", { sessionId: 5 }, {}, d);
+    const result = await writeMemoryEntry(1, 2, "Same lesson, reworded.", "retrospective", { sessionId: 5 }, {
+      findSimilarMemoryEntry,
+      insertMemoryEntry,
+      reinforceMemoryEntry,
+      embedder,
+    });
 
     expect(result).toEqual({ reinforced: true });
+    expect(reinforceMemoryEntry).toHaveBeenCalledWith(7, { runId: undefined, sessionId: 5 });
+    expect(insertMemoryEntry).not.toHaveBeenCalled();
   });
 
   it("truncates content over MAX_MEMORY_CONTENT_CHARS before embedding and storing", async () => {
-    const d = deps();
+    const longContent = "x".repeat(MAX_MEMORY_CONTENT_CHARS + 500);
+    const findSimilarMemoryEntry = vi.fn().mockResolvedValue(undefined);
+    const insertMemoryEntry = vi.fn().mockResolvedValue(1);
+    const embedder = fakeEmbedder();
 
-    await writeMemoryEntry(1, 2, "x".repeat(MAX_MEMORY_CONTENT_CHARS + 500), "manual", {}, {}, d);
+    await writeMemoryEntry(1, 2, longContent, "manual", {}, {
+      findSimilarMemoryEntry,
+      insertMemoryEntry,
+      reinforceMemoryEntry: vi.fn(),
+      embedder,
+    });
 
-    const [[embeddedText]] = (d.embedder.embedDocuments as ReturnType<typeof vi.fn>).mock.calls;
+    const [[embeddedText]] = (embedder.embedDocuments as ReturnType<typeof vi.fn>).mock.calls;
     expect(embeddedText[0].length).toBeLessThanOrEqual(MAX_MEMORY_CONTENT_CHARS);
-    const [entry, write] = d.insertMemoryEntryWithWrite.mock.calls[0];
-    expect(entry.content.length).toBeLessThanOrEqual(MAX_MEMORY_CONTENT_CHARS);
-    expect(write.lesson).toBe(entry.content);
+    const insertedContent = insertMemoryEntry.mock.calls[0][0].content;
+    expect(insertedContent.length).toBeLessThanOrEqual(MAX_MEMORY_CONTENT_CHARS);
   });
 });

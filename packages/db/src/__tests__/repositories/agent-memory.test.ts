@@ -5,18 +5,21 @@ import { agentMemoryEntries, agents } from "../../schema.js";
 import {
   deleteMemoryEntry,
   findSimilarMemoryEntry,
-  insertMemoryEntryWithWrite,
+  insertMemoryEntry,
   readAgentMemoryEntries,
-  reinforceMemoryEntryWithWrite,
+  reinforceMemoryEntry,
   updateMemoryEntryContent,
 } from "../../repositories/agent-memory.js";
-import { insertAgent, insertOrg, insertSession, insertUser } from "../fixtures.js";
+import { insertAgent, insertOrg, insertSession } from "../fixtures.js";
 import { createRun } from "../../repositories/runs.js";
 import { eq } from "drizzle-orm";
 
 const DIMENSIONS = 384;
 const EMBEDDING_MODEL = "Xenova/bge-small-en-v1.5";
 
+// Unit vectors in the plane spanned by the first two axes, same construction as
+// context-chunks-search.test.ts's planeVector. Cosine distance is exactly the angle between two
+// such vectors, so "how similar" is a property the test controls precisely without a real model.
 function planeVector(angleRad: number): number[] {
   const v = new Array<number>(DIMENSIONS).fill(0);
   v[0] = Math.cos(angleRad);
@@ -30,18 +33,18 @@ async function setup() {
   return { org, agent };
 }
 
-function insertEntry(orgId: number, agentId: number, content: string, source: "manual" | "retrospective" = "manual") {
-  return insertMemoryEntryWithWrite(
-    { orgId, agentId, source, content, embedding: planeVector(0), embeddingModel: EMBEDDING_MODEL },
-    { source, lesson: content },
-  );
-}
-
 describe("agent-memory repository", () => {
   it("round-trips a memory entry's content through insert and decrypt", async () => {
     const { org, agent } = await setup();
 
-    const id = await insertEntry(org.id, agent.id, "Never run migrations directly against production.");
+    const id = await insertMemoryEntry({
+      orgId: org.id,
+      agentId: agent.id,
+      source: "manual",
+      content: "Never run migrations directly against production.",
+      embedding: planeVector(0),
+      embeddingModel: EMBEDDING_MODEL,
+    });
 
     const entries = await readAgentMemoryEntries(org.id, agent.id);
     expect(entries).toHaveLength(1);
@@ -57,7 +60,14 @@ describe("agent-memory repository", () => {
 
   it("finds a similar entry above the floor and returns undefined below it", async () => {
     const { org, agent } = await setup();
-    await insertEntry(org.id, agent.id, "Always open a draft PR, never push to main.");
+    await insertMemoryEntry({
+      orgId: org.id,
+      agentId: agent.id,
+      source: "manual",
+      content: "Always open a draft PR, never push to main.",
+      embedding: planeVector(0),
+      embeddingModel: EMBEDDING_MODEL,
+    });
 
     // A near-identical angle clears a 0.85 floor; cos(0.1 rad) ≈ 0.995.
     const closeMatch = await findSimilarMemoryEntry(org.id, agent.id, planeVector(0.1), 0.85);
@@ -73,7 +83,14 @@ describe("agent-memory repository", () => {
     const { org, agent } = await setup();
     const otherOrg = await insertOrg();
     const otherAgent = await insertAgent(org.id);
-    await insertEntry(org.id, agent.id, "Lesson for agent A only.");
+    await insertMemoryEntry({
+      orgId: org.id,
+      agentId: agent.id,
+      source: "manual",
+      content: "Lesson for agent A only.",
+      embedding: planeVector(0),
+      embeddingModel: EMBEDDING_MODEL,
+    });
 
     await expect(findSimilarMemoryEntry(org.id, otherAgent.id, planeVector(0), 0.85)).resolves.toBeUndefined();
     await expect(findSimilarMemoryEntry(otherOrg.id, agent.id, planeVector(0), 0.85)).resolves.toBeUndefined();
@@ -82,29 +99,40 @@ describe("agent-memory repository", () => {
   it("reinforces an existing entry instead of inserting a second row", async () => {
     const { org, agent } = await setup();
     const session = await insertSession(org.id, agent.id);
+    // FK-backed column (agent_memory_entries.last_source_run_id -> runs.id, added in Task 2), so
+    // provenance needs a real run row rather than an arbitrary literal.
     const run = await createRun(session.id);
-    const id = await insertEntry(org.id, agent.id, "Don't touch migration files directly.");
-
-    await reinforceMemoryEntryWithWrite(org.id, agent.id, id, {
+    const id = await insertMemoryEntry({
+      orgId: org.id,
+      agentId: agent.id,
       source: "manual",
-      lesson: "Don't touch migration files directly.",
-      runId: run.id,
-      sessionId: session.id,
+      content: "Don't touch migration files directly.",
+      embedding: planeVector(0),
+      embeddingModel: EMBEDDING_MODEL,
     });
+
+    await reinforceMemoryEntry(id, { runId: run.id, sessionId: session?.id });
 
     const rows = await db.select().from(agentMemoryEntries).where(eq(agentMemoryEntries.agentId, agent.id));
     expect(rows).toHaveLength(1);
     expect(rows[0].weight).toBe(2);
+    expect(rows[0].lastSourceRunId).toBe(run.id);
     expect(new Date(rows[0].lastReinforcedAt).getTime()).toBeGreaterThan(new Date(rows[0].createdAt).getTime() - 1);
   });
 
   it("re-encrypts content on update without changing the stored embedding", async () => {
     const { org, agent } = await setup();
-    const user = await insertUser();
-    const id = await insertEntry(org.id, agent.id, "Original lesson text.");
+    const id = await insertMemoryEntry({
+      orgId: org.id,
+      agentId: agent.id,
+      source: "manual",
+      content: "Original lesson text.",
+      embedding: planeVector(0),
+      embeddingModel: EMBEDDING_MODEL,
+    });
     const [before] = await db.select().from(agentMemoryEntries).where(eq(agentMemoryEntries.id, id));
 
-    await updateMemoryEntryContent(org.id, id, "Edited lesson text.", user.id);
+    await updateMemoryEntryContent(org.id, id, "Edited lesson text.");
 
     const entries = await readAgentMemoryEntries(org.id, agent.id);
     expect(entries[0].content).toBe("Edited lesson text.");
@@ -115,10 +143,16 @@ describe("agent-memory repository", () => {
   it("does not update content for a wrong-org id (no-op)", async () => {
     const { org, agent } = await setup();
     const otherOrg = await insertOrg();
-    const user = await insertUser();
-    const id = await insertEntry(org.id, agent.id, "Original.");
+    const id = await insertMemoryEntry({
+      orgId: org.id,
+      agentId: agent.id,
+      source: "manual",
+      content: "Original.",
+      embedding: planeVector(0),
+      embeddingModel: EMBEDDING_MODEL,
+    });
 
-    await updateMemoryEntryContent(otherOrg.id, id, "Hijacked.", user.id);
+    await updateMemoryEntryContent(otherOrg.id, id, "Hijacked.");
 
     const entries = await readAgentMemoryEntries(org.id, agent.id);
     expect(entries[0].content).toBe("Original.");
@@ -126,7 +160,14 @@ describe("agent-memory repository", () => {
 
   it("throws (does not swallow) when a stored ciphertext is tampered with", async () => {
     const { org, agent } = await setup();
-    const id = await insertEntry(org.id, agent.id, "Tamper me.");
+    const id = await insertMemoryEntry({
+      orgId: org.id,
+      agentId: agent.id,
+      source: "manual",
+      content: "Tamper me.",
+      embedding: planeVector(0),
+      embeddingModel: EMBEDDING_MODEL,
+    });
     const [row] = await db.select().from(agentMemoryEntries).where(eq(agentMemoryEntries.id, id));
     const buf = Buffer.from(row.ciphertext, "base64");
     buf[Math.floor(buf.length / 2)] ^= 0xff;
@@ -138,7 +179,14 @@ describe("agent-memory repository", () => {
   it("deletes an entry, org-scoped (wrong-org id is a no-op)", async () => {
     const { org, agent } = await setup();
     const otherOrg = await insertOrg();
-    const id = await insertEntry(org.id, agent.id, "Delete me.");
+    const id = await insertMemoryEntry({
+      orgId: org.id,
+      agentId: agent.id,
+      source: "manual",
+      content: "Delete me.",
+      embedding: planeVector(0),
+      embeddingModel: EMBEDDING_MODEL,
+    });
 
     await deleteMemoryEntry(otherOrg.id, id);
     expect(await readAgentMemoryEntries(org.id, agent.id)).toHaveLength(1);
@@ -149,7 +197,14 @@ describe("agent-memory repository", () => {
 
   it("is deleted when its agent is deleted (cascade)", async () => {
     const { org, agent } = await setup();
-    await insertEntry(org.id, agent.id, "Cascade me.");
+    await insertMemoryEntry({
+      orgId: org.id,
+      agentId: agent.id,
+      source: "manual",
+      content: "Cascade me.",
+      embedding: planeVector(0),
+      embeddingModel: EMBEDDING_MODEL,
+    });
 
     await db.delete(agents).where(eq(agents.id, agent.id));
 

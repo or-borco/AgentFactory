@@ -25,8 +25,6 @@ const RETROSPECTIVE_SYSTEM_PROMPT = [
   "feature), a lesson must generalize, or it isn't worth remembering. If nothing in the session",
   "rises to that bar, return zero lessons; that is a normal, expected outcome, not a failure.",
   "",
-  "For each lesson, give a why: which events in the session it comes from, and why it generalizes beyond this task.",
-  "",
   "Report exclusively through the report_lessons tool.",
 ].join("\n");
 
@@ -44,19 +42,7 @@ const REPORT_LESSONS_TOOL: Anthropic.Tool = {
       lessons: {
         type: "array",
         description: "0 to 3 concise, general lessons. An empty array is a valid, expected result.",
-        maxItems: 3,
-        items: {
-          type: "object",
-          required: ["lesson", "why"],
-          properties: {
-            lesson: { type: "string", description: "The lesson, phrased as guidance for future tasks." },
-            why: {
-              type: "string",
-              description:
-                "One or two sentences: which events in the session this lesson comes from, and why it generalizes beyond this task.",
-            },
-          },
-        },
+        items: { type: "string" },
       },
     },
   },
@@ -85,28 +71,9 @@ function summarizeEvents(events: SessionEventRow[]): string {
     : joined;
 }
 
-export interface JudgedLesson {
-  lesson: string;
-  why?: string;
-}
-
 interface JudgeVerdict {
-  lessons: JudgedLesson[];
+  lessons: string[];
   reasoning?: string;
-}
-
-export function parseReportLessons(input: unknown): JudgeVerdict {
-  const { lessons, reasoning } = (input ?? {}) as { lessons?: unknown; reasoning?: unknown };
-  if (!Array.isArray(lessons)) throw new Error("judge output has no lessons array");
-  return {
-    lessons: lessons.flatMap((item): JudgedLesson[] => {
-      if (typeof item !== "object" || item === null) return [];
-      const { lesson, why } = item as { lesson?: unknown; why?: unknown };
-      if (typeof lesson !== "string" || lesson.trim() === "") return [];
-      return [typeof why === "string" && why.trim() !== "" ? { lesson, why } : { lesson }];
-    }),
-    reasoning: typeof reasoning === "string" ? reasoning : undefined,
-  };
 }
 
 export interface RetrospectiveDeps {
@@ -131,7 +98,12 @@ async function judgeRetrospective(transcriptSummary: string, evalSummary: string
   });
   const toolUse = response.content.find((block) => block.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") throw new Error("judge returned no report_lessons tool call");
-  return parseReportLessons(toolUse.input);
+  const { lessons, reasoning } = toolUse.input as { lessons?: unknown; reasoning?: unknown };
+  if (!Array.isArray(lessons)) throw new Error("judge output has no lessons array");
+  return {
+    lessons: lessons.filter((l): l is string => typeof l === "string" && l.trim() !== ""),
+    reasoning: typeof reasoning === "string" ? reasoning : undefined,
+  };
 }
 
 const defaultDeps: RetrospectiveDeps = {
@@ -189,9 +161,9 @@ export async function processMemoryRetrospectiveJob(
       return;
     }
 
-    for (const { lesson, why } of lessons) {
+    for (const lesson of lessons) {
       try {
-        await d.writeMemoryEntry(orgId, agentId, lesson, "retrospective", { runId: lastRun.id, sessionId }, { reason: why });
+        await d.writeMemoryEntry(orgId, agentId, lesson, "retrospective", { runId: lastRun.id, sessionId });
       } catch (err) {
         log.error("Failed to write one retrospective lesson; continuing with the rest", { sessionId, err });
       }
