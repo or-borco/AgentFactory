@@ -134,7 +134,6 @@ export async function judgeRetrospective(userMessage: string): Promise<JudgeResu
     {
       model: DEFAULT_MODEL_ID,
       max_tokens: RETROSPECTIVE_MAX_TOKENS,
-      temperature: 0,
       system: RETROSPECTIVE_SYSTEM_PROMPT,
       tools: [REPORT_LESSONS_TOOL],
       tool_choice: { type: "tool", name: "report_lessons" },
