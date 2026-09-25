@@ -1,8 +1,11 @@
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import "../setup.js";
 import { db } from "../../client.js";
-import { events } from "../../schema.js";
+import { events, messages } from "../../schema.js";
 import { createEvent, listEventsForSession } from "../../repositories/events.js";
 import { createMessage, getFinalAssistantMessageForRun, getMessage, listMessages } from "../../repositories/messages.js";
 import {
@@ -15,13 +18,36 @@ import {
   updateRunCommitRange,
   updateRunStatus,
 } from "../../repositories/runs.js";
-import { insertAgent, insertOrg, insertSession } from "../fixtures.js";
+import { createTask, startTaskSession } from "../../repositories/tasks.js";
+import { insertAgent, insertOrg, insertSession, insertUser } from "../fixtures.js";
 import type { Session } from "@agentfactory/core";
 
 async function setupSession(): Promise<Session> {
   const org = await insertOrg();
   const agent = await insertAgent(org.id);
   return insertSession(org.id, agent.id);
+}
+
+const migrationsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../drizzle");
+
+function migrationPathContaining(text: string): string {
+  const file = readdirSync(migrationsDir)
+    .filter((name) => name.endsWith(".sql"))
+    .find((name) => readFileSync(path.join(migrationsDir, name), "utf8").includes(text));
+  if (!file) throw new Error(`No migration file contains: ${text}`);
+  return path.join(migrationsDir, file);
+}
+
+async function makeSessionWithTask(): Promise<{ sessionId: number }> {
+  const org = await insertOrg();
+  const user = await insertUser();
+  const agent = await insertAgent(org.id);
+  const task = await createTask(org.id, user.id, { title: "Test task", description: "", acceptanceCriteria: [] });
+
+  const result = await startTaskSession(task.id, org.id, agent.id, task.title, "brief", { origin: "web" });
+  if (!result.started) throw new Error("expected a new session");
+  await db.delete(messages).where(eq(messages.sessionId, result.session.id));
+  return { sessionId: result.session.id };
 }
 
 describe("messages repository", () => {
@@ -71,6 +97,28 @@ describe("messages repository", () => {
     const session = await setupSession();
     const run = await createRun(session.id);
     await expect(getFinalAssistantMessageForRun(run.id)).resolves.toBeUndefined();
+  });
+
+  it("leaves kind undefined on ordinary messages", async () => {
+    const session = await setupSession();
+    const message = await createMessage(session.id, "user", "hello");
+    expect(message.kind).toBeUndefined();
+  });
+
+  it("backfills task_brief on the first user message of sessions that have a task", async () => {
+    const migrationSql = readFileSync(migrationPathContaining(`SET "kind" = 'task_brief'`), "utf8");
+    const backfill = migrationSql.split("--> statement-breakpoint").find((s) => s.includes(`SET "kind" = 'task_brief'`))!;
+    const session = await setupSession();
+    const withTask = await makeSessionWithTask();
+    const first = await createMessage(withTask.sessionId, "user", "brief");
+    const second = await createMessage(withTask.sessionId, "user", "follow-up");
+    const plain = await createMessage(session.id, "user", "no task here");
+    await db.execute(sql`UPDATE "messages" SET "kind" = NULL`);
+    await db.execute(sql.raw(backfill));
+    const kinds = Object.fromEntries((await db.select().from(messages)).map((m) => [m.id, m.kind]));
+    expect(kinds[first.id]).toBe("task_brief");
+    expect(kinds[second.id]).toBeNull();
+    expect(kinds[plain.id]).toBeNull();
   });
 });
 

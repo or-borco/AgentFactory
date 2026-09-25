@@ -10,6 +10,7 @@ function toChatMessage(row: typeof messages.$inferSelect): ChatMessage {
     role: row.role,
     content: row.content,
     runId: row.runId ?? undefined,
+    ...(row.kind === "task_brief" ? { kind: "task_brief" as const } : {}),
     createdAt: row.createdAt.toISOString(),
   };
 }

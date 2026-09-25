@@ -311,6 +311,7 @@ export const messages = pgTable(
     // runs.triggeringMessageId below. Nullable: user messages never have one. `references` uses
     // a lazy callback so this forward reference to `runs` (declared further down) resolves fine.
     runId: integer("run_id").references((): AnyPgColumn => runs.id, { onDelete: "set null" }),
+    kind: text("kind"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

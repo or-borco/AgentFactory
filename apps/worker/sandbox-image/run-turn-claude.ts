@@ -1,6 +1,7 @@
 import { createSdkMcpServer, query, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { z } from "zod";
+import { extractToolResults, summarizeToolUse, type ToolUseInfo } from "./tool-results.js";
 
 // Prefixes the one line of stdout the worker actually parses (see docker-sandbox-provider.ts /
 // agent-runtime.ts), so it's found deterministically even if the SDK or a tool call logs other
@@ -100,6 +101,8 @@ async function main(): Promise<void> {
   // No `tools` restriction (unlike the old host-side stub) + bypassPermissions: this slice runs
   // the agent's full default toolset inside the container with no approval-gate blocking, per
   // CLAUDE.md's "no approval gates" rule. cwd scopes file tools to the scratch workspace.
+  const toolUses = new Map<string, ToolUseInfo>();
+
   try {
     for await (const message of query({
       prompt: userText,
@@ -174,7 +177,14 @@ async function main(): Promise<void> {
         // distinguished only by parent_tool_use_id. Their reasoning/tool calls stay silent here —
         // only the parent's own launch (`[Agent] <description>`, from the tool_use branch below)
         // and a single completion summary (in the `user` branch below) are surfaced.
-        if (message.parent_tool_use_id !== null) continue;
+        if (message.parent_tool_use_id !== null) {
+          for (const block of message.message.content) {
+            if (block.type !== "tool_use") continue;
+            const { inputSummary, command } = summarizeToolUse(block.name, block.input as Record<string, unknown>);
+            toolUses.set(block.id, { name: block.name, inputSummary, command });
+          }
+          continue;
+        }
         for (const block of message.message.content) {
           if (block.type === "thinking" && block.thinking) {
             // The agent's own reasoning summary, available because the query above asks for
@@ -188,11 +198,11 @@ async function main(): Promise<void> {
             // target file) so the UI can render a friendly narrative ("Installing dependencies",
             // "Writing strings.ts") instead of raw shell. `text` is kept as a human-readable
             // fallback for older clients.
-            const input = block.input as Record<string, unknown>;
-            const description = typeof input.description === "string" ? input.description : undefined;
-            const command = typeof input.command === "string" ? input.command : undefined;
-            const filePath = typeof input.file_path === "string" ? input.file_path : undefined;
-            const fallback = description ?? command ?? (filePath ? `${block.name}: ${filePath}` : block.name);
+            const { description, command, filePath, inputSummary } = summarizeToolUse(
+              block.name,
+              block.input as Record<string, unknown>,
+            );
+            toolUses.set(block.id, { name: block.name, inputSummary, command });
             if (block.name === "Agent") pendingAgentCalls.set(block.id, description);
             process.stdout.write(
               `${EVENT_MARKER}${JSON.stringify({
@@ -201,12 +211,18 @@ async function main(): Promise<void> {
                 description,
                 command,
                 filePath,
-                text: `[${block.name}] ${fallback}\n`,
+                text: `[${block.name}] ${inputSummary}\n`,
               })}\n`,
             );
           }
         }
-      } else if (message.type === "user" && message.parent_tool_use_id === null && pendingAgentCalls.size > 0) {
+      } else if (message.type === "user") {
+        if (!isReviewTurn) {
+          for (const line of extractToolResults(message, toolUses)) {
+            process.stdout.write(`${EVENT_MARKER}${JSON.stringify(line)}\n`);
+          }
+        }
+        if (message.parent_tool_use_id !== null || pendingAgentCalls.size === 0) continue;
         const content = message.message.content;
         if (Array.isArray(content)) {
           for (const block of content) {
