@@ -30,6 +30,11 @@ export function dependencyCacheEnv(): Record<string, string> {
     XDG_DATA_HOME: `${dir}/xdg-data`,
     XDG_CACHE_HOME: `${dir}/xdg-cache`,
     npm_config_cache: `${dir}/npm`,
+    // pnpm ignores npm_config_cache for its package store — it only reads its own
+    // pnpm_config_store_dir (or a `store-dir` in .npmrc). Without this, pnpm defaults to
+    // <repo>/.pnpm-store, which lives on the container's ephemeral filesystem rather than this
+    // cache volume, so every run reinstalled its whole store from network cold.
+    pnpm_config_store_dir: `${dir}/pnpm-store`,
     YARN_CACHE_FOLDER: `${dir}/yarn`,
     YARN_GLOBAL_FOLDER: `${dir}/yarn-berry`,
     PIP_CACHE_DIR: `${dir}/pip`,

@@ -423,9 +423,9 @@ per-trusted-org host is honest and sufficient.
 - Workspace = clone at `baseRef` → work on `agent/<task-ref>-<title-slug>-<token>` branch → push → PR. Resume re-clones the branch;
   disk is disposable.
 - GitHub secrets are injected as **short-lived, run-scoped tokens** (App installation tokens), never long-lived
-  PATs — real today. The Anthropic API key is **not** yet resolved this way: `agent-runtime.ts` reads the
-  platform's `ANTHROPIC_API_KEY` straight from the worker's environment for every run, with a comment marking
-  `resolveCredentials(orgId)` (§9) as the still-open TODO.
+  PATs — real today. The Anthropic API key never enters a sandbox: the agent reaches the model through the
+  host-side model proxy with a short-lived run token (see "How the worker and the sandbox communicate" below, and
+  §9). `resolveCredentials` behind that proxy is still a stub returning the platform key.
 - Every event is persisted *and* published — the browser streams live, and a refresh replays from Postgres (Telegram
   render via channel adapter §5; Slack adapter not yet). Same log serves both.
 
@@ -437,6 +437,79 @@ requests to the same node. For resilience, periodically snapshot the session's a
 executed commands, file state) into a `SessionSnapshot` table; on node failure, another node can restore from the
 latest snapshot and recreate the warm container, so multi-turn resume survives failover. See §11 for the full tradeoff.
 Multi-node seamless migration requires Temporal (§9).
+
+### How the worker and the sandbox communicate
+
+The worker and a sandbox talk over three channels. None of them is a network connection from the worker into the
+container: nothing inside the container listens on a port, and its main process is only `tail -f /dev/null`
+(`apps/worker/sandbox-image/Dockerfile`).
+
+| Channel | Direction | Mechanism |
+|---|---|---|
+| Control | Worker → sandbox | Docker Engine API through `dockerode` (`DockerSandboxProvider`): `create`, `exec`, `putArchive`/`getArchive` (tar), `stats`, `update`, `stop`/`remove`. Inputs to a command travel as that exec's env vars. |
+| Output | Sandbox → worker | The stdout/stderr of each `exec`, multiplexed by Docker (`Tty: false`) and split by `demux()`. Agent turns use a line protocol: `__EVENT__{json}` (streamed progress), `__RESULT__{json}` (final answer), `__ERROR__{json}` (typed failure). |
+| Model access | Sandbox → host | HTTP from the SDK in the container to the worker's model proxy at `host.docker.internal:8787` (added by `ExtraHosts: host-gateway`), authenticated with a short-lived run token. The proxy forwards to the provider with the real key. |
+
+```
+ Worker process (host)                                   Docker container (one per session)
+┌──────────────────────────────────────┐               ┌──────────────────────────────────────┐
+│ worker.ts run job                    │               │                                      │
+│   ensureSandbox, compose prompt,     │               │                                      │
+│   runtime.runTurn                    │               │                                      │
+│        │                             │  docker exec  │                                      │
+│        ▼                             │  + env vars   │                                      │
+│ DockerSandboxProvider ───────────────┼──────────────▶│ /agent/run-turn-claude.ts            │
+│   (dockerode, Docker API)  ◀─────────┼───────────────│   Claude Agent SDK query()           │
+│        │                             │ stdout markers│        │ tools act on                │
+│        │ tar put/get archive         │               │        ▼                             │
+│        └─────────────────────────────┼──────────────▶│ /workspace (repo, skills, docs)      │
+│                                      │               │ /cache (dependency cache volume)     │
+│ model-proxy.ts :8787  ◀──────────────┼───────────────┼── HTTP, run token                    │
+│   token → real key                   │               │   (ANTHROPIC_BASE_URL/_API_KEY)      │
+└────────┬─────────────────────────────┘               └──────────────────────────────────────┘
+         ▼
+   api.anthropic.com (/v1/messages only)
+```
+
+**Who does what in a run.** The worker decides and orchestrates; the sandbox executes. The table follows one run
+job in order. "Host" means the worker process; "sandbox" means inside the session's container.
+
+| # | Phase | Runs on | Implemented in |
+|---|---|---|---|
+| 1 | Pick up the run job, move `runs.status` through `provisioning → running` | Host | `apps/worker/src/worker.ts` (`runWorker`) |
+| 2 | Reuse the session's warm container or create a new one (image chosen by repo language, hardening, cache volume) | Host, via Docker API | `ensureSandbox` in `worker.ts`, `sandbox-image-select.ts`, `sandbox/docker-sandbox-provider.ts` (`create`) |
+| 3 | Reset the memory cap to its base value | Host, via Docker API | `DockerSandboxProvider.resetMemory` |
+| 4 | Clone or sync the repo, or check out a PR for review | Script written on the host, run in the sandbox by `exec` | `scm-provider.ts` (`cloneIntoSandbox`, `syncWithDefaultBranch`), `pr-review.ts` (`checkoutPullRequest`) |
+| 5 | Install dependencies into `/cache` | Commands chosen on the host, run in the sandbox | `dependency-setup.ts` (`runDependencySetup`) |
+| 6 | Copy in task documents and pinned skills | Host builds a tar; Docker writes it into `/workspace` | `task-documents.ts`, `skills-materialize.ts` (`writeFiles`) |
+| 7 | Get the repo map (cached, or generated by the SDK in the sandbox through the proxy) | Host decides; generation runs in the sandbox | `repo-map.ts`, `ClaudeCodeRuntime.repoMap` → `sandbox-image/generate-repo-map.ts` |
+| 8 | Retrieve context and compose the system prompt | Host | `context-retrieval.ts`, `prompt-composition.ts` (`composeSystemPrompt`) |
+| 9 | Issue a run token for the model proxy | Host | `sandbox-model-access.ts` (`issueSandboxModelCredential`), `run-credentials.ts` |
+| 10 | Start the turn: exec the turn script with `SYSTEM_PROMPT`, `USER_TEXT`, `MODEL_ID`, `ANTHROPIC_BASE_URL`, `ANTHROPIC_API_KEY` (the run token), etc. | Host starts it; the script runs in the sandbox | `agent-runtime/claude-code-runtime.ts` (`runTurn`) → `sandbox-image/run-turn-claude.ts` |
+| 11 | Agent loop: the SDK calls the model, runs tools (read/edit files, bash) in `/workspace`, repeats until done | Sandbox | `run-turn-claude.ts` (`query()`, `bypassPermissions`, the `remember` MCP tool) |
+| 12 | Every model request leaves the sandbox for the proxy, which checks the token, swaps in the key and forwards | Host | `model-proxy.ts`, `resolveCredentials` in `sandbox-model-access.ts` |
+| 13 | While the agent works, the script prints `__EVENT__` lines; the host reads them live and stores them as events | Sandbox writes; host parses and persists | `run-turn-claude.ts` → `demux()` in `docker-sandbox-provider.ts` → `agent-runtime/marker-protocol.ts` (`readAgentTurnOutput`) → `onEvent` in `worker.ts` (`createEvent`; `memory_write` goes to `writeMemoryEntry`, encrypted) |
+| 14 | The script prints `__RESULT__` (or `__ERROR__`); the host returns it from `runTurn` or throws a typed error (`PromptTooLongError` triggers model escalation) | Sandbox writes; host parses | `marker-protocol.ts`, `agent-runtime/errors.ts`, `model-escalation.ts` |
+| 15 | Revoke the run token | Host | `worker.ts` (`modelCredential.revoke()` in `finally`) |
+| 16 | Commit and push: the host mints a short-lived push token and passes it to one exec that runs `git push`; the host then opens the draft PR through the GitHub API | Push in the sandbox; PR on the host | `scm-provider.ts` (`pushChangesIfDirty`, `openDraftPullRequest`) |
+| 17 | Snapshot `/workspace` for the run | Host, via Docker API (`getArchive`) | `DockerSandboxProvider.readWorkspace` |
+| 18 | Mark the run done, leave the container warm for the next message | Host | `worker.ts` |
+
+**Outside the run job:**
+
+- **Memory growth during an exec.** For as long as a command runs, the host watches the container's stats stream and
+  doubles the memory cap (up to 4 GB) at 80% usage. `watchMemory` in `docker-sandbox-provider.ts`.
+- **Stop button.** `runCancelWorker` in `worker.ts` calls `DockerSandboxProvider.interrupt`, which runs `kill -9` on
+  the turn's recorded PID through a second exec. The container and its checkout survive, so the next message can
+  resume.
+- **Teardown.** Task done/deleted (`sandboxTeardownWorker`) or idle past the threshold (`sandbox-reap.ts`) calls
+  `destroy` (stop + remove). Dependency cache volumes are reaped separately (`dependency-cache-reap.ts`).
+
+**Model calls that don't go through a sandbox.** The eval judge (`eval-judge.ts`) and the memory retrospective
+(`memory-retrospective.ts`) call the Anthropic API from the host with `@anthropic-ai/sdk` and the platform key from
+the worker's environment. They bypass the proxy and its request log. Moving them behind the proxy with a
+provider-neutral call is designed in or-borco/ArataContext
+`superpowers/specs/2026-09-24-host-model-calls-via-proxy-design.md`.
 
 ### Public API: a separate `apps/api`, deferred until there's a real caller
 
