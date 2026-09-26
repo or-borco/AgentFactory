@@ -65,6 +65,15 @@ export default defineConfig({
           fileParallelism: false,
         },
       },
+      {
+        test: {
+          name: "judge-live",
+          environment: "node",
+          include: ["apps/worker/src/__judge_evals__/**/*.eval.ts"],
+          testTimeout: 300_000,
+          fileParallelism: false,
+        },
+      },
     ],
   },
 });
