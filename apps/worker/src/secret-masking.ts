@@ -1,7 +1,7 @@
 export const REDACTED = "[redacted]";
 export const MAX_MASK_INPUT_CHARS = 20_000;
 const MIN_KNOWN_SECRET_CHARS = 8;
-const TRUNCATION_MARKER = "\n…[truncated]…\n";
+export const TRUNCATION_MARKER = "\n…[truncated]…\n";
 
 export function keepTail(text: string, max: number): string {
   return text.length > max ? text.slice(text.length - max) : text;

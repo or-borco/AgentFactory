@@ -165,6 +165,21 @@ export async function enqueueTaskContextIngestJob(itemId: number): Promise<void>
   );
 }
 
-export async function enqueueMemoryRetrospectiveJob(orgId: number, agentId: number, sessionId: number): Promise<void> {
-  await memoryRetrospectiveQueue.add("process-memory-retrospective", { orgId, agentId, sessionId });
+export async function enqueueMemoryRetrospectiveJob(
+  orgId: number,
+  agentId: number,
+  sessionId: number,
+  latestRunId: number,
+): Promise<void> {
+  await memoryRetrospectiveQueue.add(
+    "process-memory-retrospective",
+    { orgId, agentId, sessionId },
+    {
+      jobId: `retro-${sessionId}-${latestRunId}`,
+      attempts: 3,
+      backoff: { type: "exponential", delay: 5000 },
+      removeOnComplete: { age: 7 * 24 * 3600 },
+      removeOnFail: { count: 100 },
+    },
+  );
 }

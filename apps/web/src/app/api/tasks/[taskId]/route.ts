@@ -1,6 +1,6 @@
 // Tenant-isolation gap: see /api/tasks/route.ts for the documented caveat.
 import { NextResponse } from "next/server";
-import { deleteTask, getTask, updateTask } from "@agentfactory/db";
+import { deleteTask, getRunsForSession, getTask, updateTask } from "@agentfactory/db";
 import { enqueueMemoryRetrospectiveJob, enqueueRepoMapWarmJob, enqueueSandboxTeardownJob } from "@agentfactory/queue";
 import { requireAuthContext } from "@/server/auth";
 import type { TaskStatus } from "@agentfactory/core";
@@ -9,6 +9,13 @@ import { createLogger } from "@agentfactory/logger";
 const log = createLogger("api:tasks:[taskId]");
 
 const TERMINAL_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set(["done", "failed", "cancelled"]);
+
+async function queueRetrospective(orgId: number, agentId: number, sessionId: number): Promise<void> {
+  const runs = await getRunsForSession(sessionId);
+  const latestRunId = runs.reduce((latest, run) => Math.max(latest, run.id), 0);
+  if (latestRunId === 0) return;
+  await enqueueMemoryRetrospectiveJob(orgId, agentId, sessionId, latestRunId);
+}
 
 export async function GET(_req: Request, { params }: { params: Promise<{ taskId: string }> }) {
   const ctx = await requireAuthContext();
@@ -38,7 +45,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ taskId
   // already committed, so a transient queue failure here must not turn a successful PATCH into
   // an apparent 500.
   if (body.status && TERMINAL_TASK_STATUSES.has(task.status) && task.sessionId && task.assigneeAgentId) {
-    enqueueMemoryRetrospectiveJob(task.orgId, task.assigneeAgentId, task.sessionId).catch((err) => {
+    queueRetrospective(task.orgId, task.assigneeAgentId, task.sessionId).catch((err) => {
       log.error("Failed to enqueue memory retrospective job", { taskId: task.id, err });
     });
   }
@@ -66,7 +73,7 @@ export async function DELETE(_req: Request, { params }: { params: Promise<{ task
   }
 
   if (task.sessionId && task.assigneeAgentId) {
-    enqueueMemoryRetrospectiveJob(task.orgId, task.assigneeAgentId, task.sessionId).catch((err) => {
+    queueRetrospective(task.orgId, task.assigneeAgentId, task.sessionId).catch((err) => {
       log.error("Failed to enqueue memory retrospective job", { taskId: task.id, err });
     });
   }
