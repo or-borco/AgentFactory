@@ -154,6 +154,7 @@ export function buildSessionTimeline(input: TimelineInput): SessionTimeline {
 export const TIMELINE_MAX_CHARS = 80_000;
 const TASK_TEXT_CAP = 2_000;
 const USER_MESSAGE_CAP = 4_000;
+const SHRUNK_USER_MESSAGE_CAP = 2_000;
 const FAILURE_CAP = 2_000;
 const REPLY_CAP = 1_000;
 const CORRECTED_REPLY_CAP = 3_000;
@@ -233,7 +234,30 @@ function budgetUserMessages(doc: TimelineDocument): void {
   const always = users.slice(0, ALWAYS_KEPT_USER_MESSAGES);
   const rest = users.slice(ALWAYS_KEPT_USER_MESSAGES).reverse();
   const isShort = (p: Position) => entryAt(doc, p).text.trim().length < SHORT_USER_MESSAGE_CHARS;
-  keepWithinBudget(doc, [...rest.filter((p) => !isShort(p)), ...rest.filter(isShort)], USER_BUDGET, always);
+  const ordered = [...rest.filter((p) => !isShort(p)), ...rest.filter(isShort)];
+  const fullText = new Map(ordered.map((p) => [p, entryAt(doc, p).text]));
+  for (const p of ordered) entryAt(doc, p).text = truncateMiddle(entryAt(doc, p).text, SHRUNK_USER_MESSAGE_CAP);
+  keepWithinBudget(doc, ordered, USER_BUDGET, always);
+  restoreFullTextWithinBudget(doc, [...always, ...ordered], ordered, fullText, USER_BUDGET);
+}
+
+function restoreFullTextWithinBudget(
+  doc: TimelineDocument,
+  all: Position[],
+  ordered: Position[],
+  fullText: Map<Position, string>,
+  budget: number,
+): void {
+  const kept = (p: Position) => entryAt(doc, p).kind !== "omitted";
+  let used = all.filter(kept).reduce((sum, p) => sum + renderEntryLength(entryAt(doc, p)), 0);
+  for (const p of ordered.filter(kept)) {
+    const entry = entryAt(doc, p);
+    const full = { ...entry, text: fullText.get(p) ?? entry.text };
+    const growth = renderEntryLength(full) - renderEntryLength(entry);
+    if (used + growth > budget) continue;
+    entry.text = full.text;
+    used += growth;
+  }
 }
 
 function budgetNewest(doc: TimelineDocument, kinds: ReadonlySet<EntryKind>, budget: number): void {

@@ -164,7 +164,7 @@ export const FIXTURES: JudgeFixture[] = [
       ],
     }),
   },
-  { name: "rule buried in a long mid-session message", knownGap: true, lessonMentions: /british/i, expect: { kind: "lessons", count: 1, sources: ["user_message"] }, known: [], input: buriedRuleSession },
+  { name: "rule buried in a long mid-session message", lessonMentions: /british/i, expect: { kind: "lessons", count: 1, sources: ["user_message"] }, known: [], input: buriedRuleSession },
   { name: "routine session", expect: { kind: "none" }, known: [], input: routineSession },
   {
     name: "agent following a known lesson",

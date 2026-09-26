@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { TIMELINE_MAX_CHARS, fitTimeline, renderTimeline, type TimelineDocument, type TimelineEntry } from "../session-timeline";
+import { TIMELINE_MAX_CHARS, buildSessionTimeline, fitTimeline, renderTimeline, type TimelineDocument, type TimelineEntry } from "../session-timeline";
+import { FIXTURES } from "../__judge_evals__/fixtures";
 
 const user = (id: number, text: string): TimelineEntry => ({ kind: "user_message", attrs: { id: String(id) }, text });
 const reply = (text: string): TimelineEntry => ({ kind: "agent_reply", attrs: {}, text });
@@ -34,20 +35,43 @@ describe("fitTimeline", () => {
     expect(failures[0].attrs.id).toBe("f1");
   });
 
-  it("keeps the first two user messages, then longer ones newest first, dropping short ones first", () => {
+  it("keeps the first two user messages whole, then shrinks older long ones before dropping any", () => {
     const runs: TimelineEntry[][] = [];
     runs.push([user(1, `first correction ${"a".repeat(3_900)}`)]);
     runs.push([user(2, `second ${"b".repeat(3_900)}`)]);
-    for (let i = 3; i <= 9; i++) runs.push([user(i, `message ${i} ${"c".repeat(3_900)}`)]);
-    runs.push([user(10, "thanks")]);
+    for (let i = 3; i <= 8; i++) runs.push([user(i, `message ${i} ${"c".repeat(3_900)}`)]);
+    runs.push([user(9, "thanks")]);
     const fitted = fitTimeline(doc(runs));
-    const kept = fitted.runs.flatMap((r) => r.entries).filter((e) => e.kind === "user_message").map((e) => e.attrs.id);
-    expect(kept).toContain("1");
-    expect(kept).toContain("2");
-    expect(kept).toContain("9");
+    const users = new Map(fitted.runs.flatMap((r) => r.entries).filter((e) => e.kind === "user_message").map((e) => [e.attrs.id, e.text]));
+    expect([...users.keys()].sort((a, b) => Number(a) - Number(b))).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+    expect(users.get("1")!.length).toBeGreaterThan(3_900);
+    expect(users.get("2")!.length).toBeGreaterThan(3_900);
+    expect(users.get("8")!.length).toBeGreaterThan(3_900);
+    expect(users.get("3")!.length).toBeLessThanOrEqual(2_000 + 20);
+  });
+
+  it("keeps the tail of a shrunk message, where a standing rule usually sits", () => {
+    const rule = "Going forward, please use British spelling in every reply.";
+    const runs: TimelineEntry[][] = [[user(1, "hi there, let's start")], [user(2, "next step please")]];
+    runs.push([user(3, `${"x".repeat(5_000)}\n\n${rule}\n\nWhich note is highest?`)]);
+    for (let i = 4; i <= 10; i++) runs.push([user(i, `filler ${i} ${"c".repeat(4_500)}`)]);
+    const fitted = fitTimeline(doc(runs));
+    const third = fitted.runs.flatMap((r) => r.entries).find((e) => e.kind === "user_message" && e.attrs.id === "3");
+    expect(third?.text).toContain(rule);
+  });
+
+  it("still drops the oldest long messages, then short ones, when even shrunk ones do not fit", () => {
+    const runs: TimelineEntry[][] = [];
+    for (let i = 1; i <= 30; i++) runs.push([user(i, `message ${i} ${"c".repeat(3_900)}`)]);
+    runs.push([user(31, "thanks")]);
+    const fitted = fitTimeline(doc(runs));
+    const entries = fitted.runs.flatMap((r) => r.entries);
+    const kept = entries.filter((e) => e.kind === "user_message").map((e) => e.attrs.id);
+    expect(kept).toEqual(expect.arrayContaining(["1", "2", "30", "31"]));
     expect(kept).not.toContain("3");
-    const omitted = fitted.runs.flatMap((r) => r.entries).filter((e) => e.kind === "omitted" && e.attrs.kind === "user_message");
-    expect(omitted.length).toBeGreaterThan(0);
+    expect(entries.some((e) => e.kind === "omitted" && e.attrs.kind === "user_message")).toBe(true);
+    const userChars = entries.filter((e) => e.kind === "user_message").reduce((sum, e) => sum + e.text.length, 0);
+    expect(userChars).toBeLessThanOrEqual(24_000);
   });
 
   it("keeps the newest failures within 16,000", () => {
@@ -72,5 +96,17 @@ describe("fitTimeline", () => {
   it("leaves a small timeline unchanged", () => {
     const small = doc([[user(1, "Please use pnpm, not npm."), reply("ok")]]);
     expect(fitTimeline(small)).toEqual(small);
+  });
+});
+
+describe("buildSessionTimeline on the judge eval fixtures", () => {
+  it("keeps the British spelling rule buried in a long mid-session message", () => {
+    const fixture = FIXTURES.find((f) => f.name === "rule buried in a long mid-session message")!;
+    expect(buildSessionTimeline(fixture.input).text).toContain("please use British spelling");
+  });
+
+  it("keeps the early correction in a long session", () => {
+    const fixture = FIXTURES.find((f) => f.name === "long session with an early correction")!;
+    expect(buildSessionTimeline(fixture.input).text).toContain("not how we write release notes here");
   });
 });
