@@ -1,11 +1,11 @@
-import { truncateMiddle } from "./secret-masking";
+import { TRUNCATION_MARKER, truncateMiddle } from "./secret-masking";
 
 export interface TimelineTask { ref: string; title: string; description: string }
 export interface TimelineRun { id: number; status: string; triggeringMessageId?: number }
 export interface TimelineMessage { id: number; role: "user" | "assistant"; content: string; runId?: number; kind?: "task_brief" }
 export interface TimelineEvent { runId: number; seq: number; type: string; data: Record<string, unknown> }
 export interface TimelineInput { task?: TimelineTask; runs: TimelineRun[]; messages: TimelineMessage[]; events: TimelineEvent[] }
-export type EntryKind = "task_brief" | "user_message" | "tool_call" | "tool_failed" | "run_error" | "note" | "agent_reply" | "omitted";
+export type EntryKind = "task_brief" | "user_message" | "user_excerpt" | "tool_call" | "tool_failed" | "run_error" | "note" | "agent_reply" | "omitted";
 export interface TimelineEntry { kind: EntryKind; attrs: Record<string, string>; text: string }
 export interface TimelineRunBlock { runId: number; status: string; entries: TimelineEntry[] }
 export interface TimelineDocument { task?: { attrs: Record<string, string>; text: string }; runs: TimelineRunBlock[]; omittedRuns: number }
@@ -162,6 +162,13 @@ const FAILURE_BUDGET = 16_000;
 const SHORT_USER_MESSAGE_CHARS = 40;
 const ALWAYS_KEPT_USER_MESSAGES = 2;
 const MIN_RUNS_KEPT = 3;
+const RULE_EXCERPT_BUDGET = 4_000;
+const RULE_SENTENCE_MIN_CHARS = 15;
+const RULE_SENTENCE_MAX_CHARS = 400;
+const RULE_WORDING =
+  /\b(from now on|going forward|in (the )?future|always|never|every time|each time|whenever|by default|make sure|remember (to|that)|(do not|don't) ever|please (do not|don't|stop|avoid|keep|use|prefer)|(i|we) prefer|our (rule|convention|standard|style))\b/i;
+const ACKNOWLEDGED_RULE =
+  /\b(noted|understood|i'll remember|i will remember|(i'll|i will) keep (that|this|it) in mind|going forward|from now on|in future replies)\b/i;
 const FAILURE_KINDS: ReadonlySet<EntryKind> = new Set(["tool_failed", "run_error"]);
 const REST_KINDS: ReadonlySet<EntryKind> = new Set(["agent_reply", "tool_call", "note"]);
 
@@ -233,7 +240,55 @@ function budgetUserMessages(doc: TimelineDocument): void {
   const always = users.slice(0, ALWAYS_KEPT_USER_MESSAGES);
   const rest = users.slice(ALWAYS_KEPT_USER_MESSAGES).reverse();
   const isShort = (p: Position) => entryAt(doc, p).text.trim().length < SHORT_USER_MESSAGE_CHARS;
-  keepWithinBudget(doc, [...rest.filter((p) => !isShort(p)), ...rest.filter(isShort)], USER_BUDGET, always);
+  const acknowledged = (p: Position) => doc.runs[p.run].entries.some((e) => e.kind === "agent_reply" && ACKNOWLEDGED_RULE.test(e.text));
+  const pinned = rest.filter(acknowledged);
+  const others = rest.filter((p) => !acknowledged(p));
+  keepWithinBudget(doc, [...pinned, ...others.filter((p) => !isShort(p)), ...others.filter(isShort)], USER_BUDGET, always);
+}
+
+function sentencesOf(text: string): string[] {
+  return text
+    .split(/\n+|(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => sentence !== "");
+}
+
+export function ruleSentences(text: string): string[] {
+  return sentencesOf(text).filter(
+    (sentence) =>
+      sentence.length >= RULE_SENTENCE_MIN_CHARS &&
+      sentence.length <= RULE_SENTENCE_MAX_CHARS &&
+      RULE_WORDING.test(sentence.replace(/never mind/gi, "")),
+  );
+}
+
+function isUserSlot(entry: TimelineEntry): boolean {
+  return entry.kind === "user_message" || (entry.kind === "omitted" && entry.attrs.kind === "user_message");
+}
+
+function surfaceHiddenRules(doc: TimelineDocument, originals: Array<TimelineEntry | undefined>): void {
+  let used = 0;
+  doc.runs.forEach((run, r) => {
+    const original = originals[r];
+    const slot = run.entries.findIndex(isUserSlot);
+    if (!original || slot === -1) return;
+    const visible = run.entries[slot].kind === "user_message" ? run.entries[slot].text : "";
+    const hidden = ruleSentences(original.text).filter((sentence) => !visible.includes(sentence));
+    if (hidden.length === 0) return;
+    const closing = sentencesOf(original.text).at(-1) ?? "";
+    const context = closing.length <= RULE_SENTENCE_MAX_CHARS && !visible.includes(closing) && !hidden.includes(closing) ? [closing] : [];
+    const pieces: string[] = [];
+    let size = 0;
+    for (const piece of [...hidden, ...context]) {
+      const pieceSize = piece.length + TRUNCATION_MARKER.length;
+      if (used + size + pieceSize > RULE_EXCERPT_BUDGET) continue;
+      pieces.push(piece);
+      size += pieceSize;
+    }
+    if (!pieces.some((piece) => hidden.includes(piece))) return;
+    used += size;
+    run.entries.splice(slot + 1, 0, { kind: "user_excerpt", attrs: { id: original.attrs.id }, text: pieces.join(TRUNCATION_MARKER) });
+  });
 }
 
 function budgetNewest(doc: TimelineDocument, kinds: ReadonlySet<EntryKind>, budget: number): void {
@@ -265,9 +320,11 @@ function mergeOmitted(doc: TimelineDocument): void {
 
 function applyLimits(source: TimelineDocument): TimelineDocument {
   const doc = structuredClone(source);
+  const originalUserMessages = doc.runs.map((run) => structuredClone(run.entries.find((e) => e.kind === "user_message")));
   capEntries(doc);
   collapseDuplicateFailures(doc);
   budgetUserMessages(doc);
+  surfaceHiddenRules(doc, originalUserMessages);
   budgetNewest(doc, FAILURE_KINDS, FAILURE_BUDGET);
   budgetNewest(doc, REST_KINDS, restBudget(doc));
   mergeOmitted(doc);

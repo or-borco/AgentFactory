@@ -24,7 +24,8 @@ const { buildSessionTimeline } = await import("../session-timeline");
 const { checkLessonEvidence } = await import("../lesson-evidence");
 const { FIXTURES } = await import("./fixtures");
 
-const RUNS_PER_FIXTURE = 3;
+const requestedRuns = Number(process.env.JUDGE_EVAL_RUNS);
+const RUNS_PER_FIXTURE = Number.isInteger(requestedRuns) && requestedRuns > 0 ? requestedRuns : 3;
 const stats = { expectedAccepted: 0, rejectedWhenExpected: 0 };
 
 async function runOnce(fixture: (typeof FIXTURES)[number]): Promise<boolean> {
@@ -59,7 +60,7 @@ describe.skipIf(!process.env.RUN_JUDGE_EVALS)("memory judge live evals", () => {
         console.log(`Known gap "${fixture.name}": ${passes}/${RUNS_PER_FIXTURE} passed`);
         return;
       }
-      const needed = fixture.expect.kind === "none" ? RUNS_PER_FIXTURE : 2;
+      const needed = fixture.expect.kind === "none" ? RUNS_PER_FIXTURE : Math.ceil((RUNS_PER_FIXTURE * 2) / 3);
       expect(passes, `${fixture.name}: ${passes}/${RUNS_PER_FIXTURE} passed`).toBeGreaterThanOrEqual(needed);
     });
   }
