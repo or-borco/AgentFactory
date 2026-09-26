@@ -51,10 +51,10 @@ const TASK_ITEM: TaskContextItem = {
   createdAt: "2026-08-27T10:00:00.000Z",
 };
 
-function renderPanel(scope: ContextDocumentsScope = TEAM_SCOPE) {
+function renderPanel(scope: ContextDocumentsScope = TEAM_SCOPE, closed = false) {
   return render(
     <I18nProvider>
-      <ContextDocumentsPanel scope={scope} members={MEMBERS} />
+      <ContextDocumentsPanel scope={scope} members={MEMBERS} closed={closed} />
     </I18nProvider>,
   );
 }
@@ -401,5 +401,36 @@ describe("ContextDocumentsPanel with task scope", () => {
     expect(help.textContent).not.toBe(
       "Markdown or plain text, up to 2 MB. Agents receive the excerpts relevant to their task, not the whole file.",
     );
+  });
+
+  it("shows a closed task's documents without upload or remove controls", async () => {
+    apiFetchMock.mockResolvedValue([{ ...TASK_ITEM, status: "indexed" }]);
+    renderPanel(TASK_SCOPE, true);
+    await waitFor(() => expect(screen.getByText("Migration runbook")).toBeInTheDocument());
+
+    expect(screen.getByRole("status")).toHaveTextContent(/this task is closed/i);
+    expect(screen.queryByLabelText("Upload document")).not.toBeInTheDocument();
+    expect(screen.queryByText("Choose a file to upload")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
+  });
+
+  it("says no documents were attached, instead of inviting an upload, when a closed task has none", async () => {
+    apiFetchMock.mockResolvedValue([]);
+    renderPanel(TASK_SCOPE, true);
+
+    await waitFor(() => expect(screen.getByText("No documents were attached to this task.")).toBeInTheDocument());
+    expect(screen.queryByText("No documents yet")).not.toBeInTheDocument();
+  });
+
+  it("shows no empty-state claim before the document list has loaded", async () => {
+    let resolveList: (items: TaskContextItem[]) => void = () => {};
+    apiFetchMock.mockReturnValue(new Promise<TaskContextItem[]>((resolve) => (resolveList = resolve)));
+    renderPanel(TASK_SCOPE, true);
+
+    expect(screen.queryByText("No documents were attached to this task.")).not.toBeInTheDocument();
+    expect(screen.queryByText("No documents yet")).not.toBeInTheDocument();
+
+    await act(async () => resolveList([TASK_ITEM]));
+    expect(screen.getByText("Migration runbook")).toBeInTheDocument();
   });
 });

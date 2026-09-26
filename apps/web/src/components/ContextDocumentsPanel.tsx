@@ -100,14 +100,17 @@ const POLL_MS = 3000;
 export function ContextDocumentsPanel({
   scope,
   members = [],
+  closed = false,
 }: {
   scope: ContextDocumentsScope;
   members?: OrgMember[];
+  closed?: boolean;
 }) {
   const { t } = useTranslation();
   const copy = SCOPE_COPY_KEYS[scope.kind];
   const basePath = basePathForScope(scope);
   const [items, setItems] = useState<ContextItem[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [errorKey, setErrorKey] = useState<TranslationKey | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -116,6 +119,7 @@ export function ContextDocumentsPanel({
   const reload = useCallback(async () => {
     try {
       setItems(await apiFetch<ContextItem[]>(basePath));
+      setLoaded(true);
       setLoadError(false);
     } catch {
       setLoadError(true);
@@ -195,26 +199,36 @@ export function ContextDocumentsPanel({
 
   return (
     <div className="flex flex-col gap-3">
-      <label className="flex cursor-pointer items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[var(--color-divider)] px-4 py-6 text-sm text-[var(--color-neutral-500)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-neutral-300)]">
-        {uploading ? t("teamsV2.documentsUploading") : t("teamsV2.documentsDropHint")}
-        <input
-          ref={inputRef}
-          type="file"
-          accept={acceptFor(scope)}
-          aria-label={t("teamsV2.documentsUpload")}
-          className="sr-only"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void handleFile(file);
-          }}
-        />
-      </label>
+      {closed ? (
+        <p role="status" className="text-sm text-[var(--color-neutral-400)]">
+          {t("taskDetail.documentsClosed")}
+        </p>
+      ) : (
+        <>
+          <label className="flex cursor-pointer items-center justify-center rounded-[var(--radius-md)] border border-dashed border-[var(--color-divider)] px-4 py-6 text-sm text-[var(--color-neutral-500)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-neutral-300)]">
+            {uploading ? t("teamsV2.documentsUploading") : t("teamsV2.documentsDropHint")}
+            <input
+              ref={inputRef}
+              type="file"
+              accept={acceptFor(scope)}
+              aria-label={t("teamsV2.documentsUpload")}
+              className="sr-only"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void handleFile(file);
+              }}
+            />
+          </label>
 
-      <p className="text-xs text-[var(--color-neutral-600)]">{t(copy.help)}</p>
+          <p className="text-xs text-[var(--color-neutral-600)]">{t(copy.help)}</p>
+        </>
+      )}
       {errorKey && <p className="text-xs text-red-400">{t(errorKey)}</p>}
       {loadError && <p className="text-xs text-red-400">{t(copy.loadError)}</p>}
 
-      {items.length === 0 && scope.kind === "task" ? (
+      {!loaded ? null : items.length === 0 && closed ? (
+        <p className="text-sm text-[var(--color-neutral-500)]">{t("taskDetail.documentsClosedEmpty")}</p>
+      ) : items.length === 0 && scope.kind === "task" ? (
         <div className="text-sm">
           <p className="font-medium text-[var(--color-neutral-300)]">{t("teamsV2.documentsEmpty")}</p>
           <p className="text-[var(--color-neutral-500)]">{t(copy.emptySub)}</p>
@@ -252,12 +266,14 @@ export function ContextDocumentsPanel({
                     <Badge tone={CONTEXT_ITEM_STATUS_TONES[item.status]}>
                       {t(CONTEXT_ITEM_STATUS_LABEL_KEYS[item.status])}
                     </Badge>
-                    <button
-                      onClick={() => void handleDelete(item.id)}
-                      className="shrink-0 cursor-pointer text-xs text-[var(--color-neutral-500)] transition-colors hover:text-red-400"
-                    >
-                      {t("teamsV2.documentsDelete")}
-                    </button>
+                    {!closed && (
+                      <button
+                        onClick={() => void handleDelete(item.id)}
+                        className="shrink-0 cursor-pointer text-xs text-[var(--color-neutral-500)] transition-colors hover:text-red-400"
+                      >
+                        {t("teamsV2.documentsDelete")}
+                      </button>
+                    )}
                   </div>
                   {item.status === "failed" && item.error ? (
                     <p className="px-4 pb-3 text-[11px] text-red-400">

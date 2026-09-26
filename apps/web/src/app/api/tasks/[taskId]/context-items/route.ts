@@ -7,7 +7,7 @@ import {
 } from "@agentfactory/db";
 import { enqueueTaskContextIngestJob } from "@agentfactory/queue";
 import { createBlobStore } from "@agentfactory/storage";
-import { isTaskContextMimeAllowed, taskContextExtensionMime } from "@agentfactory/core";
+import { isTaskClosed, isTaskContextMimeAllowed, taskContextExtensionMime } from "@agentfactory/core";
 import { requireAuthContext } from "@/server/auth";
 
 // Mirrors apps/web/src/app/api/teams/[teamId]/context-items/route.ts exactly — see that file's
@@ -43,6 +43,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ tas
   const task = await getTask(Number(taskId));
   if (!task || task.orgId !== ctx.orgId) {
     return NextResponse.json({ error: "Task not found" }, { status: 404 });
+  }
+  if (isTaskClosed(task.status)) {
+    return NextResponse.json({ error: "Task is closed" }, { status: 409 });
   }
 
   const declared = Number(request.headers.get("content-length"));

@@ -9,6 +9,7 @@ import {
   updateTask,
 } from "@agentfactory/db";
 import { enqueueRunJob } from "@agentfactory/queue";
+import { isTaskClosed } from "@agentfactory/core";
 import { requireAuthContext } from "@/server/auth";
 
 // Requires a logged-in user but doesn't yet verify sessionId belongs to their org — same
@@ -25,13 +26,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ ses
   const id = Number(sessionId);
   const { text } = await request.json();
 
+  const task = await getTaskBySessionId(id);
+  if (task && isTaskClosed(task.status)) {
+    return NextResponse.json({ error: "Task is closed" }, { status: 409 });
+  }
+
   const userMessage = await createMessage(id, "user", text);
   await touchSessionActivity(id);
   const session = await getSession(id);
 
   // A new instruction is the user retrying after a failure — surface that the task is live
   // again rather than leaving it stuck showing "Failed" while a run is actually in flight.
-  const task = await getTaskBySessionId(id);
   if (task && task.status === "failed") {
     await updateTask(task.id, { status: "in_progress" });
   }
