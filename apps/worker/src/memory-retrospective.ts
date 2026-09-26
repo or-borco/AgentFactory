@@ -154,10 +154,18 @@ type CreateJudgeMessage = (params: Anthropic.MessageCreateParamsNonStreaming) =>
 
 const createJudgeMessage: CreateJudgeMessage = (params) => client.messages.create(params, { maxRetries: 1 });
 
-function parseJudgeResponse(response: Anthropic.Message): { reasoning?: string; items: unknown[] } {
+function reportInput(response: Anthropic.Message): unknown {
   const toolUse = response.content.find((block) => block.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") throw new Error("judge returned no report_lessons tool call");
-  return parseReportLessons(toolUse.input);
+  return toolUse.input;
+}
+
+function reasoningOnly(response: Anthropic.Message): string | undefined {
+  const toolUse = response.content.find((block) => block.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") return undefined;
+  const input = toolUse.input as Record<string, unknown> | null;
+  if (!input || typeof input !== "object" || "lessons" in input || typeof input.reasoning !== "string") return undefined;
+  return input.reasoning;
 }
 
 export async function judgeRetrospective(userMessage: string, create: CreateJudgeMessage = createJudgeMessage): Promise<JudgeResult> {
@@ -172,9 +180,14 @@ export async function judgeRetrospective(userMessage: string, create: CreateJudg
     });
     if (response.stop_reason === "max_tokens") return { items: [], truncated: true };
     try {
-      return { ...parseJudgeResponse(response), truncated: false };
+      return { ...parseReportLessons(reportInput(response)), truncated: false };
     } catch (err) {
-      if (attempt >= JUDGE_ATTEMPTS) throw err;
+      if (attempt >= JUDGE_ATTEMPTS) {
+        const reasoning = reasoningOnly(response);
+        if (reasoning === undefined) throw err;
+        log.warn("Judge answered with reasoning only; treating it as no lessons", { attempt });
+        return { reasoning, items: [], truncated: false };
+      }
       log.warn("Judge output malformed; asking again", { attempt, err });
     }
   }
