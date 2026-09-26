@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkLessonEvidence, commandWord, normalizeForMatch } from "../lesson-evidence";
+import { TRUNCATION_MARKER } from "../secret-masking";
 import type { TimelineSources } from "../session-timeline";
 
 const CORRECTION = `That's not how we write release notes here. Our readers are end users: no commit hashes, no file or function names.`;
@@ -82,13 +83,27 @@ describe("checkLessonEvidence: quotes", () => {
     ["unknown run", { runId: 99 }],
     ["paraphrase", { evidenceQuote: "the user said not to put hashes in release notes" }],
     ["too short for a long message", { evidenceQuote: "no commit hashes" }],
-    ["ellipsis", { evidenceQuote: "That's not how we write... no commit hashes" }],
+    ["shortened with an ellipsis", { evidenceQuote: "That's not how we write... no commit hashes" }],
     ["missing quote", { evidenceQuote: undefined }],
     ["missing lesson and reinforcement", { lesson: undefined }],
     ["wrong source", { evidenceSource: "agent_reply" }],
   ])("rejects: %s", (_name, overrides) => {
     const verdict = checkLessonEvidence(userItem(overrides), sources(), known, []);
     expect(verdict.ok).toBe(false);
+  });
+
+  it("accepts an exact quote whose own text contains an ellipsis", () => {
+    const correction = "We never use the `function` keyword: write `const clamp = (value, min, max) => { ... }` instead… always.";
+    const s = sources({ userMessages: new Map([[2, [correction]]]) });
+    const item = userItem({ evidenceQuote: correction, lesson: "Write functions as const arrow functions, never with the function keyword." });
+    expect(checkLessonEvidence(item, s, known, []).ok).toBe(true);
+  });
+
+  it("rejects a quote that spans the truncation marker of a shortened failure output", () => {
+    const output = `Author identity unknown${TRUNCATION_MARKER}fatal: unable to auto-detect email address`;
+    const s = sources({ failures: new Map([["f1", { ...sources().failures.get("f1")!, output }]]) });
+    const item = failureItem({ evidenceQuote: `Author identity unknown${TRUNCATION_MARKER}fatal: unable to auto-detect` });
+    expect(checkLessonEvidence(item, s, known, [])).toMatchObject({ ok: false, reason: "quote spans truncated output" });
   });
 
   it("accepts a long exact quote up to 500 characters", () => {
