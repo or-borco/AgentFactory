@@ -214,7 +214,12 @@ export function ContextDocumentsPanel({
       {errorKey && <p className="text-xs text-red-400">{t(errorKey)}</p>}
       {loadError && <p className="text-xs text-red-400">{t(copy.loadError)}</p>}
 
-      {items.length === 0 ? (
+      {items.length === 0 && scope.kind === "task" ? (
+        <div className="text-sm">
+          <p className="font-medium text-[var(--color-neutral-300)]">{t("teamsV2.documentsEmpty")}</p>
+          <p className="text-[var(--color-neutral-500)]">{t(copy.emptySub)}</p>
+        </div>
+      ) : items.length === 0 ? (
         <EmptyState
           icon="📄"
           title={t("teamsV2.documentsEmpty")}

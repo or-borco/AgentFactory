@@ -1303,8 +1303,8 @@ export default function TaskDetailPage() {
         )}
 
         {activeTab === "context" && (
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ padding: "22px 28px 0", flexShrink: 0 }}>
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            <div style={{ padding: "22px 28px 0" }}>
               <h3
                 style={{
                   marginBottom: 12,

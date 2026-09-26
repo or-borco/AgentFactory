@@ -171,7 +171,7 @@ export function RunContextPanel({ runs }: { runs: Run[] }) {
     });
 
   return (
-    <div style={{ flex: 1, overflowY: "auto", padding: "22px 28px" }}>
+    <div style={{ padding: "22px 28px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         {runs.length > 1 && (
           <Select
