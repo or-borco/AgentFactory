@@ -90,9 +90,22 @@ describe("judgeRetrospective", () => {
   });
 
   it("gives up after the second malformed answer", async () => {
-    const create = vi.fn().mockResolvedValue(judgeResponse({ reasoning: "r" }));
-    await expect(judgeRetrospective("timeline", create)).rejects.toThrow("judge output has no lessons array (got {reasoning:string})");
+    const create = vi.fn().mockResolvedValue(judgeResponse({ reasoning: "r", lessons: "not an array" }));
+    await expect(judgeRetrospective("timeline", create)).rejects.toThrow("judge output has no lessons array (got {reasoning:string,lessons:string})");
     expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats two answers with reasoning and no lessons field as no lessons", async () => {
+    const create = vi.fn().mockResolvedValue(judgeResponse({ reasoning: "Nothing durable here." }));
+    await expect(judgeRetrospective("timeline", create)).resolves.toEqual({ reasoning: "Nothing durable here.", items: [], truncated: false });
+    expect(create).toHaveBeenCalledTimes(2);
+  });
+
+  it("still uses the lessons from a second answer after a reasoning-only first answer", async () => {
+    const create = vi.fn()
+      .mockResolvedValueOnce(judgeResponse({ reasoning: "r" }))
+      .mockResolvedValueOnce(judgeResponse({ reasoning: "r", lessons: [{ runId: 1 }] }));
+    await expect(judgeRetrospective("timeline", create)).resolves.toEqual({ reasoning: "r", items: [{ runId: 1 }], truncated: false });
   });
 
   it("does not ask again when the answer hit max_tokens", async () => {
