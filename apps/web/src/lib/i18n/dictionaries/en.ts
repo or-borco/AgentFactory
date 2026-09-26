@@ -504,6 +504,9 @@ const en = {
     documentsUploadFailed: "Couldn't upload that file — it may already be attached to this task.",
     documentsLoadError: "Couldn't load this task's documents.",
     documentsUnsupportedType: "Only Markdown (.md), plain text (.txt), JPEG, and PNG files can be uploaded.",
+    documentsClosed: "This task is closed, so its documents can't change. Change its status to reopen it.",
+    documentsClosedEmpty: "No documents were attached to this task.",
+    replyClosed: "This task is closed. Change its status to continue working on it.",
     linkedIssue: {
       rowLabel: "Linked issue",
       badge: "{provider} {key}",

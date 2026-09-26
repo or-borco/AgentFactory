@@ -20,7 +20,9 @@ vi.mock("@agentfactory/queue", () => ({ enqueueRunJob: (...args: unknown[]) => e
 
 const { POST } = await import("../route");
 
-function fakeTask(overrides: Partial<{ id: number; assigneeAgentId?: number; sessionId?: number; externalRef?: unknown }> = {}) {
+function fakeTask(
+  overrides: Partial<{ id: number; assigneeAgentId?: number; sessionId?: number; externalRef?: unknown; status: string }> = {},
+) {
   return {
     id: 7,
     orgId: 1,
@@ -68,6 +70,14 @@ describe("POST /api/tasks/[taskId]/run", () => {
     getTaskMock.mockResolvedValue(fakeTask({ assigneeAgentId: undefined }));
     const res = await POST(request(), { params: Promise.resolve({ taskId: "7" }) });
     expect(res.status).toBe(400);
+  });
+
+  it.each(["done", "cancelled"])("returns 409 without starting a session when the task is %s", async (status) => {
+    requireAuthContextMock.mockResolvedValue({ orgId: 1, user: { id: 1 } });
+    getTaskMock.mockResolvedValue(fakeTask({ assigneeAgentId: 3, status }));
+    const res = await POST(request(), { params: Promise.resolve({ taskId: "7" }) });
+    expect(res.status).toBe(409);
+    expect(startTaskSessionMock).not.toHaveBeenCalled();
   });
 
   it("returns 409 when the task already has a session", async () => {

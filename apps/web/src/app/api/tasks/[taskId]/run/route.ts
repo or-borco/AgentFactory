@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createRun, getTask, startTaskSession } from "@agentfactory/db";
 import { enqueueRunJob } from "@agentfactory/queue";
+import { isTaskClosed } from "@agentfactory/core";
 import { requireAuthContext } from "@/server/auth";
 import { checkTaskSync } from "@/server/task-sync";
 import { formatTaskBrief } from "@/server/task-brief";
@@ -16,6 +17,8 @@ export async function POST(
   const { taskId } = await params;
   const task = await getTask(Number(taskId));
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (isTaskClosed(task.status))
+    return NextResponse.json({ error: "Task is closed" }, { status: 409 });
   if (!task.assigneeAgentId)
     return NextResponse.json({ error: "Task has no assignee" }, { status: 400 });
   if (task.sessionId)

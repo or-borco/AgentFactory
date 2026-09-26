@@ -13,6 +13,7 @@ interface TaskReplyBarProps {
   isRunning: boolean;
   sending: boolean;
   stopping: boolean;
+  closed?: boolean;
 }
 
 export function TaskReplyBar({
@@ -24,9 +25,20 @@ export function TaskReplyBar({
   isRunning,
   sending,
   stopping,
+  closed = false,
 }: TaskReplyBarProps) {
   const { t } = useTranslation();
   const replyDisabled = sending || isRunning;
+
+  if (closed) {
+    return (
+      <div className={styles.bar}>
+        <p role="status" className={styles.closedNotice}>
+          {t("taskDetail.replyClosed")}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.bar}>

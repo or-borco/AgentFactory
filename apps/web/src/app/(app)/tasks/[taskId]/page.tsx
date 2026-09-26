@@ -18,6 +18,7 @@ import { RunEvalPanel } from "@/components/RunEvalPanel";
 import { PrReviewPanel } from "@/components/PrReviewPanel";
 import { WriteBackFailureBanner } from "@/components/WriteBackFailureBanner";
 import { TaskReplyBar } from "@/components/TaskReplyBar";
+import { isTaskClosed } from "@agentfactory/core";
 import type { Run, TaskContextItem, TaskStatus } from "@agentfactory/core";
 import type { ExternalIssue } from "@agentfactory/integrations";
 import { type ThinkStep, humanizeStep } from "@/lib/agent-response";
@@ -1244,6 +1245,7 @@ export default function TaskDetailPage() {
               isRunning={!!isRunning}
               sending={replying}
               stopping={stopping}
+              closed={isTaskClosed(task.status)}
             />
           </div>
         )}
@@ -1315,7 +1317,11 @@ export default function TaskDetailPage() {
               >
                 {t("taskDetail.documentsSection")}
               </h3>
-              <ContextDocumentsPanel scope={{ kind: "task", taskId: task.id }} members={orgMembers} />
+              <ContextDocumentsPanel
+                scope={{ kind: "task", taskId: task.id }}
+                members={orgMembers}
+                closed={isTaskClosed(task.status)}
+              />
             </div>
             <RunContextPanel runs={sessionRuns} />
           </div>

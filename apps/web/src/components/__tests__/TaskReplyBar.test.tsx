@@ -80,4 +80,12 @@ describe("TaskReplyBar", () => {
     renderBar({ value: "hello", hasSession: false });
     expect(screen.getByRole("button", { name: /send/i })).toBeDisabled();
   });
+
+  it("replaces the composer with a notice when the task is closed", () => {
+    renderBar({ closed: true });
+
+    expect(screen.getByRole("status")).toHaveTextContent(/this task is closed/i);
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /send/i })).not.toBeInTheDocument();
+  });
 });

@@ -341,3 +341,30 @@ describe("GET /api/tasks/[taskId]/context-items", () => {
     expect(listTaskContextItemsForOrgMock).not.toHaveBeenCalled();
   });
 });
+
+describe("POST /api/tasks/[taskId]/context-items on a closed task", () => {
+  it.each(["done", "cancelled"])("answers 409 without storing anything when the task is %s", async (status) => {
+    getTaskMock.mockResolvedValue({ id: 1, orgId: 1, status });
+
+    const res = await POST(
+      multipartRequest({ filename: "handbook.md", type: "text/markdown", content: "# Handbook" }),
+      params(),
+    );
+
+    expect(res.status).toBe(409);
+    expect(putMock).not.toHaveBeenCalled();
+    expect(createTaskContextItemMock).not.toHaveBeenCalled();
+    expect(enqueueTaskContextIngestJobMock).not.toHaveBeenCalled();
+  });
+
+  it("still accepts an upload on a failed task, which stays retryable", async () => {
+    getTaskMock.mockResolvedValue({ id: 1, orgId: 1, status: "failed" });
+
+    const res = await POST(
+      multipartRequest({ filename: "handbook.md", type: "text/markdown", content: "# Handbook" }),
+      params(),
+    );
+
+    expect(res.status).toBe(201);
+  });
+});

@@ -222,6 +222,12 @@ export type TaskStatus =
   | "failed"
   | "cancelled";
 
+export const CLOSED_TASK_STATUSES: ReadonlySet<TaskStatus> = new Set<TaskStatus>(["done", "cancelled"]);
+
+export function isTaskClosed(status: TaskStatus): boolean {
+  return CLOSED_TASK_STATUSES.has(status);
+}
+
 export interface AcceptanceCriterion {
   text: string;
   done: boolean;

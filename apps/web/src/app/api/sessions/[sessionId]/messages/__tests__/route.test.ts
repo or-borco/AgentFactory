@@ -67,6 +67,17 @@ describe("POST /api/sessions/[sessionId]/messages", () => {
     expect(updateTask).not.toHaveBeenCalled();
   });
 
+  it.each(["done", "cancelled"])("answers 409 without recording the message or starting a run when the task is %s", async (status) => {
+    getTaskBySessionId.mockResolvedValue({ id: 42, status });
+
+    const res = await post(10, { text: "one more thing" });
+
+    expect(res.status).toBe(409);
+    expect(createMessage).not.toHaveBeenCalled();
+    expect(createRun).not.toHaveBeenCalled();
+    expect(enqueueRunJob).not.toHaveBeenCalled();
+  });
+
   it("does nothing task-related when the session has no owning task", async () => {
     getTaskBySessionId.mockResolvedValue(undefined);
 
