@@ -60,33 +60,71 @@ const gitIdentitySession: TimelineInput = {
   ],
 };
 
-const filler = (topic: string) =>
-  `Context dump, our ${topic} (long, skim it):\n\n${Array.from({ length: 34 }, (_, i) => `- ${topic} point ${i + 1}: item ${i + 100} needs follow-up next sprint; no decision today, parked for the ${["Monday", "Tuesday", "Wednesday", "Thursday"][i % 4]} sync.`).join("\n")}\n\nQuick question: how many points are parked for the Monday sync? Just the number.`;
+const SYNC_DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday"];
+const FILLER_POINTS = 34;
 
-const FILLER_TOPICS = ["incident retro", "roadmap sync", "API design review", "hiring loop notes", "support ticket digest", "release checklist"];
+const filler = (topic: string, day: number) =>
+  `Context dump, our ${topic} (long, skim it):\n\n${Array.from({ length: FILLER_POINTS }, (_, i) => `- ${topic} point ${i + 1}: item ${i + 100} needs follow-up next sprint; no decision today, parked for the ${SYNC_DAYS[i % 4]} sync.`).join("\n")}\n\nQuick question: how many points are parked for the ${SYNC_DAYS[day % 4]} sync? Just the number.`;
 
-const buriedRuleSession: TimelineInput = {
-  task: { ref: "T-166", title: "math.js walkthrough", description: "Work through math.js together over several steps. Do not change files." },
-  runs: [
-    { id: 1, status: "done", triggeringMessageId: 1 },
-    { id: 2, status: "done", triggeringMessageId: 3 },
-    { id: 3, status: "done", triggeringMessageId: 5 },
-    { id: 4, status: "done", triggeringMessageId: 7 },
-    ...FILLER_TOPICS.map((_, i) => ({ id: 5 + i, status: "done", triggeringMessageId: 9 + i * 2 })),
-  ],
-  messages: [
-    brief("Task: math.js walkthrough\nRead math.js and list the functions it exports."),
-    replied(2, 1, "math.js exports a single function: add(a, b)."),
-    said(3, "Thanks. What would a subtract(a, b) look like, in chat only?"),
-    replied(4, 2, "const subtract = (a, b) => a - b;"),
-    said(5, filler("sprint meeting")),
-    replied(6, 3, "9"),
-    said(7, `Here's last week's code review export for context (long, sorry):\n\n${Array.from({ length: 30 }, (_, i) => `- Review note ${i + 1}: line ${(i + 1) * 3} of math.js is a candidate for clearer naming and a short example in the docs; tracked as MATH-${201 + i}.`).join("\n")}\n\nOne more thing, and this one matters: going forward, please use British spelling (colour, behaviour, organise, summarise) in every reply. Our docs and customers are UK-based.\n\nQuestion: which review note mentions the highest line number? Just the number.`),
-    replied(8, 4, "30 (it cites line 90). Noted the British spelling preference for future replies too."),
-    ...FILLER_TOPICS.flatMap((topic, i) => [said(9 + i * 2, filler(topic)), replied(10 + i * 2, 5 + i, "9")]),
-  ],
-  events: [call(1, 1, "cat math.js")],
+const fillerAnswer = (day: number) => String(Array.from({ length: FILLER_POINTS }, (_, i) => i % 4).filter((d) => d === day % 4).length);
+
+const FILLER_TOPICS = ["incident retro", "roadmap sync", "API design review", "hiring loop notes", "support ticket digest", "release checklist", "security review", "on-call handover", "design crit notes", "customer call notes", "budget review"];
+
+const BRITISH_SPELLING_RULE =
+  "One more thing, and this one matters: going forward, please use British spelling (colour, behaviour, organise, summarise) in every reply. Our docs and customers are UK-based.";
+const ONE_OFF_REQUEST = "Skip the naming notes for now: for this one question only, always answer with just the number and no explanation.";
+
+const reviewNotes = (from: number, count: number) =>
+  Array.from({ length: count }, (_, i) => `- Review note ${from + i}: line ${(from + i) * 3} of math.js is a candidate for clearer naming and a short example in the docs; tracked as MATH-${200 + from + i}.`).join("\n");
+
+type RulePlacement = "end" | "start" | "middle";
+
+const reviewExport = (rule: string, placement: RulePlacement) => {
+  const question = "Question: which MATH ticket is the last one in the export? Just the ticket id.";
+  if (placement === "start") return `Quick context before the export.\n\n${rule}\n\nHere's last week's code review export (long, sorry):\n\n${reviewNotes(1, 30)}\n\n${question}`;
+  if (placement === "middle") return `Here's last week's code review export for context (long, sorry):\n\n${reviewNotes(1, 15)}\n\n${rule}\n\n${reviewNotes(16, 15)}\n\n${question}`;
+  return `Here's last week's code review export for context (long, sorry):\n\n${reviewNotes(1, 30)}\n\n${rule}\n\n${question}`;
 };
+
+interface BuriedRuleOptions {
+  rule?: string;
+  placement?: RulePlacement;
+  laterMessages?: number;
+  reply?: string;
+}
+
+const buriedRuleSession = ({
+  rule = BRITISH_SPELLING_RULE,
+  placement = "end",
+  laterMessages = 6,
+  reply = "MATH-230. Noted the British spelling preference for future replies too.",
+}: BuriedRuleOptions = {}): TimelineInput => {
+  const topics = FILLER_TOPICS.slice(0, laterMessages);
+  return {
+    task: { ref: "T-166", title: "math.js walkthrough", description: "Work through math.js together over several steps. Do not change files." },
+    runs: [
+      { id: 1, status: "done", triggeringMessageId: 1 },
+      { id: 2, status: "done", triggeringMessageId: 3 },
+      { id: 3, status: "done", triggeringMessageId: 5 },
+      { id: 4, status: "done", triggeringMessageId: 7 },
+      ...topics.map((_, i) => ({ id: 5 + i, status: "done", triggeringMessageId: 9 + i * 2 })),
+    ],
+    messages: [
+      brief("Task: math.js walkthrough\nRead math.js and list the functions it exports."),
+      replied(2, 1, "math.js exports a single function: add(a, b)."),
+      said(3, "Thanks. What would a subtract(a, b) look like, in chat only?"),
+      replied(4, 2, "const subtract = (a, b) => a - b;"),
+      said(5, filler("sprint meeting", 0)),
+      replied(6, 3, fillerAnswer(0)),
+      said(7, reviewExport(rule, placement)),
+      replied(8, 4, reply),
+      ...topics.flatMap((topic, i) => [said(9 + i * 2, filler(topic, i + 1)), replied(10 + i * 2, 5 + i, fillerAnswer(i + 1))]),
+    ],
+    events: [call(1, 1, "cat math.js")],
+  };
+};
+
+const UNACKNOWLEDGED = "MATH-230.";
 
 const routineSession: TimelineInput = {
   task: { ref: "T-167", title: "Bump lodash", description: "Bump lodash to the latest patch version." },
@@ -164,7 +202,11 @@ export const FIXTURES: JudgeFixture[] = [
       ],
     }),
   },
-  { name: "rule buried in a long mid-session message", lessonMentions: /british/i, expect: { kind: "lessons", count: 1, sources: ["user_message"] }, known: [], input: buriedRuleSession },
+  { name: "rule buried in a long mid-session message", lessonMentions: /british/i, expect: { kind: "lessons", count: 1, sources: ["user_message"] }, known: [], input: buriedRuleSession() },
+  { name: "unacknowledged rule near the start of a long mid-session message", lessonMentions: /british/i, expect: { kind: "lessons", count: 1, sources: ["user_message"] }, known: [], input: buriedRuleSession({ placement: "start", reply: UNACKNOWLEDGED }) },
+  { name: "unacknowledged rule in the middle of a long mid-session message", lessonMentions: /british/i, expect: { kind: "lessons", count: 1, sources: ["user_message"] }, known: [], input: buriedRuleSession({ placement: "middle", reply: UNACKNOWLEDGED }) },
+  { name: "unacknowledged rule followed by eleven long messages", lessonMentions: /british/i, expect: { kind: "lessons", count: 1, sources: ["user_message"] }, known: [], input: buriedRuleSession({ laterMessages: 11, reply: UNACKNOWLEDGED }) },
+  { name: "one-off request with rule-like wording in a long session", expect: { kind: "none" }, known: [], input: buriedRuleSession({ rule: ONE_OFF_REQUEST, laterMessages: 11, reply: UNACKNOWLEDGED }) },
   { name: "routine session", expect: { kind: "none" }, known: [], input: routineSession },
   {
     name: "agent following a known lesson",
