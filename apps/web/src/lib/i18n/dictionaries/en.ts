@@ -417,6 +417,7 @@ const en = {
     confirmDeleteMessage: "This will permanently remove the task and tear down its sandbox. This can't be undone.",
     confirmDeleteButton: "Delete",
     thinking: "Thinking",
+    resolvedError: "Resolved error",
     contextIncluded: "Team context included",
     contextTab: "Context",
     contextRunLabel: "Run",

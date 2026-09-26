@@ -36,3 +36,16 @@ export function unattachedRunErrors(
 ): [number, string[]][] {
   return [...errorsByRun.entries()].filter(([runId]) => !answeredRunIds.has(runId));
 }
+
+interface RunLike {
+  id: number;
+  status: string;
+}
+
+// A failed run's error event stays in the log forever (it's never rewritten), but once a later
+// run on the same session actually succeeds, the earlier failure is history rather than a live
+// problem — the caller uses this to collapse it by default instead of leaving it permanently
+// shouting in the transcript.
+export function isErrorResolved(sessionRuns: RunLike[], runId: number): boolean {
+  return sessionRuns.some((r) => r.id > runId && r.status === "done");
+}
