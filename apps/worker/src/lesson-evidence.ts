@@ -1,3 +1,4 @@
+import { TRUNCATION_MARKER } from "./secret-masking";
 import type { FailureSource, SuccessMarker, TimelineSources } from "./session-timeline";
 
 export interface JudgedItem {
@@ -149,7 +150,7 @@ export function checkLessonEvidence(
   const parsed = parseItem(raw, sources, knownLessons);
   if (typeof parsed === "string") return { ok: false, reason: parsed };
   let item = parsed;
-  if (/\.\.\.|…/.test(item.evidenceQuote)) return { ok: false, reason: "quote uses an ellipsis" };
+  if (item.evidenceQuote.includes(TRUNCATION_MARKER.trim())) return { ok: false, reason: "quote spans truncated output" };
 
   const lessonText = item.reinforcesLessonId !== undefined ? (knownLessons.get(item.reinforcesLessonId) ?? "") : (item.lesson ?? "");
   let failure: FailureSource | undefined;

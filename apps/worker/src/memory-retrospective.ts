@@ -120,9 +120,16 @@ export interface JudgeResult {
   truncated: boolean;
 }
 
+export function describeShape(input: unknown): string {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) return Array.isArray(input) ? "array" : typeof input;
+  return Object.entries(input)
+    .map(([key, value]) => `${key}:${Array.isArray(value) ? "array" : value === null ? "null" : typeof value}`)
+    .join(",");
+}
+
 export function parseReportLessons(input: unknown): { reasoning?: string; items: unknown[] } {
   const { lessons, reasoning } = (input ?? {}) as { lessons?: unknown; reasoning?: unknown };
-  if (!Array.isArray(lessons)) throw new Error("judge output has no lessons array");
+  if (!Array.isArray(lessons)) throw new Error(`judge output has no lessons array (got {${describeShape(input)}})`);
   return { ...(typeof reasoning === "string" ? { reasoning } : {}), items: lessons };
 }
 
@@ -141,22 +148,36 @@ export function buildJudgeUserMessage(knownLessons: Array<{ id: number; content:
   return `<known_lessons>${known}</known_lessons>\n\n<timeline>\n${timeline}\n</timeline>`;
 }
 
-export async function judgeRetrospective(userMessage: string): Promise<JudgeResult> {
-  const response = await client.messages.create(
-    {
+const JUDGE_ATTEMPTS = 2;
+
+type CreateJudgeMessage = (params: Anthropic.MessageCreateParamsNonStreaming) => Promise<Anthropic.Message>;
+
+const createJudgeMessage: CreateJudgeMessage = (params) => client.messages.create(params, { maxRetries: 1 });
+
+function parseJudgeResponse(response: Anthropic.Message): { reasoning?: string; items: unknown[] } {
+  const toolUse = response.content.find((block) => block.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") throw new Error("judge returned no report_lessons tool call");
+  return parseReportLessons(toolUse.input);
+}
+
+export async function judgeRetrospective(userMessage: string, create: CreateJudgeMessage = createJudgeMessage): Promise<JudgeResult> {
+  for (let attempt = 1; ; attempt += 1) {
+    const response = await create({
       model: DEFAULT_MODEL_ID,
       max_tokens: RETROSPECTIVE_MAX_TOKENS,
       system: RETROSPECTIVE_SYSTEM_PROMPT,
       tools: [REPORT_LESSONS_TOOL],
       tool_choice: { type: "tool", name: "report_lessons" },
       messages: [{ role: "user", content: userMessage }],
-    },
-    { maxRetries: 1 },
-  );
-  if (response.stop_reason === "max_tokens") return { items: [], truncated: true };
-  const toolUse = response.content.find((block) => block.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") throw new Error("judge returned no report_lessons tool call");
-  return { ...parseReportLessons(toolUse.input), truncated: false };
+    });
+    if (response.stop_reason === "max_tokens") return { items: [], truncated: true };
+    try {
+      return { ...parseJudgeResponse(response), truncated: false };
+    } catch (err) {
+      if (attempt >= JUDGE_ATTEMPTS) throw err;
+      log.warn("Judge output malformed; asking again", { attempt, err });
+    }
+  }
 }
 
 export interface RetrospectiveDeps {
