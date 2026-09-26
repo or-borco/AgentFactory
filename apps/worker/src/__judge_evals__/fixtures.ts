@@ -8,6 +8,8 @@ export type Expectation =
 export interface JudgeFixture {
   name: string;
   expect: Expectation;
+  knownGap?: boolean;
+  lessonMentions?: RegExp;
   known: Array<{ id: number; content: string }>;
   input: TimelineInput;
 }
@@ -56,6 +58,34 @@ const gitIdentitySession: TimelineInput = {
     call(119, 7, "git commit -am 'Fix typo'"),
     ok(119, 8, "git commit -am 'Fix typo'"),
   ],
+};
+
+const filler = (topic: string) =>
+  `Context dump, our ${topic} (long, skim it):\n\n${Array.from({ length: 34 }, (_, i) => `- ${topic} point ${i + 1}: item ${i + 100} needs follow-up next sprint; no decision today, parked for the ${["Monday", "Tuesday", "Wednesday", "Thursday"][i % 4]} sync.`).join("\n")}\n\nQuick question: how many points are parked for the Monday sync? Just the number.`;
+
+const FILLER_TOPICS = ["incident retro", "roadmap sync", "API design review", "hiring loop notes", "support ticket digest", "release checklist"];
+
+const buriedRuleSession: TimelineInput = {
+  task: { ref: "T-166", title: "math.js walkthrough", description: "Work through math.js together over several steps. Do not change files." },
+  runs: [
+    { id: 1, status: "done", triggeringMessageId: 1 },
+    { id: 2, status: "done", triggeringMessageId: 3 },
+    { id: 3, status: "done", triggeringMessageId: 5 },
+    { id: 4, status: "done", triggeringMessageId: 7 },
+    ...FILLER_TOPICS.map((_, i) => ({ id: 5 + i, status: "done", triggeringMessageId: 9 + i * 2 })),
+  ],
+  messages: [
+    brief("Task: math.js walkthrough\nRead math.js and list the functions it exports."),
+    replied(2, 1, "math.js exports a single function: add(a, b)."),
+    said(3, "Thanks. What would a subtract(a, b) look like, in chat only?"),
+    replied(4, 2, "const subtract = (a, b) => a - b;"),
+    said(5, filler("sprint meeting")),
+    replied(6, 3, "9"),
+    said(7, `Here's last week's code review export for context (long, sorry):\n\n${Array.from({ length: 30 }, (_, i) => `- Review note ${i + 1}: line ${(i + 1) * 3} of math.js is a candidate for clearer naming and a short example in the docs; tracked as MATH-${201 + i}.`).join("\n")}\n\nOne more thing, and this one matters: going forward, please use British spelling (colour, behaviour, organise, summarise) in every reply. Our docs and customers are UK-based.\n\nQuestion: which review note mentions the highest line number? Just the number.`),
+    replied(8, 4, "30 (it cites line 90). Noted the British spelling preference for future replies too."),
+    ...FILLER_TOPICS.flatMap((topic, i) => [said(9 + i * 2, filler(topic)), replied(10 + i * 2, 5 + i, "9")]),
+  ],
+  events: [call(1, 1, "cat math.js")],
 };
 
 const routineSession: TimelineInput = {
@@ -120,6 +150,21 @@ export const FIXTURES: JudgeFixture[] = [
       ],
     }),
   },
+  {
+    name: "correction whose code example contains an ellipsis",
+    expect: { kind: "lessons", count: 1, sources: ["user_message"] },
+    known: [],
+    input: releaseNotesSession({
+      task: undefined,
+      messages: [
+        brief("Task: clamp\nWrite a clamp(value, min, max) helper, chat only."),
+        replied(2, 1, "function clamp(value, min, max) {\n  return Math.min(Math.max(value, min), max);\n}"),
+        said(3, "That's not our style. In this team we never use the `function` keyword: every function is a `const` arrow function, e.g. `const clamp = (value, min, max) => { ... }`. And every function's JSDoc must include an `@example` line showing one call and its result."),
+        replied(4, 2, "/**\n * @example\n * clamp(15, 0, 10); // => 10\n */\nconst clamp = (value, min, max) => Math.min(Math.max(value, min), max);"),
+      ],
+    }),
+  },
+  { name: "rule buried in a long mid-session message", knownGap: true, lessonMentions: /british/i, expect: { kind: "lessons", count: 1, sources: ["user_message"] }, known: [], input: buriedRuleSession },
   { name: "routine session", expect: { kind: "none" }, known: [], input: routineSession },
   {
     name: "agent following a known lesson",

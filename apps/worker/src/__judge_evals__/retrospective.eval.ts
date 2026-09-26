@@ -34,7 +34,7 @@ async function runOnce(fixture: (typeof FIXTURES)[number]): Promise<boolean> {
   const verdicts = result.items.map((raw) => checkLessonEvidence(raw, timeline.sources, known, []));
   const accepted = verdicts.flatMap((v) => (v.ok ? [v.item] : []));
   const rejected = verdicts.filter((v) => !v.ok);
-  if (fixture.expect.kind !== "none") {
+  if (fixture.expect.kind !== "none" && !fixture.knownGap) {
     stats.expectedAccepted += verdicts.length;
     stats.rejectedWhenExpected += rejected.length;
   }
@@ -44,6 +44,8 @@ async function runOnce(fixture: (typeof FIXTURES)[number]): Promise<boolean> {
     const lessonId = fixture.expect.lessonId;
     return accepted.length === 1 && accepted[0].reinforcesLessonId === lessonId;
   }
+  const mentions = fixture.lessonMentions;
+  if (mentions && !accepted.every((a) => mentions.test(a.lesson ?? ""))) return false;
   const sources = accepted.map((a) => a.evidenceSource).sort();
   return accepted.length === fixture.expect.count && JSON.stringify(sources) === JSON.stringify([...fixture.expect.sources].sort());
 }
@@ -53,6 +55,10 @@ describe.skipIf(!process.env.RUN_JUDGE_EVALS)("memory judge live evals", () => {
     it(fixture.name, async () => {
       let passes = 0;
       for (let i = 0; i < RUNS_PER_FIXTURE; i++) if (await runOnce(fixture)) passes++;
+      if (fixture.knownGap) {
+        console.log(`Known gap "${fixture.name}": ${passes}/${RUNS_PER_FIXTURE} passed`);
+        return;
+      }
       const needed = fixture.expect.kind === "none" ? RUNS_PER_FIXTURE : 2;
       expect(passes, `${fixture.name}: ${passes}/${RUNS_PER_FIXTURE} passed`).toBeGreaterThanOrEqual(needed);
     });
