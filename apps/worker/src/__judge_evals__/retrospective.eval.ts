@@ -24,7 +24,8 @@ const { buildSessionTimeline } = await import("../session-timeline");
 const { checkLessonEvidence } = await import("../lesson-evidence");
 const { FIXTURES } = await import("./fixtures");
 
-const RUNS_PER_FIXTURE = Number(process.env.JUDGE_EVAL_RUNS ?? 3);
+const requestedRuns = Number(process.env.JUDGE_EVAL_RUNS);
+const RUNS_PER_FIXTURE = Number.isInteger(requestedRuns) && requestedRuns > 0 ? requestedRuns : 3;
 const stats = { expectedAccepted: 0, rejectedWhenExpected: 0 };
 
 async function runOnce(fixture: (typeof FIXTURES)[number]): Promise<boolean> {

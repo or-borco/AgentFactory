@@ -278,13 +278,15 @@ function surfaceHiddenRules(doc: TimelineDocument, originals: Array<TimelineEntr
     const closing = sentencesOf(original.text).at(-1) ?? "";
     const context = closing.length <= RULE_SENTENCE_MAX_CHARS && !visible.includes(closing) && !hidden.includes(closing) ? [closing] : [];
     const pieces: string[] = [];
+    let size = 0;
     for (const piece of [...hidden, ...context]) {
-      const size = piece.length + TRUNCATION_MARKER.length;
-      if (used + size > RULE_EXCERPT_BUDGET) continue;
+      const pieceSize = piece.length + TRUNCATION_MARKER.length;
+      if (used + size + pieceSize > RULE_EXCERPT_BUDGET) continue;
       pieces.push(piece);
-      used += size;
+      size += pieceSize;
     }
     if (!pieces.some((piece) => hidden.includes(piece))) return;
+    used += size;
     run.entries.splice(slot + 1, 0, { kind: "user_excerpt", attrs: { id: original.attrs.id }, text: pieces.join(TRUNCATION_MARKER) });
   });
 }

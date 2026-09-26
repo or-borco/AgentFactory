@@ -147,6 +147,28 @@ describe("fitTimeline rule salience", () => {
     expect(excerpts(fitTimeline(doc(runs)))).toEqual([]);
   });
 
+  it("does not spend excerpt budget on context when no rule sentence of that message fits", () => {
+    const houseRule = (n: number, length: number) => {
+      const start = `From now on, always follow house rule ${n} `;
+      return `${start}${"x".repeat(length - start.length - 1)}.`;
+    };
+    const earlyRules = Array.from({ length: 9 }, (_, i) => houseRule(i + 1, 385)).join("\n");
+    const tooLongForWhatIsLeft = houseRule(10, 390);
+    const fitsWhatIsLeft = houseRule(11, 380);
+    const runs: TimelineEntry[][] = [
+      [user(1, `${paste("head", 2_000)}\n${earlyRules}\n${paste("tail", 5_000)}`)],
+      [user(2, "ok, next")],
+      [user(3, `${paste("export", 4_500)}\n${tooLongForWhatIsLeft}\nWhich row is the last one?`)],
+      [user(4, `${paste("export", 4_500)}\n${fitsWhatIsLeft}`)],
+      ...fillerRuns(5, 6),
+    ];
+    const fitted = fitTimeline(doc(runs));
+    expect(userIds(fitted)).not.toContain("3");
+    expect(userIds(fitted)).not.toContain("4");
+    expect(excerpts(fitted).find((e) => e.attrs.id === "3")).toBeUndefined();
+    expect(excerpts(fitted).find((e) => e.attrs.id === "4")?.text).toBe(fitsWhatIsLeft);
+  });
+
   it("keeps rule excerpts within their own budget, oldest first", () => {
     const runs: TimelineEntry[][] = [[user(1, "Let's start.")], [user(2, "Next.")]];
     for (let i = 3; i <= 40; i++) runs.push([user(i, `${paste("export", 4_000)}\nFrom now on, always run the linter before commit number ${i} ${"x".repeat(150)}.\n${paste("export", 2_000)}`)]);
