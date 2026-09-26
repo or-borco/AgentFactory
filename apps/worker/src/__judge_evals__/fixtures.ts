@@ -137,6 +137,23 @@ export const FIXTURES: JudgeFixture[] = [
   { name: "T-171 user correction", expect: { kind: "lessons", count: 1, sources: ["user_message"] }, known: [], input: releaseNotesSession() },
   { name: "git identity failure then recovery", expect: { kind: "lessons", count: 1, sources: ["tool_failure"] }, known: [], input: gitIdentitySession },
   {
+    name: "repo-specific command failure then recovery",
+    lessonMentions: /test:unit/,
+    expect: { kind: "lessons", count: 1, sources: ["tool_failure"] },
+    known: [],
+    input: {
+      task: { ref: "T-172", title: "Fix typo", description: "Fix the typo in the parser error message." },
+      runs: [{ id: 1, status: "done", triggeringMessageId: 1 }],
+      messages: [brief("Task: Fix typo\nFix the typo in the parser error message."), replied(2, 1, "Fixed the typo; tests pass.")],
+      events: [
+        call(1, 1, "pnpm test"),
+        fail(1, 2, "pnpm test", "ERR_PNPM_NO_SCRIPT Missing script: test\n\nCommand \"test\" not found. Did you mean \"pnpm run test:unit\"?"),
+        call(1, 3, "pnpm run test:unit"),
+        ok(1, 4, "pnpm run test:unit"),
+      ],
+    },
+  },
+  {
     name: "correction plus unrelated recovered failure",
     expect: { kind: "lessons", count: 2, sources: ["user_message", "tool_failure"] },
     known: [],
